@@ -63,18 +63,18 @@
   },
   "homepage": "https://github.com/sapientsai/ms-365-mcp-server#readme",
   "dependencies": {
-    "@azure/identity": "^4.6.0",
+    "@azure/identity": "^4.13.1",
     "dotenv": "^17.3.1",
     "fastmcp": "^3.34.0",
     "functype": "^0.52.0",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.12.0",
     "ts-builds": "^2.6.2",
-    "tsdown": "^0.21.5"
+    "tsdown": "^0.21.7"
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }
