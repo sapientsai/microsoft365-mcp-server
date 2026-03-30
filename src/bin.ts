@@ -15,7 +15,7 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(`
 MS 365 MCP Server v${__VERSION__}
 
-Usage: ms-365-mcp-server [options]
+Usage: ms365-mcp-server [options]
 
 Options:
   -v, --version        Show version number
@@ -34,7 +34,7 @@ Environment Variables:
   PORT                 HTTP server port (default: 3000)
   HOST                 HTTP server host (default: 127.0.0.1)
 
-For more information, visit: https://github.com/jordanburke/ms-365-mcp-server
+For more information, visit: https://github.com/sapientsai/ms365-mcp-server
 `)
   process.exit(0)
 }

@@ -127,7 +127,7 @@ const unwrapResult = <T>(result: Either<UserError, T>): T =>
 /* eslint-enable functype/prefer-either */
 
 const server = new FastMCP({
-  name: "ms-365-mcp-server",
+  name: "ms365-mcp-server",
   version: VERSION,
   instructions: `A Microsoft 365 MCP server for managing email, calendar, contacts, files, Teams, Planner, OneNote, To Do, users, and groups via Microsoft Graph API.
 

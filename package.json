@@ -1,5 +1,5 @@
 {
-  "name": "ms-365-mcp-server",
+  "name": "ms365-mcp-server",
   "version": "0.1.0",
   "description": "A Model Context Protocol (MCP) server for Microsoft 365 - manage mail, calendar, contacts, files, Teams, Planner, OneNote, To Do, and more via Microsoft Graph.",
   "type": "module",
@@ -14,7 +14,7 @@
     }
   },
   "bin": {
-    "ms-365-mcp-server": "dist/bin.js"
+    "ms365-mcp-server": "dist/bin.js"
   },
   "files": [
     "dist/",
@@ -35,7 +35,7 @@
     "dev": "ts-builds dev",
     "prepublishOnly": "pnpm validate",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",
-    "start": "pnpm build && npx ms-365-mcp-server",
+    "start": "pnpm build && npx ms365-mcp-server",
     "serve": "pnpm build && node dist/index.js"
   },
   "prettier": "ts-builds/prettier",
@@ -51,17 +51,17 @@
     "ai-assistant",
     "fastmcp"
   ],
-  "mcpName": "io.github.sapientsai/ms-365-mcp-server",
+  "mcpName": "io.github.sapientsai/ms365-mcp-server",
   "author": "Jordan Burke <jordan.burke@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sapientsai/ms-365-mcp-server.git"
+    "url": "git+https://github.com/sapientsai/ms365-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/sapientsai/ms-365-mcp-server/issues"
+    "url": "https://github.com/sapientsai/ms365-mcp-server/issues"
   },
-  "homepage": "https://github.com/sapientsai/ms-365-mcp-server#readme",
+  "homepage": "https://github.com/sapientsai/ms365-mcp-server#readme",
   "dependencies": {
     "@azure/identity": "^4.13.1",
     "dotenv": "^17.3.1",
