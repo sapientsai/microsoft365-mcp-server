@@ -1,20 +1,26 @@
 {
-  "name": "ts-builds-template",
-  "version": "1.0.0",
-  "description": "A basic template for creating a TypeScript Builds and Publishing it to NPM.",
-  "keywords": [
-    "typescript",
-    "template",
-    "tsdown",
-    "npm"
-  ],
-  "author": "jordan.burke@gmail.com",
-  "license": "MIT",
-  "homepage": "https://github.com/jordanburke/ts-builds-template",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/jordanburke/ts-builds-template"
+  "name": "ms-365-mcp-server",
+  "version": "0.1.0",
+  "description": "A Model Context Protocol (MCP) server for Microsoft 365 - manage mail, calendar, contacts, files, Teams, Planner, OneNote, To Do, and more via Microsoft Graph.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
+  "bin": {
+    "ms-365-mcp-server": "dist/bin.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "validate": "ts-builds validate",
     "format": "ts-builds format",
@@ -25,30 +31,50 @@
     "test": "ts-builds test",
     "test:watch": "ts-builds test:watch",
     "test:coverage": "ts-builds test:coverage",
-    "build": "ts-builds build",
+    "build": "NODE_ENV=production ts-builds build",
     "dev": "ts-builds dev",
-    "prepublishOnly": "pnpm validate"
+    "prepublishOnly": "pnpm validate",
+    "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",
+    "start": "pnpm build && npx ms-365-mcp-server",
+    "serve": "pnpm build && node dist/index.js"
+  },
+  "prettier": "ts-builds/prettier",
+  "keywords": [
+    "mcp",
+    "microsoft-365",
+    "microsoft-graph",
+    "outlook",
+    "teams",
+    "onedrive",
+    "model-context-protocol",
+    "claude",
+    "ai-assistant",
+    "fastmcp"
+  ],
+  "mcpName": "io.github.sapientsai/ms-365-mcp-server",
+  "author": "Jordan Burke <jordan.burke@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sapientsai/ms-365-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sapientsai/ms-365-mcp-server/issues"
+  },
+  "homepage": "https://github.com/sapientsai/ms-365-mcp-server#readme",
+  "dependencies": {
+    "@azure/identity": "^4.6.0",
+    "dotenv": "^17.3.1",
+    "fastmcp": "^3.34.0",
+    "functype": "^0.52.0",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.12.0",
     "ts-builds": "^2.6.2",
     "tsdown": "^0.21.5"
   },
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "lib",
-    "dist"
-  ],
-  "prettier": "ts-builds/prettier",
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }
