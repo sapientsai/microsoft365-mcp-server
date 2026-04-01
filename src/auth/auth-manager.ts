@@ -7,6 +7,7 @@ import type { AuthConfig, AuthError, AuthMode, AuthStatus } from "../types"
 import { createCredential, isClientProvidedToken, testCredential } from "./auth-modes"
 import type { TokenInfo } from "./auth-types"
 import { GRAPH_DEFAULT_SCOPE } from "./scopes"
+import { getContextToken } from "./token-context"
 
 type MutableAuthState = {
   credential: TokenCredential
@@ -129,6 +130,12 @@ const getTokenInfo = async (credential: TokenCredential): Promise<TokenInfo> => 
 }
 
 export const getAccessToken = async (): Promise<Either<AuthError, string>> => {
+  // Check AsyncLocalStorage for per-request token (OAuth proxy mode)
+  const contextToken = getContextToken()
+  if (contextToken) {
+    return Right(contextToken)
+  }
+
   if (authState.isNone()) {
     return Left({ type: "config" as const, message: "Auth not initialized" })
   }

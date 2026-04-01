@@ -1,4 +1,4 @@
-export { getAuthStatusTool, setAccessTokenTool } from "./auth-tools"
+export { getAuthStatusTool, listAccountsTool, setAccessTokenTool, switchAccountTool } from "./auth-tools"
 export { createEvent, deleteEvent, getEvent, listEvents, updateEvent } from "./calendar-tools"
 export { createContact, getContact, listContacts, searchContacts } from "./contacts-tools"
 export { createFolder, downloadFile, getDriveItem, listDriveItems, searchFiles } from "./files-tools"

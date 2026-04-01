@@ -42,6 +42,8 @@ export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {
 export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   // Auth
   { name: "get_auth_status", domain: "auth", readOnly: true, orgOnly: false },
+  { name: "list_accounts", domain: "auth", readOnly: true, orgOnly: false },
+  { name: "switch_account", domain: "auth", readOnly: false, orgOnly: false },
   { name: "set_access_token", domain: "auth", readOnly: false, orgOnly: false },
   // Mail
   { name: "list_messages", domain: "mail", readOnly: true, orgOnly: false },

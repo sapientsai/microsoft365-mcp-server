@@ -33,6 +33,11 @@ export const createCredential = (config: AuthConfig): Either<AuthError, TokenCre
       return createClientSecretCredential(config)
     case "client-token":
       return createClientProvidedTokenCredential(config)
+    case "oauth-proxy":
+      return Left({
+        type: "config" as const,
+        message: "OAuth proxy mode uses AzureProvider, not credential-based auth",
+      })
   }
 }
 

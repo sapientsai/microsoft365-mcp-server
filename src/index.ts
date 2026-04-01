@@ -1,10 +1,14 @@
 import dotenv from "dotenv"
 import type { UserError } from "fastmcp"
 import { FastMCP } from "fastmcp"
+// AzureSession shape: { accessToken: string; scopes: string[]; refreshToken?: string; upn?: string }
+type OAuthSessionContext = { accessToken?: string }
 import type { Either } from "functype/either"
 import { z } from "zod"
 
 import { initializeAuth } from "./auth"
+import { createAzureAuthProvider } from "./auth/oauth-provider"
+import { withToken } from "./auth/token-context"
 import { initializeGraphClient } from "./client/graph-client"
 import {
   createContact,
@@ -25,6 +29,7 @@ import {
   getPlannerTask,
   getUser,
   graphQuery,
+  listAccountsTool,
   listChannelMessages,
   listChannels,
   listContacts,
@@ -49,6 +54,7 @@ import {
   sendChannelMessage,
   sendMessage,
   setAccessTokenTool,
+  switchAccountTool,
   updateEvent,
   updatePlannerTask,
   updateTodoTask,
@@ -93,6 +99,14 @@ const resolveAuthConfig = (): AuthConfig => {
       return {
         mode: "client-token",
         accessToken: process.env.MS365_ACCESS_TOKEN,
+      }
+    case "oauth-proxy":
+      return {
+        mode: "oauth-proxy",
+        tenantId,
+        clientId,
+        clientSecret: process.env.MS365_CLIENT_SECRET ?? "",
+        baseUrl: process.env.MS365_OAUTH_BASE_URL ?? "http://localhost:3000",
       }
     default:
       return {
@@ -153,6 +167,25 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     domain: "auth",
     readOnly: true,
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: "list_accounts",
+    description: "List all registered accounts and show which is the default",
+    parameters: z.object({}),
+    execute: async () => unwrapResult(await listAccountsTool()),
+    domain: "auth",
+    readOnly: true,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "switch_account",
+    description: "Switch the default account for subsequent tool calls",
+    parameters: z.object({
+      account_id: z.string().describe("Account ID to set as default"),
+    }),
+    execute: async (params) => unwrapResult(await switchAccountTool(params)),
+    domain: "auth",
+    readOnly: false,
   },
   {
     name: "set_access_token",
@@ -719,20 +752,32 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
 ]
 
-const wrapWithConfirmation = (tool: ToolDefinition) => {
-  const confirmEnabled = isConfirmWritesEnabled()
-  if (tool.readOnly || !confirmEnabled) return tool.execute as never
+type ExecuteContext = { session?: OAuthSessionContext }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute; confirmation preview is sync
-  return (async (params: Record<string, unknown>) => {
-    const token = createPendingAction(tool.name, formatConfirmationPreview(tool.name, params, ""), () =>
-      (tool.execute as (p: Record<string, unknown>) => Promise<string>)(params),
-    )
-    return formatConfirmationPreview(tool.name, params, token)
-  }) as never
+const wrapExecute = (tool: ToolDefinition, oauthMode: boolean): never => {
+  const baseFn = tool.execute as (p: Record<string, unknown>) => Promise<string>
+  const confirmEnabled = isConfirmWritesEnabled()
+
+  // Layer 1: OAuth token injection (wraps the base function)
+  const withOAuth = oauthMode
+    ? (params: Record<string, unknown>, context: ExecuteContext) =>
+        withToken(context.session?.accessToken, () => baseFn(params))
+    : (params: Record<string, unknown>) => baseFn(params)
+
+  // Layer 2: Write confirmation (wraps the OAuth-aware function)
+  if (!tool.readOnly && confirmEnabled) {
+    // eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute; confirmation preview is sync
+    return (async (params: Record<string, unknown>, context: ExecuteContext) => {
+      const executeFn = () => withOAuth(params, context)
+      const token = createPendingAction(tool.name, formatConfirmationPreview(tool.name, params, ""), executeFn)
+      return formatConfirmationPreview(tool.name, params, token)
+    }) as never
+  }
+
+  return withOAuth as never
 }
 
-const registerTools = (server: FastMCP, allowedTools: Set<string>) => {
+const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: boolean) => {
   let registered = 0
   let skipped = 0
   const confirmEnabled = isConfirmWritesEnabled()
@@ -747,7 +792,7 @@ const registerTools = (server: FastMCP, allowedTools: Set<string>) => {
       name: tool.name,
       description: tool.description,
       parameters: tool.parameters,
-      execute: wrapWithConfirmation(tool),
+      execute: wrapExecute(tool, oauthMode),
       annotations: tool.annotations,
     })
     registered++
@@ -800,29 +845,59 @@ const buildInstructions = (allowedTools: Set<string>): string => {
 
 // === Server Startup ===
 const main = async () => {
-  await setupAuth()
+  const authConfig = resolveAuthConfig()
+  const oauthMode = authConfig.mode === "oauth-proxy"
 
   const filterConfig = resolveFilterConfig()
   const allowedTools = filterTools(filterConfig)
 
-  const server = new FastMCP({
-    name: "microsoft365-mcp-server",
-    version: VERSION,
-    instructions: buildInstructions(allowedTools),
-  })
+  if (oauthMode) {
+    // OAuth proxy mode: FastMCP handles auth via AzureProvider
+    const provider = createAzureAuthProvider({
+      baseUrl: (authConfig as { baseUrl: string }).baseUrl,
+      clientId: (authConfig as { clientId: string }).clientId,
+      clientSecret: (authConfig as { clientSecret: string }).clientSecret,
+      tenantId: (authConfig as { tenantId: string }).tenantId,
+    })
 
-  registerTools(server, allowedTools)
+    const server = new FastMCP({
+      name: "microsoft365-mcp-server",
+      version: VERSION,
+      instructions: buildInstructions(allowedTools),
+      auth: provider,
+    } as never)
 
-  const transportType = process.env.TRANSPORT_TYPE ?? "stdio"
+    // Initialize graph client without credential-based auth (tokens come from session)
+    initializeGraphClient()
 
-  if (transportType === "httpStream") {
+    registerTools(server, allowedTools, true)
+
     const port = parseInt(process.env.PORT ?? "3000", 10)
-    const host = process.env.HOST ?? "127.0.0.1"
     await server.start({ transportType: "httpStream", httpStream: { port } })
-    console.error(`[Server] MS 365 MCP Server v${VERSION} running on ${host}:${port}`)
+    console.error(`[Server] MS 365 MCP Server v${VERSION} (OAuth proxy) running on port ${port}`)
   } else {
-    await server.start({ transportType: "stdio" })
-    console.error(`[Server] MS 365 MCP Server v${VERSION} running on stdio`)
+    // Standard mode: credential-based auth
+    await setupAuth()
+
+    const server = new FastMCP({
+      name: "microsoft365-mcp-server",
+      version: VERSION,
+      instructions: buildInstructions(allowedTools),
+    })
+
+    registerTools(server, allowedTools, false)
+
+    const transportType = process.env.TRANSPORT_TYPE ?? "stdio"
+
+    if (transportType === "httpStream") {
+      const port = parseInt(process.env.PORT ?? "3000", 10)
+      const host = process.env.HOST ?? "127.0.0.1"
+      await server.start({ transportType: "httpStream", httpStream: { port } })
+      console.error(`[Server] MS 365 MCP Server v${VERSION} running on ${host}:${port}`)
+    } else {
+      await server.start({ transportType: "stdio" })
+      console.error(`[Server] MS 365 MCP Server v${VERSION} running on stdio`)
+    }
   }
 }
 

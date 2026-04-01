@@ -16,7 +16,7 @@ export type AuthError = {
 export type GraphApiVersion = "v1.0" | "beta"
 
 // Auth mode
-export type AuthMode = "interactive" | "certificate" | "client-secret" | "client-token"
+export type AuthMode = "interactive" | "certificate" | "client-secret" | "client-token" | "oauth-proxy"
 
 // Auth config discriminated union
 export type AuthConfig =
@@ -40,6 +40,13 @@ export type AuthConfig =
       readonly clientSecret: string
     }
   | { readonly mode: "client-token"; readonly accessToken?: string; readonly expiresOn?: Date }
+  | {
+      readonly mode: "oauth-proxy"
+      readonly tenantId: string
+      readonly clientId: string
+      readonly clientSecret: string
+      readonly baseUrl: string
+    }
 
 // Auth status (returned by get_auth_status tool)
 export type AuthStatus = {
