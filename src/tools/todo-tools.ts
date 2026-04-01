@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphTodoList, GraphTodoTask, ODataResponse } from "../types"
 import { formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -12,9 +12,16 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listTodoLists = async (): Promise<Either<UserError, string>> => {
+export const listTodoLists = async (params?: { fetch_all_pages?: boolean }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params?.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphTodoList>("/me/todo/lists")
+    return result
+      .mapLeft((error) => new UserError(`Failed to list To Do lists: ${error.message}`))
+      .map((items) => formatTodoListList(items))
+  }
 
   const result = await client.listTodoLists()
   return result
@@ -22,9 +29,19 @@ export const listTodoLists = async (): Promise<Either<UserError, string>> => {
     .map((response) => formatTodoListList((response as ODataResponse<never>).value))
 }
 
-export const listTodoTasks = async (params: { list_id: string }): Promise<Either<UserError, string>> => {
+export const listTodoTasks = async (params: {
+  list_id: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphTodoTask>(`/me/todo/lists/${params.list_id}/tasks`)
+    return result
+      .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
+      .map((items) => formatTodoTaskList(items))
+  }
 
   const result = await client.listTodoTasks(params.list_id)
   return result

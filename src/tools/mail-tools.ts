@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphMessage, ODataResponse } from "../types"
 import { formatMessageDetail, formatMessageList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -12,9 +12,22 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listMessages = async (params: { top?: number; filter?: string }): Promise<Either<UserError, string>> => {
+export const listMessages = async (params: {
+  top?: number
+  filter?: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphMessage>("/me/messages", {
+      odataParams: { $filter: params.filter, $orderby: "receivedDateTime desc" },
+    })
+    return result
+      .mapLeft((error) => new UserError(`Failed to list messages: ${error.message}`))
+      .map((items) => formatMessageList(items))
+  }
 
   const result = await client.listMessages({
     $top: params.top ?? 25,

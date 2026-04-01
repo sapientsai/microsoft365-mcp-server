@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphContact, ODataResponse } from "../types"
 import { formatContactDetail, formatContactList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -12,9 +12,22 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listContacts = async (params: { top?: number; filter?: string }): Promise<Either<UserError, string>> => {
+export const listContacts = async (params: {
+  top?: number
+  filter?: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphContact>("/me/contacts", {
+      odataParams: { $filter: params.filter },
+    })
+    return result
+      .mapLeft((error) => new UserError(`Failed to list contacts: ${error.message}`))
+      .map((items) => formatContactList(items))
+  }
 
   const result = await client.listContacts({ $top: params.top ?? 25, $filter: params.filter })
   return result

@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphUser, ODataResponse } from "../types"
 import { formatUserDetail, formatUserList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -20,9 +20,22 @@ export const getMe = async (): Promise<Either<UserError, string>> => {
   return result.mapLeft((error) => new UserError(`Failed to get profile: ${error.message}`)).map(formatUserDetail)
 }
 
-export const listUsers = async (params: { top?: number; filter?: string }): Promise<Either<UserError, string>> => {
+export const listUsers = async (params: {
+  top?: number
+  filter?: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphUser>("/users", {
+      odataParams: { $filter: params.filter },
+    })
+    return result
+      .mapLeft((error) => new UserError(`Failed to list users: ${error.message}`))
+      .map((items) => formatUserList(items))
+  }
 
   const result = await client.listUsers({ $top: params.top ?? 25, $filter: params.filter })
   return result

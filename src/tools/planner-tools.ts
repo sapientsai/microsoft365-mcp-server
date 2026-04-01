@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphPlan, GraphPlannerTask, ODataResponse } from "../types"
 import { formatPlanList, formatPlannerTaskDetail, formatPlannerTaskList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -12,9 +12,16 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listPlans = async (): Promise<Either<UserError, string>> => {
+export const listPlans = async (params?: { fetch_all_pages?: boolean }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params?.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphPlan>("/me/planner/plans")
+    return result
+      .mapLeft((error) => new UserError(`Failed to list plans: ${error.message}`))
+      .map((items) => formatPlanList(items))
+  }
 
   const result = await client.listPlans()
   return result
@@ -22,9 +29,19 @@ export const listPlans = async (): Promise<Either<UserError, string>> => {
     .map((response) => formatPlanList((response as ODataResponse<never>).value))
 }
 
-export const listPlannerTasks = async (params: { plan_id: string }): Promise<Either<UserError, string>> => {
+export const listPlannerTasks = async (params: {
+  plan_id: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphPlannerTask>(`/planner/plans/${params.plan_id}/tasks`)
+    return result
+      .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
+      .map((items) => formatPlannerTaskList(items))
+  }
 
   const result = await client.listPlannerTasks(params.plan_id)
   return result

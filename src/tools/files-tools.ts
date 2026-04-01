@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphDriveItem, ODataResponse } from "../types"
 import { formatDriveItemDetail, formatDriveItemList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -12,9 +12,20 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listDriveItems = async (params: { folder_id?: string }): Promise<Either<UserError, string>> => {
+export const listDriveItems = async (params: {
+  folder_id?: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const path = params.folder_id ? `/me/drive/items/${params.folder_id}/children` : "/me/drive/root/children"
+    const result = await client.requestPaginated<GraphDriveItem>(path)
+    return result
+      .mapLeft((error) => new UserError(`Failed to list drive items: ${error.message}`))
+      .map((items) => formatDriveItemList(items))
+  }
 
   const result = await client.listDriveItems(params.folder_id)
   return result

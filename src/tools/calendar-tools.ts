@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { ODataResponse } from "../types"
+import type { GraphEvent, ODataResponse } from "../types"
 import { formatEventDetail, formatEventList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -12,9 +12,22 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listEvents = async (params: { top?: number; filter?: string }): Promise<Either<UserError, string>> => {
+export const listEvents = async (params: {
+  top?: number
+  filter?: string
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.fetch_all_pages) {
+    const result = await client.requestPaginated<GraphEvent>("/me/events", {
+      odataParams: { $filter: params.filter, $orderby: "start/dateTime" },
+    })
+    return result
+      .mapLeft((error) => new UserError(`Failed to list events: ${error.message}`))
+      .map((items) => formatEventList(items))
+  }
 
   const result = await client.listEvents({
     $top: params.top ?? 25,
