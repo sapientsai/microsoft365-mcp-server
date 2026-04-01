@@ -249,7 +249,7 @@ export const formatTeamList = (
 ): string => (teams.length === 0 ? "No teams found." : `# Teams\n\n${teams.map(formatTeamSummary).join("\n")}`)
 
 export const formatChannelSummary = (channel: GraphChannel): string =>
-  `- **${channel.displayName ?? "Untitled"}** (${channel.membershipType ?? "standard"})`
+  `- **${channel.displayName ?? "Untitled"}** (${channel.membershipType ?? "standard"}, ID: ${channel.id})`
 
 export const formatChannelList = (channels: ReadonlyArray<GraphChannel>): string =>
   channels.length === 0 ? "No channels found." : `# Channels\n\n${channels.map(formatChannelSummary).join("\n")}`
@@ -426,7 +426,13 @@ ${body}`
 // Chats
 export const formatChatSummary = (chat: GraphChat): string => {
   const topic = chat.topic ?? chat.chatType ?? "Chat"
-  return `- **${topic}** (${chat.chatType ?? "unknown"}, ID: ${chat.id})`
+  const updated = Option(chat.lastUpdatedDateTime)
+    .map((d) => ` (updated: ${d})`)
+    .fold(
+      () => "",
+      (v) => v,
+    )
+  return `- **${topic}**${updated} (${chat.chatType ?? "unknown"}, ID: ${chat.id})`
 }
 
 export const formatChatList = (chats: ReadonlyArray<GraphChat>): string =>
