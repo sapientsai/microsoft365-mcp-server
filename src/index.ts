@@ -61,6 +61,7 @@ import {
   updateEvent,
   updatePlannerTask,
   updateTodoTask,
+  uploadFile,
 } from "./tools"
 import {
   createPendingAction,
@@ -443,6 +444,24 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       name: z.string().describe("Folder name"),
     }),
     execute: async (params) => unwrapResult(await createFolder(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "upload_file",
+    description:
+      "Upload a file to OneDrive. For text files, pass content directly. For binary files, pass base64-encoded content with content_type 'application/octet-stream'. Max ~4MB via this tool.",
+    parameters: z.object({
+      path: z
+        .string()
+        .describe("Destination path in colon-path format (e.g., /me/drive/root:/Documents/file.txt:/content)"),
+      content: z.string().describe("File content (text or base64-encoded for binary)"),
+      content_type: z
+        .string()
+        .optional()
+        .describe("MIME type (default: text/plain). Use application/octet-stream for base64 binary."),
+    }),
+    execute: async (params) => unwrapResult(await uploadFile(params)),
     domain: "files",
     readOnly: false,
   },

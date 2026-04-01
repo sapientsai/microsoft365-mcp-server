@@ -327,6 +327,50 @@ const createGraphClient = () => {
   const updateTodoTask = (listId: string, taskId: string, task: Record<string, unknown>) =>
     request<GraphTodoTask>("PATCH", `/me/todo/lists/${listId}/tasks/${taskId}`, { body: task })
 
+  // File upload (raw content, not JSON)
+  const uploadFile = async (
+    path: string,
+    content: string,
+    contentType: string = "text/plain",
+  ): Promise<Either<GraphApiError, GraphDriveItem>> => {
+    const tokenResult = await getAccessToken()
+    if (tokenResult.isLeft()) {
+      return Left<GraphApiError, GraphDriveItem>({
+        type: "auth",
+        message: (tokenResult.value as { message: string }).message,
+      })
+    }
+
+    const token = tokenResult.value as string
+    const version = defaultVersion()
+    const url = `${GRAPH_API_BASE}/${version}${path}`
+
+    // eslint-disable-next-line functype/prefer-either -- boundary: fetch API
+    try {
+      const body = contentType === "application/octet-stream" ? Buffer.from(content, "base64") : content
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": contentType,
+        },
+        body,
+      })
+
+      if (!response.ok) {
+        return mapHttpError<GraphDriveItem>(response)
+      }
+
+      const text = await response.text()
+      return parseJsonResponse<GraphDriveItem>(text)
+    } catch (error) {
+      return Left<GraphApiError, GraphDriveItem>({
+        type: "network",
+        message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
+  }
+
   // Generic escape hatch
   const graphQuery = <T = unknown>(
     method: string,
@@ -394,6 +438,8 @@ const createGraphClient = () => {
     listTodoTasks,
     createTodoTask,
     updateTodoTask,
+    // Upload
+    uploadFile,
     // Generic
     graphQuery,
   })

@@ -72,3 +72,17 @@ export const createFolder = async (params: { parent_id: string; name: string }):
     .mapLeft((error) => new UserError(`Failed to create folder: ${error.message}`))
     .map((item) => `Folder created.\n\n${formatDriveItemDetail(item)}`)
 }
+
+export const uploadFile = async (params: {
+  path: string
+  content: string
+  content_type?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.uploadFile(params.path, params.content, params.content_type ?? "text/plain")
+  return result
+    .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))
+    .map((item) => `File uploaded.\n\n${formatDriveItemDetail(item)}`)
+}
