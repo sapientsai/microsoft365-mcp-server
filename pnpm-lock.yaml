@@ -17,11 +17,11 @@ importers:
         specifier: ^3.34.0
         version: 3.34.0
       functype:
-        specifier: ^0.54.0
-        version: 0.54.0
+        specifier: ^0.56.0
+        version: 0.56.0
       functype-log:
         specifier: ^0.1.0
-        version: 0.1.0(functype@0.54.0)
+        version: 0.1.0(functype@0.56.0)
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
@@ -1669,9 +1669,9 @@ packages:
       { integrity: sha512-FtEtvMg/LscT3j36Ri2Ug6bQdpaDPnmaHLSTJojhcen81aM0kO4EpyoH/gNuX2gbdyolRdnXL8KyCPhv59yXNg== }
     hasBin: true
 
-  functype@0.54.0:
+  functype@0.56.0:
     resolution:
-      { integrity: sha512-4SqEbfQIVDwHHwpy6SH+zSLNqgPPSf8jmsWpVYAv+pXjfA3YcRQ3A9Y3sEZOeju15f6rMQ0M5FJMK/nZcTVJyQ== }
+      { integrity: sha512-+NtRIygEL2UKl4b/EqALjk/bVEb0+LX3hxIXrk0o7zdK1rNIUYqtQM3nUUnqLp6FAGL/MPaIbRAcIe6wBh1aXA== }
     hasBin: true
 
   fuse.js@7.1.0:
@@ -4160,9 +4160,9 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  functype-log@0.1.0(functype@0.54.0):
+  functype-log@0.1.0(functype@0.56.0):
     dependencies:
-      functype: 0.54.0
+      functype: 0.56.0
       loglayer: 9.1.0
 
   functype-os@0.4.1(functype@0.51.0):
@@ -4171,7 +4171,7 @@ snapshots:
 
   functype@0.51.0: {}
 
-  functype@0.54.0: {}
+  functype@0.56.0: {}
 
   fuse.js@7.1.0: {}
 
