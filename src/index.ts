@@ -397,6 +397,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description: "List files and folders in OneDrive",
     parameters: z.object({
       folder_id: z.string().optional().describe("Folder ID (omit for root)"),
+      folder_path: z.string().optional().describe("Folder path (e.g., 'Documents' or 'Documents/Subfolder')"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await listDriveItems(params)),
@@ -428,7 +429,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "download_file",
-    description: "Get file metadata and download URL",
+    description:
+      "Download a file. Returns content inline for text files under 100KB, otherwise returns metadata and download URL.",
     parameters: z.object({
       item_id: z.string().describe("Drive item ID"),
     }),

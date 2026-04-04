@@ -3,6 +3,7 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
 import { getAuthStatus, setAccessToken } from "../auth"
+import { getContextToken } from "../auth/token-context"
 import { listAccounts, setDefaultAccount } from "../auth/account-registry"
 import { formatAuthStatus } from "../utils/formatters"
 
@@ -30,7 +31,14 @@ export const setAccessTokenTool = (params: {
 // eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute
 export const listAccountsTool = async (): Promise<Either<UserError, string>> => {
   const accounts = listAccounts()
-  if (accounts.length === 0) return Right("No accounts registered.")
+
+  if (accounts.length === 0) {
+    const contextToken = getContextToken()
+    if (contextToken) {
+      return Right("OAuth proxy mode — authenticated user is determined per-request via OAuth. Use `get_me` to see the current user.")
+    }
+    return Right("No accounts registered.")
+  }
 
   const lines = accounts.map((a) => `- **${a.label}** (${a.id})${a.isDefault ? " [default]" : ""}`)
   return Right(`# Accounts\n\n${lines.join("\n")}`)

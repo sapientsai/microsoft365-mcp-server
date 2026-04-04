@@ -233,12 +233,46 @@ const createGraphClient = () => {
       folderId ? `/me/drive/items/${folderId}/children` : "/me/drive/root/children",
     )
 
+  const listDriveItemsByPath = (folderPath: string) =>
+    request<ODataResponse<GraphDriveItem>>("GET", `/me/drive/root:/${folderPath}:/children`)
+
   const getDriveItem = (id: string) => request<GraphDriveItem>("GET", `/me/drive/items/${id}`)
 
   const searchFiles = (query: string) =>
     request<ODataResponse<GraphDriveItem>>("GET", `/me/drive/root/search(q='${encodeURIComponent(query)}')`)
 
   const downloadFile = (id: string) => request<GraphDriveItem>("GET", `/me/drive/items/${id}`)
+
+  const downloadFileContent = async (id: string): Promise<Either<GraphApiError, string>> => {
+    const tokenResult = await getAccessToken()
+    if (tokenResult.isLeft()) {
+      return Left<GraphApiError, string>({
+        type: "auth",
+        message: (tokenResult.value as { message: string }).message,
+      })
+    }
+    const token = tokenResult.value as string
+    const version = defaultVersion()
+    const url = `${GRAPH_API_BASE}/${version}/me/drive/items/${id}/content`
+    // eslint-disable-next-line functype/prefer-either -- boundary between throwing fetch API and Either-returning client
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: "follow",
+      })
+      if (!response.ok) {
+        return mapHttpError<string>(response)
+      }
+      const text = await response.text()
+      return Right<GraphApiError, string>(text)
+    } catch (error) {
+      return Left<GraphApiError, string>({
+        type: "network",
+        message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
+  }
 
   const createFolder = (parentId: string, name: string) =>
     request<GraphDriveItem>("POST", `/me/drive/items/${parentId}/children`, {
@@ -402,9 +436,11 @@ const createGraphClient = () => {
     searchContacts,
     // Files
     listDriveItems,
+    listDriveItemsByPath,
     getDriveItem,
     searchFiles,
     downloadFile,
+    downloadFileContent,
     createFolder,
     // Chats
     listChats,

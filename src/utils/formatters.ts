@@ -207,7 +207,7 @@ export const formatDriveItemSummary = (item: GraphDriveItem): string => {
       () => "",
       (v) => v,
     )
-  return `- **${item.name ?? "Untitled"}** - ${type}${size}`
+  return `- **${item.name ?? "Untitled"}** (ID: ${item.id}) - ${type}${size}`
 }
 
 export const formatDriveItemList = (items: ReadonlyArray<GraphDriveItem>): string =>

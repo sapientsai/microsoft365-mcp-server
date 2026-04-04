@@ -79,6 +79,18 @@ export const setAccessToken = (token: string, expiresOn?: Date): Either<AuthErro
 }
 
 export const getAuthStatus = async (): Promise<Either<AuthError, AuthStatus>> => {
+  // In OAuth proxy mode, tokens come per-request via AsyncLocalStorage
+  const contextToken = getContextToken()
+  if (contextToken) {
+    const scopes = parseJwtScopes(contextToken)
+    const status: AuthStatus = {
+      mode: "oauth-proxy",
+      authenticated: true,
+      scopes,
+    }
+    return Right(status)
+  }
+
   if (authState.isNone()) {
     return Left({ type: "config" as const, message: "Auth not initialized" })
   }
