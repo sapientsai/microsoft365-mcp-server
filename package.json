@@ -73,7 +73,7 @@
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^24.12.2",
+    "@types/node": "^25.5.2",
     "ts-builds": "^2.6.3",
     "tsdown": "^0.21.7"
   },
