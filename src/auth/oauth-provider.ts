@@ -1,4 +1,4 @@
-import { AzureProvider } from "fastmcp/auth"
+import { AzureProvider, DiskStore } from "fastmcp/auth"
 
 import { DEFAULT_INTERACTIVE_SCOPES } from "./scopes"
 
@@ -10,6 +10,10 @@ export type OAuthProxyConfig = {
   readonly scopes?: ReadonlyArray<string>
 }
 
+const tokenStorage = new DiskStore({
+  directory: process.env.TOKEN_STORAGE_PATH ?? "/tmp/ms365-tokens",
+})
+
 export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider =>
   new AzureProvider({
     baseUrl: config.baseUrl,
@@ -17,4 +21,5 @@ export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider
     clientSecret: config.clientSecret,
     tenantId: config.tenantId ?? "common",
     scopes: [...(config.scopes ?? DEFAULT_INTERACTIVE_SCOPES)],
+    tokenStorage,
   })
