@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **51 Tools** across 11 Microsoft 365 domains + generic Graph API escape hatch
+- **57 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Write Confirmation**: Two-step confirm for write operations (on by default) — prevents accidental sends, deletes, and mutations
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -17,6 +17,8 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 - **Type-Safe**: Branded IDs, Zod parameter schemas, strict TypeScript
 - **Modern Build System**: [ts-builds](https://github.com/jordanburke/ts-builds) + [tsdown](https://tsdown.dev/)
 - **Dual Transport**: stdio (default) and HTTP stream
+- **Persistent OAuth Sessions**: DiskStore-backed token persistence survives server restarts
+- **SharePoint Sites**: Browse, search, and access files across SharePoint sites the user has permissions on
 
 ## Quick Start
 
@@ -113,6 +115,9 @@ Endpoints provided automatically:
 - `GET /authorize` — Redirect to Microsoft auth
 - `POST /token` — Token exchange
 - `GET/POST /mcp` — MCP protocol (with bearer auth)
+- `GET /ping` — Pre-auth health check (for Docker/Kubernetes liveness probes)
+
+OAuth tokens are persisted to disk via FastMCP's `DiskStore`, so users stay authenticated across server restarts. Refresh tokens last ~90 days. Set `TOKEN_STORAGE_PATH` to customize the storage directory (default: `/tmp/ms365-tokens`). For persistence across container recreations, mount a Docker volume at that path.
 
 ### Azure AD App Registration
 
@@ -131,7 +136,8 @@ You need an Azure AD (Entra ID) app registration:
 | `Mail.Read`, `Mail.Send`                       | Email               |
 | `Calendars.ReadWrite`                          | Calendar            |
 | `Contacts.Read`                                | Contacts            |
-| `Files.Read`                                   | OneDrive/SharePoint |
+| `Files.ReadWrite`                              | OneDrive            |
+| `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites    |
 | `Chat.ReadWrite`                               | Teams chats         |
 | `ChatMessage.Read`, `ChatMessage.Send`         | Chat messages       |
 | `Team.ReadBasic.All`                           | Teams               |
@@ -262,15 +268,28 @@ Org mode is required for Teams, Chats, Groups, Planner, and user listing. Withou
 | `create_contact`  | Create a new contact |
 | `search_contacts` | Search contacts      |
 
-### Files / OneDrive (5 tools)
+### Files / OneDrive (7 tools)
 
-| Tool               | Description                        |
-| ------------------ | ---------------------------------- |
-| `list_drive_items` | List files and folders             |
-| `get_drive_item`   | Get file/folder metadata           |
-| `search_files`     | Search OneDrive/SharePoint         |
-| `download_file`    | Get file metadata and download URL |
-| `create_folder`    | Create a new folder                |
+| Tool               | Description                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `list_drive_items` | List files and folders (supports `folder_id` or `folder_path` for navigation)       |
+| `get_drive_item`   | Get file/folder metadata                                                            |
+| `search_files`     | Search OneDrive/SharePoint                                                          |
+| `download_file`    | Download a file — returns content inline for text files under 100KB                 |
+| `create_folder`    | Create a new folder                                                                 |
+| `upload_file`      | Upload a file to OneDrive (text or base64-encoded binary, max ~4MB)                 |
+
+### SharePoint Sites (5 tools, org mode)
+
+| Tool                | Description                                                            |
+| ------------------- | ---------------------------------------------------------------------- |
+| `list_sites`        | List followed sites, or search all sites by query                      |
+| `get_site`          | Get SharePoint site details                                            |
+| `list_site_drives`  | List document libraries (drives) in a site                             |
+| `list_site_items`   | List files/folders in a site drive (supports `folder_id`/`folder_path`) |
+| `search_site_files` | Search files within a SharePoint site                                  |
+
+SharePoint tools use **delegated permissions** — users see only the sites and files they have access to. Private channel sites are properly isolated; access requires channel membership.
 
 ### Chats (3 tools, org mode)
 
@@ -369,6 +388,8 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_ORG_MODE`       | Enable org-only tools (teams, chats, groups, planner)                                   | `false`          |
 | `MS365_CONFIRM_WRITES` | Two-step confirmation for write operations                                              | `true`           |
 | `MS365_CONFIRM_TTL_MS` | Confirmation token TTL in milliseconds                                                  | `300000` (5 min) |
+| `TOKEN_STORAGE_PATH`   | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
+| `FASTMCP_HOST`         | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`      |
 
 ## Docker / Remote Deployment
 
@@ -377,6 +398,20 @@ Deploy as a remote MCP server with per-user OAuth authentication:
 ```bash
 docker compose up -d
 ```
+
+Connect from Claude Desktop or any MCP client:
+
+```json
+{
+  "mcpServers": {
+    "microsoft365": {
+      "url": "https://your-domain.example.com/mcp"
+    }
+  }
+}
+```
+
+The Dockerfile sets `FASTMCP_HOST=0.0.0.0` (binds to all interfaces) and uses `/ping` for health checks (pre-auth endpoint). The `/health` endpoint provided by FastMCP is currently unreachable when auth is enabled due to a [known issue](https://github.com/punkpeye/mcp-proxy) in mcp-proxy's auth middleware ordering.
 
 See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full guide — Docker, Azure AD app setup, Dokploy, reverse proxy, and security configuration.
 
