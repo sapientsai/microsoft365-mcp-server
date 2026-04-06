@@ -1,6 +1,6 @@
 {
   "name": "microsoft365-mcp-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Model Context Protocol (MCP) server for Microsoft 365 - manage mail, calendar, contacts, files, Teams, Planner, OneNote, To Do, and more via Microsoft Graph.",
   "type": "module",
   "main": "dist/index.js",
