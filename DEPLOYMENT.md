@@ -190,7 +190,6 @@ Save the `password` field — this is your `MS365_CLIENT_SECRET`.
 
 ```env
 MS365_READ_ONLY=true
-MS365_CONFIRM_WRITES=true
 ```
 
 Only list/get/search tools are registered. No send, create, update, or delete.
@@ -200,28 +199,17 @@ Only list/get/search tools are registered. No send, create, update, or delete.
 ```env
 MS365_PRESETS=personal
 MS365_ORG_MODE=false
-MS365_CONFIRM_WRITES=true
 ```
 
-Mail, calendar, contacts, To Do, files, OneNote. Write confirmation required. No Teams/chat exposure.
+Mail, calendar, contacts, To Do, files, OneNote. No Teams/chat exposure.
 
 ### Full Access with Org Tools
 
 ```env
 MS365_ORG_MODE=true
-MS365_CONFIRM_WRITES=true
 ```
 
-All 51+ tools enabled. Write confirmation on by default.
-
-### Automation (No Confirmation)
-
-```env
-MS365_AUTH_MODE=client-secret
-MS365_CONFIRM_WRITES=false
-```
-
-App-only auth with immediate write execution. For trusted automation pipelines only.
+All 58 tools enabled across all domains.
 
 ## Reverse Proxy
 
@@ -253,7 +241,6 @@ server {
 - **Client secret**: Store in environment variables or a secrets manager (Azure Key Vault, etc.). Never commit to git.
 - **HTTPS required**: OAuth callbacks must use HTTPS in production. Use a reverse proxy or managed platform.
 - **Tenant restriction**: Set `MS365_TENANT_ID` to your org's tenant ID to prevent other organizations from authenticating.
-- **Write confirmation**: Enabled by default (`MS365_CONFIRM_WRITES=true`). Disabling it allows the LLM to send emails, delete events, etc. without user approval.
 - **Read-only mode**: Use `MS365_READ_ONLY=true` for demos or untrusted environments.
 - **Token storage**: FastMCP stores OAuth tokens in memory by default. Tokens are lost on server restart (users re-authenticate). For persistence, configure a `DiskStore` or custom `TokenStorage`.
 

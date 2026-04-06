@@ -5,7 +5,15 @@ export { createContact, getContact, listContacts, searchContacts } from "./conta
 export { createFolder, downloadFile, getDriveItem, listDriveItems, searchFiles, uploadFile } from "./files-tools"
 export { graphQuery } from "./graph-query-tools"
 export { getGroup, listGroupMembers, listGroups } from "./groups-tools"
-export { getMessage, listMessages, replyToMessage, searchMessages, sendMessage } from "./mail-tools"
+export {
+  createDraft,
+  getMessage,
+  listMessages,
+  replyToMessage,
+  searchMessages,
+  sendDraft,
+  sendMessage,
+} from "./mail-tools"
 export { getPageContent, listNotebooks, listPages, listSections } from "./onenote-tools"
 export { createPlannerTask, getPlannerTask, listPlannerTasks, listPlans, updatePlannerTask } from "./planner-tools"
 export { getSite, listSiteDrives, listSiteItems, listSites, searchSiteFiles } from "./sharepoint-tools"

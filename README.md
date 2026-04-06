@@ -7,9 +7,9 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **57 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **58 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
-- **Write Confirmation**: Two-step confirm for write operations (on by default) — prevents accidental sends, deletes, and mutations
+- **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
 - **Auto-Pagination**: `fetch_all_pages` parameter on all list tools (max 50 pages)
 - **Multi-Account**: Register and switch between multiple authenticated accounts
@@ -130,20 +130,20 @@ You need an Azure AD (Entra ID) app registration:
    - **Web platform**: `http://localhost:3000/oauth/callback` (for OAuth proxy mode)
 4. Add Microsoft Graph **delegated** permissions:
 
-| Permission                                     | Domain              |
-| ---------------------------------------------- | ------------------- |
-| `User.Read`                                    | User profile        |
-| `Mail.Read`, `Mail.Send`                       | Email               |
-| `Calendars.ReadWrite`                          | Calendar            |
-| `Contacts.Read`                                | Contacts            |
-| `Files.ReadWrite`                              | OneDrive            |
-| `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites    |
-| `Chat.ReadWrite`                               | Teams chats         |
-| `ChatMessage.Read`, `ChatMessage.Send`         | Chat messages       |
-| `Team.ReadBasic.All`                           | Teams               |
-| `Channel.ReadBasic.All`, `ChannelMessage.Send` | Channels            |
-| `Tasks.ReadWrite`                              | Planner & To Do     |
-| `Notes.Read`                                   | OneNote             |
+| Permission                                     | Domain           |
+| ---------------------------------------------- | ---------------- |
+| `User.Read`                                    | User profile     |
+| `Mail.Read`, `Mail.Send`                       | Email            |
+| `Calendars.ReadWrite`                          | Calendar         |
+| `Contacts.Read`                                | Contacts         |
+| `Files.ReadWrite`                              | OneDrive         |
+| `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites |
+| `Chat.ReadWrite`                               | Teams chats      |
+| `ChatMessage.Read`, `ChatMessage.Send`         | Chat messages    |
+| `Team.ReadBasic.All`                           | Teams            |
+| `Channel.ReadBasic.All`, `ChannelMessage.Send` | Channels         |
+| `Tasks.ReadWrite`                              | Planner & To Do  |
+| `Notes.Read`                                   | OneNote          |
 
 5. Grant admin consent (for org tenants)
 6. Create a client secret (for client-secret and OAuth proxy modes)
@@ -168,44 +168,19 @@ Or in Azure Portal: Enterprise Applications > your app > Users and groups > Add 
 
 ### Safety Layers
 
-| Layer                    | Protection                           | Default            |
-| ------------------------ | ------------------------------------ | ------------------ |
-| **User assignment**      | Only assigned users can authenticate | Off (enable above) |
-| **Write confirmation**   | Preview + token before any mutation  | **On**             |
-| **Tool filtering**       | Presets, read-only, org-mode gating  | All tools          |
-| **Tenant restriction**   | `MS365_TENANT_ID` locks to one org   | `common`           |
-| **M365 native recovery** | Recycle bins, version history        | Built-in           |
+| Layer                    | Protection                                               | Default            |
+| ------------------------ | -------------------------------------------------------- | ------------------ |
+| **User assignment**      | Only assigned users can authenticate                     | Off (enable above) |
+| **Platform governance**  | Per-tool allow/confirm/deny in Claude Desktop Enterprise | Platform-level     |
+| **Tool filtering**       | Presets, read-only, org-mode gating                      | All tools          |
+| **Tenant restriction**   | `MS365_TENANT_ID` locks to one org                       | `common`           |
+| **M365 native recovery** | Recycle bins, version history                            | Built-in           |
 
 **Recovery by domain:**
 
 - Mail, Calendar, OneDrive, SharePoint: Deleted Items / Recycle Bin (30-93 days), version history
 - Teams messages: Immutable (can't be deleted via API)
-- Contacts, Planner tasks, To Do tasks: **No native recovery** — write confirmation is critical
-
-## Write Confirmation
-
-When `MS365_CONFIRM_WRITES=true` (the **default**), write tools don't execute immediately. Instead they return a preview with a confirmation token. The LLM must call `confirm_action` with the token to execute.
-
-```
-User: "Send an email to alice@example.com about the meeting"
-
-Tool returns preview:
-  Action: send_message
-  - to: alice@example.com
-  - subject: Meeting
-  - body: ...
-  Token: abc-123
-
-LLM: "I've drafted this email. Should I send it?"
-User: "Yes"
-
-LLM calls: confirm_action(token: "abc-123")
-Server: executes the send
-```
-
-Tokens expire after 5 minutes (configurable via `MS365_CONFIRM_TTL_MS`).
-
-Set `MS365_CONFIRM_WRITES=false` to disable and execute writes immediately.
+- Contacts, Planner tasks, To Do tasks: No native recovery — use `MS365_READ_ONLY=true` or platform governance to restrict writes
 
 ## Tool Filtering
 
@@ -239,15 +214,17 @@ Org mode is required for Teams, Chats, Groups, Planner, and user listing. Withou
 
 ## Available Tools
 
-### Mail (5 tools)
+### Mail (7 tools)
 
-| Tool               | Description                                 |
-| ------------------ | ------------------------------------------- |
-| `list_messages`    | List inbox messages with optional filtering |
-| `get_message`      | Get a specific message with full body       |
-| `send_message`     | Send a new email                            |
-| `reply_to_message` | Reply to a message                          |
-| `search_messages`  | Search messages by query                    |
+| Tool               | Description                                   |
+| ------------------ | --------------------------------------------- |
+| `list_messages`    | List inbox messages with optional filtering   |
+| `get_message`      | Get a specific message with full body         |
+| `send_message`     | Send a new email                              |
+| `reply_to_message` | Reply to a message                            |
+| `search_messages`  | Search messages by query                      |
+| `create_draft`     | Create a new email draft in the Drafts folder |
+| `send_draft`       | Send an existing email draft                  |
 
 ### Calendar (5 tools)
 
@@ -270,24 +247,24 @@ Org mode is required for Teams, Chats, Groups, Planner, and user listing. Withou
 
 ### Files / OneDrive (7 tools)
 
-| Tool               | Description                                                                         |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| `list_drive_items` | List files and folders (supports `folder_id` or `folder_path` for navigation)       |
-| `get_drive_item`   | Get file/folder metadata                                                            |
-| `search_files`     | Search OneDrive/SharePoint                                                          |
-| `download_file`    | Download a file — returns content inline for text files under 100KB                 |
-| `create_folder`    | Create a new folder                                                                 |
-| `upload_file`      | Upload a file to OneDrive (text or base64-encoded binary, max ~4MB)                 |
+| Tool               | Description                                                                   |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `list_drive_items` | List files and folders (supports `folder_id` or `folder_path` for navigation) |
+| `get_drive_item`   | Get file/folder metadata                                                      |
+| `search_files`     | Search OneDrive/SharePoint                                                    |
+| `download_file`    | Download a file — returns content inline for text files under 100KB           |
+| `create_folder`    | Create a new folder                                                           |
+| `upload_file`      | Upload a file to OneDrive (text or base64-encoded binary, max ~4MB)           |
 
 ### SharePoint Sites (5 tools, org mode)
 
-| Tool                | Description                                                            |
-| ------------------- | ---------------------------------------------------------------------- |
-| `list_sites`        | List followed sites, or search all sites by query                      |
-| `get_site`          | Get SharePoint site details                                            |
-| `list_site_drives`  | List document libraries (drives) in a site                             |
+| Tool                | Description                                                             |
+| ------------------- | ----------------------------------------------------------------------- |
+| `list_sites`        | List followed sites, or search all sites by query                       |
+| `get_site`          | Get SharePoint site details                                             |
+| `list_site_drives`  | List document libraries (drives) in a site                              |
 | `list_site_items`   | List files/folders in a site drive (supports `folder_id`/`folder_path`) |
-| `search_site_files` | Search files within a SharePoint site                                  |
+| `search_site_files` | Search files within a SharePoint site                                   |
 
 SharePoint tools use **delegated permissions** — users see only the sites and files they have access to. Private channel sites are properly isolated; access requires channel membership.
 
@@ -347,7 +324,7 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 | `create_todo_task` | Create a new task    |
 | `update_todo_task` | Update a task        |
 
-### Auth & Utility (6 tools)
+### Auth & Utility (5 tools)
 
 | Tool               | Description                            |
 | ------------------ | -------------------------------------- |
@@ -355,7 +332,6 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 | `set_access_token` | Update token (client-token mode)       |
 | `list_accounts`    | List registered accounts               |
 | `switch_account`   | Switch default account                 |
-| `confirm_action`   | Execute a confirmed write action       |
 | `graph_query`      | Execute arbitrary Graph API queries    |
 
 ### Auto-Pagination
@@ -368,28 +344,26 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 
 ## Environment Variables
 
-| Variable               | Description                                                                             | Default          |
-| ---------------------- | --------------------------------------------------------------------------------------- | ---------------- |
-| `MS365_AUTH_MODE`      | Auth mode: `interactive`, `certificate`, `client-secret`, `client-token`, `oauth-proxy` | `interactive`    |
-| `MS365_TENANT_ID`      | Azure AD tenant ID                                                                      | `common`         |
-| `MS365_CLIENT_ID`      | Azure AD application (client) ID                                                        | --               |
-| `MS365_CLIENT_SECRET`  | Client secret (for `client-secret` and `oauth-proxy` modes)                             | --               |
-| `MS365_CERT_PATH`      | Certificate path (for `certificate` mode)                                               | --               |
-| `MS365_CERT_PASSWORD`  | Certificate password (optional)                                                         | --               |
-| `MS365_ACCESS_TOKEN`   | Initial access token (for `client-token` mode)                                          | --               |
-| `MS365_OAUTH_BASE_URL` | Base URL for OAuth proxy mode                                                           | --               |
-| `MS365_GRAPH_VERSION`  | Graph API version: `v1.0` or `beta`                                                     | `v1.0`           |
-| `TRANSPORT_TYPE`       | Transport: `stdio` or `httpStream`                                                      | `stdio`          |
-| `PORT`                 | HTTP server port                                                                        | `3000`           |
-| `HOST`                 | HTTP server host                                                                        | `127.0.0.1`      |
-| `MS365_PRESETS`        | Comma-separated presets: `personal`, `collaboration`, `productivity`, `all`             | -- (all tools)   |
-| `MS365_ENABLED_TOOLS`  | Regex pattern to filter tools                                                           | --               |
-| `MS365_READ_ONLY`      | Hide write tools                                                                        | `false`          |
-| `MS365_ORG_MODE`       | Enable org-only tools (teams, chats, groups, planner)                                   | `false`          |
-| `MS365_CONFIRM_WRITES` | Two-step confirmation for write operations                                              | `true`           |
-| `MS365_CONFIRM_TTL_MS` | Confirmation token TTL in milliseconds                                                  | `300000` (5 min) |
+| Variable               | Description                                                                             | Default             |
+| ---------------------- | --------------------------------------------------------------------------------------- | ------------------- |
+| `MS365_AUTH_MODE`      | Auth mode: `interactive`, `certificate`, `client-secret`, `client-token`, `oauth-proxy` | `interactive`       |
+| `MS365_TENANT_ID`      | Azure AD tenant ID                                                                      | `common`            |
+| `MS365_CLIENT_ID`      | Azure AD application (client) ID                                                        | --                  |
+| `MS365_CLIENT_SECRET`  | Client secret (for `client-secret` and `oauth-proxy` modes)                             | --                  |
+| `MS365_CERT_PATH`      | Certificate path (for `certificate` mode)                                               | --                  |
+| `MS365_CERT_PASSWORD`  | Certificate password (optional)                                                         | --                  |
+| `MS365_ACCESS_TOKEN`   | Initial access token (for `client-token` mode)                                          | --                  |
+| `MS365_OAUTH_BASE_URL` | Base URL for OAuth proxy mode                                                           | --                  |
+| `MS365_GRAPH_VERSION`  | Graph API version: `v1.0` or `beta`                                                     | `v1.0`              |
+| `TRANSPORT_TYPE`       | Transport: `stdio` or `httpStream`                                                      | `stdio`             |
+| `PORT`                 | HTTP server port                                                                        | `3000`              |
+| `HOST`                 | HTTP server host                                                                        | `127.0.0.1`         |
+| `MS365_PRESETS`        | Comma-separated presets: `personal`, `collaboration`, `productivity`, `all`             | -- (all tools)      |
+| `MS365_ENABLED_TOOLS`  | Regex pattern to filter tools                                                           | --                  |
+| `MS365_READ_ONLY`      | Hide write tools                                                                        | `false`             |
+| `MS365_ORG_MODE`       | Enable org-only tools (teams, chats, groups, planner)                                   | `false`             |
 | `TOKEN_STORAGE_PATH`   | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
-| `FASTMCP_HOST`         | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`      |
+| `FASTMCP_HOST`         | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
 
 ## Docker / Remote Deployment
 

@@ -81,6 +81,57 @@ export const replyToMessage = async (params: {
     .map(() => "Reply sent successfully.")
 }
 
+const parseRecipients = (
+  value: string | undefined,
+): ReadonlyArray<{ emailAddress: { address: string } }> | undefined => {
+  if (!value) return undefined
+  const addresses = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (addresses.length === 0) return undefined
+  return addresses.map((address) => ({ emailAddress: { address } }))
+}
+
+export const createDraft = async (params: {
+  to: string
+  subject: string
+  body: string
+  content_type?: string
+  cc?: string
+  bcc?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const message: Record<string, unknown> = {
+    subject: params.subject,
+    body: { contentType: params.content_type ?? "Text", content: params.body },
+    toRecipients: [{ emailAddress: { address: params.to } }],
+  }
+
+  const cc = parseRecipients(params.cc)
+  if (cc) message.ccRecipients = cc
+
+  const bcc = parseRecipients(params.bcc)
+  if (bcc) message.bccRecipients = bcc
+
+  const result = await client.createDraft(message)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create draft: ${error.message}`))
+    .map((msg) => `Draft created. ID: ${(msg as { id: string }).id}`)
+}
+
+export const sendDraft = async (params: { message_id: string }): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.sendDraft(params.message_id)
+  return result
+    .mapLeft((error) => new UserError(`Failed to send draft: ${error.message}`))
+    .map(() => "Draft sent successfully.")
+}
+
 export const searchMessages = async (params: { query: string; top?: number }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))

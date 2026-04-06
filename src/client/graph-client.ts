@@ -193,6 +193,11 @@ const createGraphClient = () => {
   const sendMessage = (message: Record<string, unknown>) =>
     request<Record<string, never>>("POST", "/me/sendMail", { body: message })
 
+  const createDraft = (message: Record<string, unknown>) =>
+    request<GraphMessage>("POST", "/me/messages", { body: message })
+
+  const sendDraft = (messageId: string) => request<Record<string, never>>("POST", `/me/messages/${messageId}/send`)
+
   const replyToMessage = (id: string, comment: string) =>
     request<Record<string, never>>("POST", `/me/messages/${id}/reply`, { body: { comment } })
 
@@ -473,6 +478,8 @@ const createGraphClient = () => {
     listMessages,
     getMessage,
     sendMessage,
+    createDraft,
+    sendDraft,
     replyToMessage,
     searchMessages,
     // Calendar

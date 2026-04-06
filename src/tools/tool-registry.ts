@@ -53,6 +53,8 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "send_message", domain: "mail", readOnly: false, orgOnly: false },
   { name: "reply_to_message", domain: "mail", readOnly: false, orgOnly: false },
   { name: "search_messages", domain: "mail", readOnly: true, orgOnly: false },
+  { name: "create_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_draft", domain: "mail", readOnly: false, orgOnly: false },
   // Calendar
   { name: "list_events", domain: "calendar", readOnly: true, orgOnly: false },
   { name: "get_event", domain: "calendar", readOnly: true, orgOnly: false },

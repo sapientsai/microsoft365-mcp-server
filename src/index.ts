@@ -12,6 +12,7 @@ import { withToken } from "./auth/token-context"
 import { initializeGraphClient } from "./client/graph-client"
 import {
   createContact,
+  createDraft,
   createEvent,
   createFolder,
   createPlannerTask,
@@ -60,6 +61,7 @@ import {
   searchSiteFiles,
   sendChannelMessage,
   sendChatMessage,
+  sendDraft,
   sendMessage,
   setAccessTokenTool,
   switchAccountTool,
@@ -68,12 +70,6 @@ import {
   updateTodoTask,
   uploadFile,
 } from "./tools"
-import {
-  createPendingAction,
-  executePendingAction,
-  formatConfirmationPreview,
-  isConfirmWritesEnabled,
-} from "./tools/confirmation"
 import type { ToolDefinition } from "./tools/tool-definitions"
 import { filterTools, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
@@ -272,6 +268,32 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     domain: "mail",
     readOnly: true,
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: "create_draft",
+    description: "Create a new email draft in the Drafts folder",
+    parameters: z.object({
+      to: z.string().describe("Recipient email address"),
+      subject: z.string().describe("Email subject"),
+      body: z.string().describe("Email body content"),
+      content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
+      cc: z.string().optional().describe("CC recipients (comma-separated email addresses)"),
+      bcc: z.string().optional().describe("BCC recipients (comma-separated email addresses)"),
+    }),
+    execute: async (params) => unwrapResult(await createDraft(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "send_draft",
+    description: "Send an existing email draft",
+    parameters: z.object({
+      message_id: z.string().describe("The draft message ID to send"),
+    }),
+    execute: async (params) => unwrapResult(await sendDraft(params)),
+    domain: "mail",
+    readOnly: false,
+    annotations: { destructiveHint: true },
   },
 
   // === Calendar Tools ===
@@ -889,7 +911,6 @@ type ExecuteContext = { session?: OAuthSessionContext }
 
 const wrapExecute = (tool: ToolDefinition, oauthMode: boolean): never => {
   const baseFn = tool.execute as (p: Record<string, unknown>) => Promise<string>
-  const confirmEnabled = isConfirmWritesEnabled()
 
   // Layer 1: OAuth token injection (wraps the base function)
   const withOAuth = oauthMode
@@ -913,24 +934,12 @@ const wrapExecute = (tool: ToolDefinition, oauthMode: boolean): never => {
     }
   }
 
-  // Layer 3: Write confirmation (wraps the audited function)
-  if (!tool.readOnly && confirmEnabled) {
-    // eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute; confirmation preview is sync
-    return (async (params: Record<string, unknown>, context: ExecuteContext) => {
-      auditToolCall(tool.name, params)
-      const executeFn = () => withOAuth(params, context)
-      const token = createPendingAction(tool.name, formatConfirmationPreview(tool.name, params, ""), executeFn)
-      return formatConfirmationPreview(tool.name, params, token)
-    }) as never
-  }
-
   return withAudit as never
 }
 
 const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: boolean) => {
   let registered = 0
   let skipped = 0
-  const confirmEnabled = isConfirmWritesEnabled()
 
   for (const tool of toolDefinitions) {
     if (!allowedTools.has(tool.name)) {
@@ -948,22 +957,6 @@ const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: bo
     registered++
   }
 
-  // Register confirm_action tool when confirmation is enabled
-  if (confirmEnabled) {
-    server.addTool({
-      name: "confirm_action",
-      description:
-        "Execute a previously previewed write action. Required when write confirmation is enabled (MS365_CONFIRM_WRITES=true). Pass the token from the preview response.",
-      parameters: z.object({
-        token: z.string().describe("The confirmation token from the previewed action"),
-      }),
-      execute: async (params: { token: string }) => unwrapResult(await executePendingAction(params.token)),
-      annotations: { destructiveHint: true },
-    })
-    registered++
-    console.error("[Setup] Write confirmation enabled (MS365_CONFIRM_WRITES=true)")
-  }
-
   console.error(`[Setup] Tools registered: ${registered}, skipped: ${skipped}`)
 }
 
@@ -971,7 +964,7 @@ const buildInstructions = (allowedTools: Set<string>): string => {
   const domains = new Set(toolDefinitions.filter((t) => allowedTools.has(t.name)).map((t) => t.domain))
   const domainDescriptions: Record<string, string> = {
     auth: "Authentication: Check auth status and manage tokens",
-    mail: "Mail: List, read, send, reply, and search email messages",
+    mail: "Mail: List, read, send, reply, search, and draft email messages",
     calendar: "Calendar: List, view, create, update, and delete events",
     contacts: "Contacts: List, view, create, and search contacts",
     files: "Files: List, view, search, and download OneDrive files; create folders",
