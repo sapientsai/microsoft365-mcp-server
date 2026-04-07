@@ -331,7 +331,12 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("Event location"),
       body: z.string().optional().describe("Event description"),
+      content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
       attendees: z.string().optional().describe("Comma-separated email addresses of attendees"),
+      is_draft: z
+        .boolean()
+        .optional()
+        .describe("Create as draft without sending invites to attendees (default: false)"),
     }),
     execute: async (params) => unwrapResult(await createEvent(params)),
     domain: "calendar",
@@ -348,6 +353,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("New location"),
       body: z.string().optional().describe("New description"),
+      content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
     }),
     execute: async (params) => unwrapResult(await updateEvent(params)),
     domain: "calendar",

@@ -54,7 +54,9 @@ export const createEvent = async (params: {
   time_zone?: string
   location?: string
   body?: string
+  content_type?: string
   attendees?: string
+  is_draft?: boolean
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -67,7 +69,8 @@ export const createEvent = async (params: {
   }
 
   if (params.location) event.location = { displayName: params.location }
-  if (params.body) event.body = { contentType: "Text", content: params.body }
+  if (params.body) event.body = { contentType: params.content_type ?? "Text", content: params.body }
+  if (params.is_draft) event.isDraft = true
   if (params.attendees) {
     event.attendees = params.attendees.split(",").map((email) => ({
       emailAddress: { address: email.trim() },
@@ -89,6 +92,7 @@ export const updateEvent = async (params: {
   time_zone?: string
   location?: string
   body?: string
+  content_type?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -100,7 +104,7 @@ export const updateEvent = async (params: {
   if (params.start) updates.start = { dateTime: params.start, timeZone }
   if (params.end) updates.end = { dateTime: params.end, timeZone }
   if (params.location) updates.location = { displayName: params.location }
-  if (params.body) updates.body = { contentType: "Text", content: params.body }
+  if (params.body) updates.body = { contentType: params.content_type ?? "Text", content: params.body }
 
   const result = await client.updateEvent(params.event_id, updates)
   return result
