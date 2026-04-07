@@ -21,5 +21,6 @@ export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider
     clientSecret: config.clientSecret,
     tenantId: config.tenantId ?? "common",
     scopes: [...(config.scopes ?? DEFAULT_INTERACTIVE_SCOPES)],
+    jwtSigningKey: config.clientSecret,
     tokenStorage,
   })
