@@ -365,6 +365,42 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `TOKEN_STORAGE_PATH`   | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
 | `FASTMCP_HOST`         | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
 
+## Claude Desktop (Local Installation)
+
+### Option A: Desktop Extension (.mcpb)
+
+1. Download the latest `.mcpb` file from [Releases](https://github.com/sapientsai/microsoft365-mcp-server/releases)
+2. In Claude Desktop: **Settings → Extensions → Install Extension**
+3. Select the `.mcpb` file
+4. Enter your Azure App Client ID and Tenant ID when prompted
+5. Authenticate in browser when first tool is used
+
+### Option B: Manual Configuration
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "microsoft365": {
+      "command": "npx",
+      "args": ["-y", "microsoft365-mcp-server"],
+      "env": {
+        "MS365_AUTH_MODE": "interactive",
+        "MS365_CLIENT_ID": "your-azure-app-client-id",
+        "MS365_TENANT_ID": "your-tenant-id"
+      }
+    }
+  }
+}
+```
+
+Config file locations:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
 ## Docker / Remote Deployment
 
 Deploy as a remote MCP server with per-user OAuth authentication:

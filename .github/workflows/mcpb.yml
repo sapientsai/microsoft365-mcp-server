@@ -1,0 +1,25 @@
+name: Build .mcpb Desktop Extension
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-mcpb:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build .mcpb bundle
+        run: bash scripts/build-mcpb.sh
+
+      - name: Upload .mcpb to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" microsoft365-mcp-server-*.mcpb

@@ -1,0 +1,54 @@
+{
+  "manifest_version": "0.3",
+  "name": "microsoft365-mcp-server",
+  "version": "1.0.1",
+  "description": "Microsoft 365 MCP server — manage email, calendar, contacts, files, Teams, Planner, OneNote, To Do via Microsoft Graph API",
+  "display_name": "Microsoft 365",
+  "author": {
+    "name": "SapientsAI",
+    "url": "https://github.com/sapientsai/microsoft365-mcp-server"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sapientsai/microsoft365-mcp-server.git"
+  },
+  "homepage": "https://github.com/sapientsai/microsoft365-mcp-server",
+  "server": {
+    "type": "node",
+    "entry_point": "not-applicable",
+    "mcp_config": {
+      "command": "npx",
+      "args": ["-y", "microsoft365-mcp-server"],
+      "env": {
+        "MS365_AUTH_MODE": "interactive",
+        "MS365_CLIENT_ID": "${user_config.client_id}",
+        "MS365_TENANT_ID": "${user_config.tenant_id}"
+      }
+    }
+  },
+  "user_config": {
+    "client_id": {
+      "type": "string",
+      "title": "Azure App Client ID",
+      "description": "Application (client) ID from your Azure AD app registration",
+      "required": true
+    },
+    "tenant_id": {
+      "type": "string",
+      "title": "Azure Tenant ID",
+      "description": "Your organization's Azure AD tenant ID, or 'common' for multi-tenant",
+      "required": true,
+      "default": "common"
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "keywords": ["microsoft-365", "outlook", "teams", "onedrive", "calendar", "email"]
+}

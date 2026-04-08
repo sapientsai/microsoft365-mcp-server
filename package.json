@@ -18,6 +18,7 @@
   },
   "files": [
     "dist/",
+    "manifest.json",
     "README.md",
     "LICENSE"
   ],
@@ -36,7 +37,8 @@
     "prepublishOnly": "pnpm validate",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",
     "start": "pnpm build && npx microsoft365-mcp-server",
-    "serve": "pnpm build && node dist/index.js"
+    "serve": "pnpm build && node dist/index.js",
+    "build:mcpb": "bash scripts/build-mcpb.sh"
   },
   "prettier": "ts-builds/prettier",
   "keywords": [

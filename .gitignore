@@ -39,5 +39,10 @@ node_modules/
 .env.*.local
 .env.local
 
+# MCPB bundles
+*.mcpb
+manifest-*.json
+.mcpb-build/
+
 # Claude Code
 .claude/settings.local.json
