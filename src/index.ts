@@ -75,7 +75,7 @@ import { filterTools, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
 
-dotenv.config()
+dotenv.config({ quiet: true })
 
 declare const __VERSION__: string
 const VERSION = (typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev") as `${number}.${number}.${number}`

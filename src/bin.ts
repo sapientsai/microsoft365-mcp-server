@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// stdout is reserved for MCP JSON-RPC in stdio mode — redirect console.log to stderr
+console.log = console.error
 
 declare const __VERSION__: string
 
