@@ -37,12 +37,12 @@ jobs:
           echo "Files to be published:"
           npm pack --dry-run
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
