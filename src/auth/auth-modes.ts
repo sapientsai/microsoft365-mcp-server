@@ -19,7 +19,10 @@ const DEFAULT_REDIRECT_URI = "http://localhost:3000"
 const tryCredential = (fn: () => TokenCredential, label: string): Either<AuthError, TokenCredential> =>
   Try(fn).fold(
     (e): Either<AuthError, TokenCredential> =>
-      Left({ type: "credential" as const, message: `Failed to create ${label} credential: ${String(e)}` }),
+      Left<AuthError, TokenCredential>({
+        type: "credential",
+        message: `Failed to create ${label} credential: ${String(e)}`,
+      }),
     (cred): Either<AuthError, TokenCredential> => Right(cred),
   )
 
@@ -34,8 +37,8 @@ export const createCredential = (config: AuthConfig): Either<AuthError, TokenCre
     case "client-token":
       return createClientProvidedTokenCredential(config)
     case "oauth-proxy":
-      return Left({
-        type: "config" as const,
+      return Left<AuthError, TokenCredential>({
+        type: "config",
         message: "OAuth proxy mode uses AzureProvider, not credential-based auth",
       })
   }
@@ -48,7 +51,7 @@ const createInteractiveCredential = (
   const { clientId } = config
 
   if (!clientId) {
-    return Left({ type: "config" as const, message: "Interactive mode requires MS365_CLIENT_ID" })
+    return Left<AuthError, TokenCredential>({ type: "config", message: "Interactive mode requires MS365_CLIENT_ID" })
   }
 
   return tryCredential(() => {
@@ -77,8 +80,8 @@ const createCertificateCredential = (
   config: Extract<AuthConfig, { mode: "certificate" }>,
 ): Either<AuthError, TokenCredential> => {
   if (!config.tenantId || !config.clientId || !config.certPath) {
-    return Left({
-      type: "config" as const,
+    return Left<AuthError, TokenCredential>({
+      type: "config",
       message: "Certificate mode requires MS365_TENANT_ID, MS365_CLIENT_ID, and MS365_CERT_PATH",
     })
   }
@@ -97,8 +100,8 @@ const createClientSecretCredential = (
   config: Extract<AuthConfig, { mode: "client-secret" }>,
 ): Either<AuthError, TokenCredential> => {
   if (!config.tenantId || !config.clientId || !config.clientSecret) {
-    return Left({
-      type: "config" as const,
+    return Left<AuthError, TokenCredential>({
+      type: "config",
       message: "Client secret mode requires MS365_TENANT_ID, MS365_CLIENT_ID, and MS365_CLIENT_SECRET",
     })
   }
@@ -161,10 +164,10 @@ export const testCredential = async (credential: TokenCredential): Promise<Eithe
   try {
     const token = await credential.getToken(GRAPH_DEFAULT_SCOPE)
     if (!token) {
-      return Left({ type: "token" as const, message: "Failed to acquire token during credential test" })
+      return Left<AuthError, true>({ type: "token", message: "Failed to acquire token during credential test" })
     }
     return Right(true as const)
   } catch (e) {
-    return Left({ type: "token" as const, message: `Authentication test failed: ${String(e)}` })
+    return Left<AuthError, true>({ type: "token", message: `Authentication test failed: ${String(e)}` })
   }
 }

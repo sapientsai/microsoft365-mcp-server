@@ -62,12 +62,12 @@ export const getAuthMode = (): Option<AuthMode> => authState.map((s) => s.config
 
 export const setAccessToken = (token: string, expiresOn?: Date): Either<AuthError, true> => {
   if (authState.isNone()) {
-    return Left({ type: "config" as const, message: "Auth not initialized" })
+    return Left<AuthError, true>({ type: "config", message: "Auth not initialized" })
   }
 
   const state = authState.value as MutableAuthState
   if (state.config.mode !== "client-token") {
-    return Left({ type: "config" as const, message: "set_access_token only supported in client-token mode" })
+    return Left<AuthError, true>({ type: "config", message: "set_access_token only supported in client-token mode" })
   }
 
   if (isClientProvidedToken(state.credential)) {
@@ -75,7 +75,7 @@ export const setAccessToken = (token: string, expiresOn?: Date): Either<AuthErro
     return Right(true as const)
   }
 
-  return Left({ type: "credential" as const, message: "Credential is not a client-provided token" })
+  return Left<AuthError, true>({ type: "credential", message: "Credential is not a client-provided token" })
 }
 
 export const getAuthStatus = async (): Promise<Either<AuthError, AuthStatus>> => {
@@ -92,7 +92,7 @@ export const getAuthStatus = async (): Promise<Either<AuthError, AuthStatus>> =>
   }
 
   if (authState.isNone()) {
-    return Left({ type: "config" as const, message: "Auth not initialized" })
+    return Left<AuthError, AuthStatus>({ type: "config", message: "Auth not initialized" })
   }
 
   const state = authState.value as MutableAuthState
@@ -149,18 +149,18 @@ export const getAccessToken = async (): Promise<Either<AuthError, string>> => {
   }
 
   if (authState.isNone()) {
-    return Left({ type: "config" as const, message: "Auth not initialized" })
+    return Left<AuthError, string>({ type: "config", message: "Auth not initialized" })
   }
 
   const state = authState.value as MutableAuthState
   try {
     const token = await state.credential.getToken(GRAPH_DEFAULT_SCOPE)
     if (!token?.token) {
-      return Left({ type: "token" as const, message: "Failed to acquire access token" })
+      return Left<AuthError, string>({ type: "token", message: "Failed to acquire access token" })
     }
     return Right(token.token)
   } catch (e) {
-    return Left({ type: "token" as const, message: `Token acquisition failed: ${String(e)}` })
+    return Left<AuthError, string>({ type: "token", message: `Token acquisition failed: ${String(e)}` })
   }
 }
 

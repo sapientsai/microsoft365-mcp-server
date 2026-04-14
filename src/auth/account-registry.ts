@@ -77,7 +77,7 @@ export const listAccounts = (): ReadonlyArray<{ id: string; label: string; isDef
 
 export const setDefaultAccount = (id: string): Either<AuthError, true> => {
   if (!registry.accounts.has(id)) {
-    return Left({ type: "config" as const, message: `Account "${id}" not found` })
+    return Left<AuthError, true>({ type: "config", message: `Account "${id}" not found` })
   }
   registry.defaultId = Some(id)
   return Right(true as const)
@@ -93,8 +93,8 @@ export const getAccountToken = async (accountId?: string): Promise<Either<AuthEr
   const account = accountId ? getAccount(accountId) : getDefaultAccount()
 
   if (account.isNone()) {
-    return Left({
-      type: "config" as const,
+    return Left<AuthError, string>({
+      type: "config",
       message: accountId ? `Account "${accountId}" not found` : "No accounts registered. Use add_account first.",
     })
   }
@@ -104,11 +104,14 @@ export const getAccountToken = async (accountId?: string): Promise<Either<AuthEr
   try {
     const token = await acct.credential.getToken(GRAPH_DEFAULT_SCOPE)
     if (!token?.token) {
-      return Left({ type: "token" as const, message: `Failed to acquire token for account "${acct.id}"` })
+      return Left<AuthError, string>({ type: "token", message: `Failed to acquire token for account "${acct.id}"` })
     }
     return Right(token.token)
   } catch (e) {
-    return Left({ type: "token" as const, message: `Token acquisition failed for account "${acct.id}": ${String(e)}` })
+    return Left<AuthError, string>({
+      type: "token",
+      message: `Token acquisition failed for account "${acct.id}": ${String(e)}`,
+    })
   }
 }
 
