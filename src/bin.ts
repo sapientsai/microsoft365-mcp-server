@@ -1,6 +1,12 @@
 #!/usr/bin/env node
-// stdout is reserved for MCP JSON-RPC in stdio mode — redirect console.log to stderr
+// stdout is reserved for MCP JSON-RPC in stdio mode — route all console output to stderr.
+// functype-log/loglayer's ConsoleTransport routes .info() to console.info (stdout by default),
+// which corrupts the JSON-RPC stream. Rebind every non-error method at the singleton.
 console.log = console.error
+console.info = console.error
+console.debug = console.error
+console.warn = console.error
+console.trace = console.error
 
 declare const __VERSION__: string
 

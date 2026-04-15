@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "microsoft365-mcp-server",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "description": "Microsoft 365 MCP server — manage email, calendar, contacts, files, Teams, Planner, OneNote, To Do via Microsoft Graph API",
   "display_name": "Microsoft 365",
   "author": {
