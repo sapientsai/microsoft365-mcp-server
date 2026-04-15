@@ -6,8 +6,9 @@ type OAuthSessionContext = { accessToken?: string }
 import type { Either } from "functype/either"
 import { z } from "zod"
 
-import { initializeAuth } from "./auth"
+import { getAccessToken, initializeAuth } from "./auth"
 import { createAzureAuthProvider } from "./auth/oauth-provider"
+import { GRAPH_API_BASE } from "./auth/scopes"
 import { withToken } from "./auth/token-context"
 import { initializeGraphClient } from "./client/graph-client"
 import {
@@ -29,6 +30,7 @@ import {
   getPageContent,
   getPlannerTask,
   getSite,
+  getUploadConfig,
   getUser,
   graphQuery,
   listAccountsTool,
@@ -69,11 +71,14 @@ import {
   updatePlannerTask,
   updateTodoTask,
   uploadFile,
+  uploadFileFromPath,
 } from "./tools"
 import type { ToolDefinition } from "./tools/tool-definitions"
 import { filterTools, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
+import { decodeBase64Upload, MAX_UPLOAD_SIZE, sessionUpload, SIMPLE_UPLOAD_LIMIT, simpleUpload } from "./upload/upload"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
+import { filenameFromPath, resolveUploadContentType } from "./utils/upload-helpers"
 
 dotenv.config({ quiet: true })
 
@@ -154,11 +159,12 @@ const unwrapResult = <T>(result: Either<UserError, T>): T =>
   )
 /* eslint-enable functype/prefer-either */
 
-const resolveFilterConfig = (): ToolFilterConfig => ({
+const resolveFilterConfig = (transport: "stdio" | "httpStream"): ToolFilterConfig => ({
   presets: process.env.MS365_PRESETS?.split(",").map((s) => s.trim()),
   enabledPattern: process.env.MS365_ENABLED_TOOLS,
   readOnly: process.env.MS365_READ_ONLY === "true",
   orgMode: process.env.MS365_ORG_MODE === "true",
+  transport,
 })
 
 const FETCH_ALL_PAGES_PARAM = z.boolean().optional().describe("Fetch all pages of results (max 50 pages)")
@@ -486,7 +492,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "upload_file",
     description:
-      "Upload a file to OneDrive. For text files, pass content directly. For binary files, pass base64-encoded content with content_type 'application/octet-stream'. Max ~4MB via this tool.",
+      "Upload a small (<1 MB) file to OneDrive inline via the MCP tool call. For anything larger or binary (docx, pdf, images), call get_upload_config instead and POST the file out-of-band — much faster over stdio.",
     parameters: z.object({
       path: z
         .string()
@@ -498,6 +504,51 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe("MIME type (default: text/plain). Use application/octet-stream for base64 binary."),
     }),
     execute: async (params) => unwrapResult(await uploadFile(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "get_upload_config",
+    description:
+      "Get an authenticated upload URL + curl command for uploading files to OneDrive. Primary path for binary files or anything >1 MB. Pipe base64 file contents to the returned URL via POST; the server decodes and streams to Microsoft Graph (chunked session upload for >4 MB, up to 250 MB). Intermediate folders are auto-created.",
+    parameters: z.object({
+      path: z
+        .string()
+        .describe(
+          "Graph API destination path ending with :/content (e.g., /me/drive/root:/Documents/file.docx:/content)",
+        ),
+      localFile: z
+        .string()
+        .optional()
+        .describe("Local file path to include in the curl example. If omitted, a placeholder is used."),
+      contentType: z.string().optional().describe("MIME type override. Auto-detected from file extension if omitted."),
+      conflictBehavior: z
+        .enum(["rename", "replace", "fail"])
+        .optional()
+        .describe('Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns an error'),
+    }),
+    execute: async (params) => unwrapResult(await getUploadConfig(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "upload_file_from_path",
+    description:
+      "Upload a local file to OneDrive by reading it from disk on the server. Primary upload path for stdio mode (Claude Desktop) — the MCP server runs locally, so it can read the file directly and stream to Microsoft Graph without base64-over-stdio overhead. Supports files up to 250 MB (chunked session upload above 4 MB). Intermediate folders are auto-created.",
+    parameters: z.object({
+      local_path: z.string().describe("Absolute path to the local file to upload"),
+      path: z
+        .string()
+        .describe(
+          "Graph API destination path ending with :/content (e.g., /me/drive/root:/Documents/file.docx:/content)",
+        ),
+      content_type: z.string().optional().describe("MIME type override. Auto-detected from file extension if omitted."),
+      conflict_behavior: z
+        .enum(["rename", "replace", "fail"])
+        .optional()
+        .describe('Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns an error'),
+    }),
+    execute: async (params) => unwrapResult(await uploadFileFromPath(params)),
     domain: "files",
     readOnly: false,
   },
@@ -973,7 +1024,8 @@ const buildInstructions = (allowedTools: Set<string>): string => {
     mail: "Mail: List, read, send, reply, search, and draft email messages",
     calendar: "Calendar: List, view, create, update, and delete events",
     contacts: "Contacts: List, view, create, and search contacts",
-    files: "Files: List, view, search, and download OneDrive files; create folders",
+    files:
+      "Files: List, view, search, download, and upload OneDrive files; create folders (use get_upload_config for >1 MB)",
     chats: "Chats: List Teams chats and messages; send chat messages",
     teams: "Teams: List teams, channels, and messages; send channel messages",
     users: "Users: View profiles and list users",
@@ -993,12 +1045,131 @@ const buildInstructions = (allowedTools: Set<string>): string => {
   return `A Microsoft 365 MCP server via Microsoft Graph API.\n\nAvailable capabilities:\n${capabilities}`
 }
 
+type UploadRequestContext = {
+  header: (name: string) => string | undefined
+  query: (name: string) => string | undefined
+  arrayBuffer: () => Promise<ArrayBuffer>
+}
+
+const resolveUploadAccessToken = async (
+  oauthMode: boolean,
+  bearer: string | undefined,
+): Promise<{ token?: string; error?: string; status?: number }> => {
+  if (oauthMode) {
+    if (!bearer) return { error: "Missing Bearer token", status: 401 }
+    return { token: bearer }
+  }
+
+  const sharedSecret = process.env.MS365_UPLOAD_TOKEN
+  if (sharedSecret && bearer !== sharedSecret) {
+    return { error: "Invalid upload token", status: 401 }
+  }
+
+  const result = await getAccessToken()
+  if (result.isLeft()) {
+    return { error: (result.value as { message: string }).message, status: 401 }
+  }
+  return { token: result.value as string }
+}
+
+const handleUpload = async (
+  req: UploadRequestContext,
+  oauthMode: boolean,
+): Promise<{ status: number; body: unknown }> => {
+  const path = req.query("path")
+  if (!path) return { status: 400, body: { error: "path query parameter is required" } }
+  if (!/:\/content$/i.test(path)) {
+    return { status: 400, body: { error: 'path must end with ":/content"' } }
+  }
+
+  const apiVersion = req.query("apiVersion") ?? "v1.0"
+  const conflictBehavior = req.query("conflictBehavior") ?? "rename"
+  const explicitContentType = req.query("contentType")
+  const encoding = req.query("encoding")
+
+  const authHeader = req.header("authorization") ?? req.header("Authorization")
+  const bearer = authHeader?.replace(/^Bearer\s+/i, "")
+  const auth = await resolveUploadAccessToken(oauthMode, bearer)
+  if (auth.error || !auth.token) {
+    return { status: auth.status ?? 401, body: { error: auth.error ?? "Unauthorized" } }
+  }
+
+  let rawBuffer: Buffer
+  try {
+    rawBuffer = Buffer.from(await req.arrayBuffer())
+  } catch (error) {
+    return {
+      status: 400,
+      body: { error: `Failed to read request body: ${error instanceof Error ? error.message : String(error)}` },
+    }
+  }
+  if (rawBuffer.length === 0) return { status: 400, body: { error: "Empty request body" } }
+
+  const buffer = encoding === "base64" ? decodeBase64Upload(rawBuffer) : rawBuffer
+  if (buffer.length === 0) return { status: 400, body: { error: "Invalid base64 content" } }
+  if (buffer.length > MAX_UPLOAD_SIZE) {
+    return { status: 413, body: { error: `File too large (max ${MAX_UPLOAD_SIZE} bytes)` } }
+  }
+
+  const filename = filenameFromPath(path)
+  const contentType = resolveUploadContentType(explicitContentType, filename)
+  const apiBase = `${GRAPH_API_BASE}/${apiVersion}`
+
+  console.error(
+    `[Upload] path=${path} bytes=${buffer.length} contentType=${contentType} mode=${buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}`,
+  )
+
+  const result =
+    buffer.length <= SIMPLE_UPLOAD_LIMIT
+      ? await simpleUpload(apiBase, path, auth.token, buffer, contentType, conflictBehavior)
+      : await sessionUpload(apiBase, path, auth.token, buffer, conflictBehavior)
+
+  if (result.isLeft()) {
+    const err = result.value as { message: string; status?: number }
+    return { status: err.status ?? 500, body: { error: err.message } }
+  }
+
+  return { status: 200, body: result.value }
+}
+
+const mountUploadRoute = (server: FastMCP, oauthMode: boolean): void => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hono app surface
+  const app: any = (server as unknown as { getApp?: () => unknown }).getApp?.()
+  if (!app) {
+    console.error("[Upload] FastMCP.getApp() unavailable; /upload endpoint not mounted")
+    return
+  }
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const handler = async (c: any) => {
+    try {
+      const result = await handleUpload(c.req as UploadRequestContext, oauthMode)
+      return c.json(result.body, result.status)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error"
+      console.error("[Upload] unhandled error:", message)
+      return c.json({ error: message }, 500)
+    }
+  }
+
+  app.post("/upload", handler)
+  app.put("/upload", handler)
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  console.error("[Setup] /upload endpoint mounted (POST, PUT)")
+}
+
 // === Server Startup ===
 const main = async () => {
   const authConfig = resolveAuthConfig()
   const oauthMode = authConfig.mode === "oauth-proxy"
 
-  const filterConfig = resolveFilterConfig()
+  const transport: "stdio" | "httpStream" = oauthMode
+    ? "httpStream"
+    : process.env.TRANSPORT_TYPE === "httpStream"
+      ? "httpStream"
+      : "stdio"
+
+  const filterConfig = resolveFilterConfig(transport)
   const allowedTools = filterTools(filterConfig)
 
   if (oauthMode) {
@@ -1021,6 +1192,7 @@ const main = async () => {
     initializeGraphClient()
 
     registerTools(server, allowedTools, true)
+    mountUploadRoute(server, true)
 
     const port = parseInt(process.env.PORT ?? "3000", 10)
     await server.start({ transportType: "httpStream", httpStream: { port } })
@@ -1040,6 +1212,7 @@ const main = async () => {
     const transportType = process.env.TRANSPORT_TYPE ?? "stdio"
 
     if (transportType === "httpStream") {
+      mountUploadRoute(server, false)
       const port = parseInt(process.env.PORT ?? "3000", 10)
       const host = process.env.HOST ?? "127.0.0.1"
       await server.start({ transportType: "httpStream", httpStream: { port } })

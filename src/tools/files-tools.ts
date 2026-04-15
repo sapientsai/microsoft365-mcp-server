@@ -1,10 +1,18 @@
+import { readFile, stat } from "node:fs/promises"
+import { basename } from "node:path"
+
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
+import { getAccessToken } from "../auth"
+import { GRAPH_API_BASE } from "../auth/scopes"
+import { getContextToken } from "../auth/token-context"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphDriveItem, ODataResponse } from "../types"
+import { MAX_UPLOAD_SIZE, sessionUpload, SIMPLE_UPLOAD_LIMIT, simpleUpload } from "../upload/upload"
 import { formatDriveItemDetail, formatDriveItemList } from "../utils/formatters"
+import { filenameFromPath, formatBytes, resolveUploadContentType } from "../utils/upload-helpers"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -107,6 +115,8 @@ export const createFolder = async (params: { parent_id: string; name: string }):
     .map((item) => `Folder created.\n\n${formatDriveItemDetail(item)}`)
 }
 
+const UPLOAD_FILE_MAX_BYTES = 1 * 1024 * 1024 // 1 MB — keep tool path for tiny uploads only
+
 export const uploadFile = async (params: {
   path: string
   content: string
@@ -115,8 +125,160 @@ export const uploadFile = async (params: {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.uploadFile(params.path, params.content, params.content_type ?? "text/plain")
+  const contentType = params.content_type ?? "text/plain"
+  const isBase64 = contentType === "application/octet-stream"
+  const decodedSize = isBase64
+    ? Buffer.from(params.content, "base64").length
+    : Buffer.byteLength(params.content, "utf8")
+
+  if (decodedSize > UPLOAD_FILE_MAX_BYTES) {
+    return Left(
+      new UserError(
+        `File too large for upload_file (${decodedSize} bytes > 1 MB). Call get_upload_config and POST via HTTP instead.`,
+      ),
+    )
+  }
+
+  const result = await client.uploadFile(params.path, params.content, contentType)
   return result
     .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))
     .map((item) => `File uploaded.\n\n${formatDriveItemDetail(item)}`)
+}
+
+export const getUploadConfig = async (params: {
+  path: string
+  localFile?: string
+  contentType?: string
+  conflictBehavior?: "rename" | "replace" | "fail"
+}): Promise<Either<UserError, string>> => {
+  await Promise.resolve()
+  if (!/:\/content$/i.test(params.path)) {
+    return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
+  }
+
+  const baseUrl = resolveUploadBaseUrl()
+  if (!baseUrl) {
+    return Left(
+      new UserError(
+        "Upload endpoint base URL not configured. Set MS365_PUBLIC_BASE_URL (or MS365_OAUTH_BASE_URL in oauth-proxy mode), or run with TRANSPORT_TYPE=httpStream.",
+      ),
+    )
+  }
+
+  const filename = filenameFromPath(params.path)
+  const contentType = resolveUploadContentType(params.contentType, filename)
+  const conflictBehavior = params.conflictBehavior ?? "rename"
+  const localFile = params.localFile ?? "{local_file_path}"
+
+  const query = new URLSearchParams({
+    path: params.path,
+    conflictBehavior,
+    contentType,
+    encoding: "base64",
+  })
+  const uploadUrl = `${baseUrl}/upload?${query.toString()}`
+
+  const token = getContextToken() ?? process.env.MS365_UPLOAD_TOKEN
+  const authHeader = token ? `Authorization: Bearer ${token}` : undefined
+
+  const curlParts = [
+    `base64 "${localFile}" | tr -d '\\n'`,
+    "| curl -X POST",
+    authHeader ? `-H "${authHeader}"` : undefined,
+    `-H "Content-Type: text/plain"`,
+    `--data-binary @-`,
+    `"${uploadUrl}"`,
+  ]
+    .filter(Boolean)
+    .join(" \\\n  ")
+
+  const payload = {
+    uploadUrl,
+    method: "POST",
+    contentType,
+    conflictBehavior,
+    maxSize: "250 MB",
+    encoding: "base64",
+    ...(authHeader ? { authHeader } : {}),
+    curl: curlParts,
+    notes: [
+      "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
+      "Server decodes base64, then PUTs to Microsoft Graph (simple PUT up to 4 MB; chunked session upload above).",
+      "Intermediate folders in the Graph path are auto-created.",
+    ],
+  }
+
+  return Right(JSON.stringify(payload, null, 2))
+}
+
+export const uploadFileFromPath = async (params: {
+  local_path: string
+  path: string
+  content_type?: string
+  conflict_behavior?: "rename" | "replace" | "fail"
+}): Promise<Either<UserError, string>> => {
+  if (!/:\/content$/i.test(params.path)) {
+    return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
+  }
+
+  const stats = await stat(params.local_path).catch((error: unknown) => error as Error)
+  if (stats instanceof Error) {
+    return Left(new UserError(`Cannot read local file: ${stats.message}`))
+  }
+  if (!stats.isFile()) {
+    return Left(new UserError(`local_path is not a regular file: ${params.local_path}`))
+  }
+  if (stats.size > MAX_UPLOAD_SIZE) {
+    return Left(new UserError(`File too large (${formatBytes(stats.size)}, max ${formatBytes(MAX_UPLOAD_SIZE)})`))
+  }
+
+  const buffer = await readFile(params.local_path).catch((error: unknown) => error as Error)
+  if (buffer instanceof Error) {
+    return Left(new UserError(`Failed to read local file: ${buffer.message}`))
+  }
+
+  const sessionToken = getContextToken()
+  const resolvedToken =
+    sessionToken ??
+    (await (async () => {
+      const result = await getAccessToken()
+      return result.fold<string | undefined>(
+        () => undefined,
+        (value) => value as string,
+      )
+    })())
+  if (!resolvedToken) {
+    return Left(new UserError("No access token available. Check authentication mode."))
+  }
+
+  const filename = filenameFromPath(params.path) ?? basename(params.local_path)
+  const contentType = resolveUploadContentType(params.content_type, filename)
+  const conflictBehavior = params.conflict_behavior ?? "rename"
+  const apiBase = `${GRAPH_API_BASE}/v1.0`
+
+  console.error(
+    `[Upload] local=${params.local_path} bytes=${buffer.length} contentType=${contentType} mode=${buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}`,
+  )
+
+  const result =
+    buffer.length <= SIMPLE_UPLOAD_LIMIT
+      ? await simpleUpload(apiBase, params.path, resolvedToken, buffer, contentType, conflictBehavior)
+      : await sessionUpload(apiBase, params.path, resolvedToken, buffer, conflictBehavior)
+
+  return result
+    .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))
+    .map((item) => `File uploaded (${formatBytes(buffer.length)}).\n\n${formatDriveItemDetail(item)}`)
+}
+
+const resolveUploadBaseUrl = (): string | undefined => {
+  const explicit = process.env.MS365_PUBLIC_BASE_URL ?? process.env.MS365_OAUTH_BASE_URL
+  if (explicit) return explicit.replace(/\/$/, "")
+
+  if (process.env.TRANSPORT_TYPE === "httpStream" || process.env.MS365_AUTH_MODE === "oauth-proxy") {
+    const port = process.env.PORT ?? "3000"
+    const host = process.env.HOST ?? "127.0.0.1"
+    return `http://${host}:${port}`
+  }
+
+  return undefined
 }

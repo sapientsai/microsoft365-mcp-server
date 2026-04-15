@@ -436,9 +436,12 @@ const createGraphClient = () => {
     const version = defaultVersion()
     const url = `${GRAPH_API_BASE}/${version}${path}`
 
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 60_000)
+
     // eslint-disable-next-line functype/prefer-either -- boundary: fetch API
     try {
-      const body = contentType === "application/octet-stream" ? Buffer.from(content, "base64") : content
+      const body = contentType === "application/octet-stream" ? new Uint8Array(Buffer.from(content, "base64")) : content
       const response = await fetch(url, {
         method: "PUT",
         headers: {
@@ -446,6 +449,7 @@ const createGraphClient = () => {
           "Content-Type": contentType,
         },
         body,
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -455,10 +459,15 @@ const createGraphClient = () => {
       const text = await response.text()
       return parseJsonResponse<GraphDriveItem>(text)
     } catch (error) {
+      const isAbort = error instanceof Error && error.name === "AbortError"
       return Left<GraphApiError, GraphDriveItem>({
         type: "network",
-        message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
+        message: isAbort
+          ? "Upload timed out after 60s"
+          : `Network error: ${error instanceof Error ? error.message : String(error)}`,
       })
+    } finally {
+      clearTimeout(timeout)
     }
   }
 

@@ -2,7 +2,16 @@ export { getAuthStatusTool, listAccountsTool, setAccessTokenTool, switchAccountT
 export { createEvent, deleteEvent, getEvent, listEvents, updateEvent } from "./calendar-tools"
 export { listChatMessages, listChats, sendChatMessage } from "./chat-tools"
 export { createContact, getContact, listContacts, searchContacts } from "./contacts-tools"
-export { createFolder, downloadFile, getDriveItem, listDriveItems, searchFiles, uploadFile } from "./files-tools"
+export {
+  createFolder,
+  downloadFile,
+  getDriveItem,
+  getUploadConfig,
+  listDriveItems,
+  searchFiles,
+  uploadFile,
+  uploadFileFromPath,
+} from "./files-tools"
 export { graphQuery } from "./graph-query-tools"
 export { getGroup, listGroupMembers, listGroups } from "./groups-tools"
 export {

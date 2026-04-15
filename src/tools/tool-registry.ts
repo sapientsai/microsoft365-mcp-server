@@ -13,11 +13,14 @@ export type ToolDomain =
   | "todo"
   | "query"
 
+export type TransportMode = "stdio" | "httpStream"
+
 export type ToolMeta = {
   readonly name: string
   readonly domain: ToolDomain
   readonly readOnly: boolean
   readonly orgOnly: boolean
+  readonly transportOnly?: TransportMode
 }
 
 export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {
@@ -73,6 +76,8 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "download_file", domain: "files", readOnly: true, orgOnly: false },
   { name: "create_folder", domain: "files", readOnly: false, orgOnly: false },
   { name: "upload_file", domain: "files", readOnly: false, orgOnly: false },
+  { name: "get_upload_config", domain: "files", readOnly: false, orgOnly: false, transportOnly: "httpStream" },
+  { name: "upload_file_from_path", domain: "files", readOnly: false, orgOnly: false, transportOnly: "stdio" },
   // SharePoint
   { name: "list_sites", domain: "files", readOnly: true, orgOnly: true },
   { name: "get_site", domain: "files", readOnly: true, orgOnly: true },
@@ -121,6 +126,7 @@ export type ToolFilterConfig = {
   readonly enabledPattern?: string
   readonly readOnly?: boolean
   readonly orgMode?: boolean
+  readonly transport?: TransportMode
 }
 
 export const filterTools = (config: ToolFilterConfig): Set<string> => {
@@ -155,6 +161,9 @@ export const filterTools = (config: ToolFilterConfig): Set<string> => {
 
     // Regex filter: skip if doesn't match pattern
     if (enabledRegex && !enabledRegex.test(meta.name)) continue
+
+    // Transport filter: skip if tool is restricted to a different transport
+    if (meta.transportOnly && config.transport && meta.transportOnly !== config.transport) continue
 
     allowed.add(meta.name)
   }
