@@ -51,7 +51,14 @@ export const GRAPH_SCOPES = {
   // Uses Tasks.Read / Tasks.ReadWrite (same as Planner)
 } as const
 
+// OIDC / OAuth2 scopes (not Graph permissions).
+// OFFLINE_ACCESS: Azure AD issues a refresh token only when this scope is requested.
+export const OIDC_SCOPES = {
+  OFFLINE_ACCESS: "offline_access",
+} as const
+
 export const DEFAULT_INTERACTIVE_SCOPES: ReadonlyArray<string> = [
+  OIDC_SCOPES.OFFLINE_ACCESS,
   GRAPH_SCOPES.USER_READ,
   GRAPH_SCOPES.USER_READ_ALL,
   GRAPH_SCOPES.MAIL_READ,
