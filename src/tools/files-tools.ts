@@ -115,31 +115,50 @@ export const createFolder = async (params: { parent_id: string; name: string }):
     .map((item) => `Folder created.\n\n${formatDriveItemDetail(item)}`)
 }
 
-const UPLOAD_FILE_MAX_BYTES = 1 * 1024 * 1024 // 1 MB — keep tool path for tiny uploads only
+const UPLOAD_FILE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — Graph simple-PUT ceiling
+
+const BINARY_REDIRECT_MESSAGE =
+  "Binary uploads are not supported via upload_file. Use get_upload_config (HTTP/SSE deployments) or upload_file_from_path (stdio/local) instead — both stream binary directly to Graph without round-tripping bytes through the LLM."
+
+const TEXT_CONTENT_TYPE_ALLOWLIST = new Set([
+  "application/json",
+  "application/xml",
+  "application/javascript",
+  "application/x-www-form-urlencoded",
+])
+
+const isTextContentType = (contentType: string): boolean => {
+  const lower = contentType.toLowerCase().split(";")[0]?.trim() ?? ""
+  if (lower.startsWith("text/")) return true
+  if (TEXT_CONTENT_TYPE_ALLOWLIST.has(lower)) return true
+  if (lower.endsWith("+json") || lower.endsWith("+xml")) return true
+  return false
+}
 
 export const uploadFile = async (params: {
   path: string
   content: string
   content_type?: string
+  conflict_behavior?: "rename" | "replace" | "fail"
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   const contentType = params.content_type ?? "text/plain"
-  const isBase64 = contentType === "application/octet-stream"
-  const decodedSize = isBase64
-    ? Buffer.from(params.content, "base64").length
-    : Buffer.byteLength(params.content, "utf8")
+  if (!isTextContentType(contentType)) {
+    return Left(new UserError(BINARY_REDIRECT_MESSAGE))
+  }
 
-  if (decodedSize > UPLOAD_FILE_MAX_BYTES) {
+  const size = Buffer.byteLength(params.content, "utf8")
+  if (size > UPLOAD_FILE_MAX_BYTES) {
     return Left(
       new UserError(
-        `File too large for upload_file (${decodedSize} bytes > 1 MB). Call get_upload_config and POST via HTTP instead.`,
+        `Text content is ${size} bytes (> 4 MB simple-PUT limit). Use get_upload_config (HTTP/SSE) or upload_file_from_path (stdio) for larger files.`,
       ),
     )
   }
 
-  const result = await client.uploadFile(params.path, params.content, contentType)
+  const result = await client.uploadFile(params.path, params.content, contentType, params.conflict_behavior ?? "rename")
   return result
     .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))
     .map((item) => `File uploaded.\n\n${formatDriveItemDetail(item)}`)

@@ -492,16 +492,22 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "upload_file",
     description:
-      "Upload a small (<1 MB) file to OneDrive inline via the MCP tool call. For anything larger or binary (docx, pdf, images), call get_upload_config instead and POST the file out-of-band — much faster over stdio.",
+      "Upload TEXT content (plain text, markdown, CSV, JSON, HTML, XML) to OneDrive inline via this tool call. For binary files (docx, pdf, images, etc.), use get_upload_config (HTTP/SSE) or upload_file_from_path (stdio/local) — never base64-encode binary into this tool's content param. Max ~4 MB text.",
     parameters: z.object({
       path: z
         .string()
         .describe("Destination path in colon-path format (e.g., /me/drive/root:/Documents/file.txt:/content)"),
-      content: z.string().describe("File content (text or base64-encoded for binary)"),
+      content: z.string().describe("Text content to upload (UTF-8)"),
       content_type: z
         .string()
         .optional()
-        .describe("MIME type (default: text/plain). Use application/octet-stream for base64 binary."),
+        .describe(
+          "MIME type, default text/plain. Must be a text type (text/*, application/json, application/xml, application/javascript, *+json, *+xml). Binary types are rejected.",
+        ),
+      conflict_behavior: z
+        .enum(["rename", "replace", "fail"])
+        .optional()
+        .describe('Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns 409 on collision'),
     }),
     execute: async (params) => unwrapResult(await uploadFile(params)),
     domain: "files",

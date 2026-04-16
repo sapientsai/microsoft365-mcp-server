@@ -418,11 +418,12 @@ const createGraphClient = () => {
   const updateTodoTask = (listId: string, taskId: string, task: Record<string, unknown>) =>
     request<GraphTodoTask>("PATCH", `/me/todo/lists/${listId}/tasks/${taskId}`, { body: task })
 
-  // File upload (raw content, not JSON)
+  // Text-only file upload. Binary uploads must use get_upload_config (httpStream) or upload_file_from_path (stdio).
   const uploadFile = async (
     path: string,
     content: string,
     contentType: string = "text/plain",
+    conflictBehavior: "rename" | "replace" | "fail" = "rename",
   ): Promise<Either<GraphApiError, GraphDriveItem>> => {
     const tokenResult = await getAccessToken()
     if (tokenResult.isLeft()) {
@@ -434,21 +435,21 @@ const createGraphClient = () => {
 
     const token = tokenResult.value as string
     const version = defaultVersion()
-    const url = `${GRAPH_API_BASE}/${version}${path}`
+    const separator = path.includes("?") ? "&" : "?"
+    const url = `${GRAPH_API_BASE}/${version}${path}${separator}@microsoft.graph.conflictBehavior=${conflictBehavior}`
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 60_000)
 
     // eslint-disable-next-line functype/prefer-either -- boundary: fetch API
     try {
-      const body = contentType === "application/octet-stream" ? new Uint8Array(Buffer.from(content, "base64")) : content
       const response = await fetch(url, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": contentType,
         },
-        body,
+        body: content,
         signal: controller.signal,
       })
 
