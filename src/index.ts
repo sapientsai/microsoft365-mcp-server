@@ -540,7 +540,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "upload_file_from_path",
     description:
-      "Upload a local file to OneDrive by reading it from disk on the server. Primary upload path for stdio mode (Claude Desktop) — the MCP server runs locally, so it can read the file directly and stream to Microsoft Graph without base64-over-stdio overhead. Supports files up to 250 MB (chunked session upload above 4 MB). Intermediate folders are auto-created.",
+      "Upload a local file to OneDrive by reading it from disk on the server. The file must exist on this machine's filesystem. If you generated the file in a cloud container (e.g., claude.ai), first use Desktop Commander's write_file to save it to the user's local filesystem, then call this tool with that local path. Supports files up to 250 MB (chunked session upload above 4 MB). Intermediate folders are auto-created.",
     parameters: z.object({
       local_path: z.string().describe("Absolute path to the local file to upload"),
       path: z
@@ -1023,6 +1023,28 @@ const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: bo
   console.error(`[Setup] Tools registered: ${registered}, skipped: ${skipped}`)
 }
 
+const buildUploadWorkflow = (allowedTools: Set<string>): string => {
+  const hasFromPath = allowedTools.has("upload_file_from_path")
+  const hasUploadConfig = allowedTools.has("get_upload_config")
+
+  const bullets: string[] = ["- Text content → upload_file (inline text, any transport)"]
+
+  if (hasFromPath) {
+    bullets.push(
+      "- Binary files from the server's local disk → upload_file_from_path (requires absolute path on this machine)",
+      "- Binary files generated in a cloud container (e.g., claude.ai) → first save to the user's local filesystem using Desktop Commander's write_file, then call upload_file_from_path with that local path",
+    )
+  }
+
+  if (hasUploadConfig) {
+    bullets.push(
+      "- Binary files from HTTP/SSE deployments → get_upload_config returns an authenticated URL + curl command; execute the curl in a shell to upload without routing bytes through the LLM",
+    )
+  }
+
+  return `\n\nUpload workflows:\n${bullets.join("\n")}`
+}
+
 const buildInstructions = (allowedTools: Set<string>): string => {
   const domains = new Set(toolDefinitions.filter((t) => allowedTools.has(t.name)).map((t) => t.domain))
   const domainDescriptions: Record<string, string> = {
@@ -1031,7 +1053,7 @@ const buildInstructions = (allowedTools: Set<string>): string => {
     calendar: "Calendar: List, view, create, update, and delete events",
     contacts: "Contacts: List, view, create, and search contacts",
     files:
-      "Files: List, view, search, download, and upload OneDrive files; create folders (use get_upload_config for >1 MB)",
+      "Files: List, view, search, download OneDrive files; create folders; upload files (see Upload workflows below)",
     chats: "Chats: List Teams chats and messages; send chat messages",
     teams: "Teams: List teams, channels, and messages; send channel messages",
     users: "Users: View profiles and list users",
@@ -1048,7 +1070,9 @@ const buildInstructions = (allowedTools: Set<string>): string => {
     .map((desc) => `- ${desc}`)
     .join("\n")
 
-  return `A Microsoft 365 MCP server via Microsoft Graph API.\n\nAvailable capabilities:\n${capabilities}`
+  const uploadSection = domains.has("files") ? buildUploadWorkflow(allowedTools) : ""
+
+  return `A Microsoft 365 MCP server via Microsoft Graph API.\n\nAvailable capabilities:\n${capabilities}${uploadSection}`
 }
 
 type UploadRequestContext = {

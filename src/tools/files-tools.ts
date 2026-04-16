@@ -20,6 +20,9 @@ const requireClient = () => {
   return client.orThrow()
 }
 
+const isENOENT = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && "code" in error && (error as { code: unknown }).code === "ENOENT"
+
 const TEXT_MIME_PREFIXES = ["text/", "application/json", "application/xml", "application/javascript"]
 const MAX_INLINE_SIZE = 100 * 1024 // 100KB
 
@@ -240,8 +243,11 @@ export const uploadFileFromPath = async (params: {
     return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
   }
 
+  const fileNotFoundMessage = `File not found: ${params.local_path}. If this file was generated in a cloud environment (e.g., claude.ai), use Desktop Commander's write_file to save it to the local filesystem first, then retry.`
+
   const stats = await stat(params.local_path).catch((error: unknown) => error as Error)
   if (stats instanceof Error) {
+    if (isENOENT(stats)) return Left(new UserError(fileNotFoundMessage))
     return Left(new UserError(`Cannot read local file: ${stats.message}`))
   }
   if (!stats.isFile()) {
@@ -253,6 +259,7 @@ export const uploadFileFromPath = async (params: {
 
   const buffer = await readFile(params.local_path).catch((error: unknown) => error as Error)
   if (buffer instanceof Error) {
+    if (isENOENT(buffer)) return Left(new UserError(fileNotFoundMessage))
     return Left(new UserError(`Failed to read local file: ${buffer.message}`))
   }
 
