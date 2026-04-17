@@ -1,0 +1,149 @@
+diff --git a/dist/chunk-UVX47AE5.js b/dist/chunk-UVX47AE5.js
+index bf9a9c2e0901baaff50870baa700a607b7f85d53..aecd57b6a8bec785b4da2fdf42472909366ee298 100644
+--- a/dist/chunk-UVX47AE5.js
++++ b/dist/chunk-UVX47AE5.js
+@@ -1711,8 +1711,7 @@ var FastMCP = class extends FastMCPEventEmitter {
+     try {
+       const webRequest = this.#nodeRequestToWebRequest(req, url);
+       const honoResponse = await this.#honoApp.fetch(webRequest, {
+-        incoming: req,
+-        outgoing: res
++        incoming: req
+       });
+       if (honoResponse.status !== 404) {
+         if (!res.headersSent) {
+@@ -1816,27 +1815,29 @@ var FastMCP = class extends FastMCPEventEmitter {
+     }
+     const oauthProxy = oauthConfig?.proxy;
+     if (oauthProxy && oauthConfig?.enabled) {
++      if (res.headersSent) return;
+       const url2 = new URL(req.url || "", `http://${host}`);
+       try {
+         if (req.method === "POST" && url2.pathname === "/oauth/register") {
+-          let body = "";
+-          req.on("data", (chunk) => body += chunk);
+-          req.on("end", async () => {
+-            try {
+-              const request = JSON.parse(body);
+-              const response = await oauthProxy.registerClient(request);
+-              res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify(response));
+-            } catch (error) {
+-              const statusCode = error.statusCode || 400;
+-              res.writeHead(statusCode, { "Content-Type": "application/json" }).end(
+-                JSON.stringify(
+-                  error.toJSON?.() || {
+-                    error: "invalid_request"
+-                  }
+-                )
+-              );
+-            }
++          const body = await new Promise((resolve) => {
++            let b = "";
++            req.on("data", (chunk) => b += chunk);
++            req.on("end", () => resolve(b));
+           });
++          try {
++            const request = JSON.parse(body);
++            const response = await oauthProxy.registerClient(request);
++            res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify(response));
++          } catch (error) {
++            const statusCode = error.statusCode || 400;
++            res.writeHead(statusCode, { "Content-Type": "application/json" }).end(
++              JSON.stringify(
++                error.toJSON?.() || {
++                  error: "invalid_request"
++                }
++              )
++            );
++          }
+           return;
+         }
+         if (req.method === "GET" && url2.pathname === "/oauth/authorize") {
+@@ -1886,43 +1887,46 @@ var FastMCP = class extends FastMCPEventEmitter {
+           return;
+         }
+         if (req.method === "POST" && url2.pathname === "/oauth/consent") {
+-          let body = "";
+-          req.on("data", (chunk) => body += chunk);
+-          req.on("end", async () => {
+-            try {
+-              const mockRequest = new Request(`http://${host}/oauth/consent`, {
+-                body,
+-                headers: {
+-                  "Content-Type": "application/x-www-form-urlencoded"
+-                },
+-                method: "POST"
+-              });
+-              const response = await oauthProxy.handleConsent(mockRequest);
+-              const location = response.headers.get("Location");
+-              if (location) {
+-                res.writeHead(response.status, { Location: location }).end();
+-              } else {
+-                const text = await response.text();
+-                res.writeHead(response.status).end(text);
+-              }
+-            } catch (error) {
+-              res.writeHead(400, { "Content-Type": "application/json" }).end(
+-                JSON.stringify(
+-                  error.toJSON?.() || {
+-                    error: "server_error"
+-                  }
+-                )
+-              );
+-            }
++          const body = await new Promise((resolve) => {
++            let b = "";
++            req.on("data", (chunk) => b += chunk);
++            req.on("end", () => resolve(b));
+           });
++          try {
++            const mockRequest = new Request(`http://${host}/oauth/consent`, {
++              body,
++              headers: {
++                "Content-Type": "application/x-www-form-urlencoded"
++              },
++              method: "POST"
++            });
++            const response = await oauthProxy.handleConsent(mockRequest);
++            const location = response.headers.get("Location");
++            if (location) {
++              res.writeHead(response.status, { Location: location }).end();
++            } else {
++              const text = await response.text();
++              res.writeHead(response.status).end(text);
++            }
++          } catch (error) {
++            res.writeHead(400, { "Content-Type": "application/json" }).end(
++              JSON.stringify(
++                error.toJSON?.() || {
++                  error: "server_error"
++                }
++              )
++            );
++          }
+           return;
+         }
+         if (req.method === "POST" && url2.pathname === "/oauth/token") {
+-          let body = "";
+-          req.on("data", (chunk) => body += chunk);
+-          req.on("end", async () => {
+-            try {
+-              const params = new URLSearchParams(body);
++          const body = await new Promise((resolve) => {
++            let b = "";
++            req.on("data", (chunk) => b += chunk);
++            req.on("end", () => resolve(b));
++          });
++          try {
++            const params = new URLSearchParams(body);
+               const grantType = params.get("grant_type");
+               const basicAuth = parseBasicAuthHeader(req.headers.authorization);
+               const clientId = basicAuth?.clientId || params.get("client_id") || "";
+@@ -1962,7 +1966,6 @@ var FastMCP = class extends FastMCPEventEmitter {
+                 )
+               );
+             }
+-          });
+           return;
+         }
+       } catch (error) {

@@ -1,0 +1,2 @@
+patchedDependencies:
+  fastmcp@4.0.0: patches/fastmcp@4.0.0.patch
