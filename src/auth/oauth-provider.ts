@@ -15,8 +15,19 @@ const tokenStorage = new DiskStore({
 })
 
 // fastmcp v4 defaults allowedRedirectUriPatterns to [] (rejects all DCR).
-// Explicit allow-list for Claude.ai clients; override via env for others.
-const DEFAULT_REDIRECT_URI_PATTERNS: ReadonlyArray<string> = ["https://claude.ai/*", "https://claude.com/*"]
+// Explicit allow-list:
+//   - Claude.ai / Claude.com (browser clients)
+//   - IPv4 loopback per RFC 8252 §7.3 for native clients (Claude Code CLI binds
+//     http://localhost or http://127.0.0.1 on a random port per run).
+// Override via MS365_ALLOWED_REDIRECT_URI_PATTERNS for other deployments.
+const DEFAULT_REDIRECT_URI_PATTERNS: ReadonlyArray<string> = [
+  "https://claude.ai/*",
+  "https://claude.com/*",
+  "http://localhost/*",
+  "http://localhost:*/*",
+  "http://127.0.0.1/*",
+  "http://127.0.0.1:*/*",
+]
 
 const resolveAllowedRedirectUriPatterns = (): ReadonlyArray<string> => {
   const fromEnv = process.env.MS365_ALLOWED_REDIRECT_URI_PATTERNS
