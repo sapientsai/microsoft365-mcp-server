@@ -1,5 +1,5 @@
 # Build stage
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
@@ -12,7 +12,7 @@ COPY . .
 RUN pnpm build
 
 # Production stage
-FROM node:22-alpine AS production
+FROM node:24-alpine AS production
 
 ARG GIT_HASH=""
 ENV GIT_HASH=${GIT_HASH}

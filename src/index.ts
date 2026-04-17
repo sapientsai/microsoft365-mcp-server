@@ -1216,6 +1216,7 @@ const main = async () => {
       version: VERSION,
       instructions: buildInstructions(allowedTools),
       auth: provider,
+      health: { enabled: true, path: "/ping", message: "ok" },
     } as never)
 
     // Initialize graph client without credential-based auth (tokens come from session)
@@ -1235,6 +1236,7 @@ const main = async () => {
       name: "microsoft365-mcp-server",
       version: VERSION,
       instructions: buildInstructions(allowedTools),
+      health: { enabled: true, path: "/ping", message: "ok" },
     })
 
     registerTools(server, allowedTools, false)
