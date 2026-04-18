@@ -21,9 +21,11 @@ fastmcp's OAuth proxy handlers (`/oauth/register`, `/oauth/consent`, `/oauth/tok
 use this pattern:
 
 ```js
-req.on("data", (chunk) => body += chunk);
-req.on("end", async () => { /* write response */ });
-return;  // handler returns before response is written
+req.on("data", (chunk) => (body += chunk))
+req.on("end", async () => {
+  /* write response */
+})
+return // handler returns before response is written
 ```
 
 That works only under mcp-proxy's pre-6.4.5 contract, where `onUnhandledRequest` was

@@ -227,6 +227,7 @@ export const getUploadConfig = async (params: {
       "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
       "Server decodes base64, then PUTs to Microsoft Graph (simple PUT up to 4 MB; chunked session upload above).",
       "Intermediate folders in the Graph path are auto-created.",
+      "Known issue: curl from claude.ai code-execution sandbox may return HTTP 503 'DNS cache overflow' on binary bodies >~40KB — this is a sandbox egress-proxy bug, not a server error. If this occurs, the upload likely did not succeed; retry from a local shell (WSL/VM/Claude Code CLI). For text/markdown/JSON, prefer the upload_file MCP tool instead (different egress path).",
     ],
   }
 

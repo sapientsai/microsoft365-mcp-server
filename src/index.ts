@@ -516,7 +516,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "get_upload_config",
     description:
-      "Get an authenticated upload URL + curl command for uploading files to OneDrive. Primary path for binary files or anything >1 MB. Pipe base64 file contents to the returned URL via POST; the server decodes and streams to Microsoft Graph (chunked session upload for >4 MB, up to 250 MB). Intermediate folders are auto-created.",
+      "Get an authenticated upload URL + curl command for uploading files to OneDrive. Primary path for binary files or anything >1 MB. Pipe base64 file contents to the returned URL via POST; the server decodes and streams to Microsoft Graph (chunked session upload for >4 MB, up to 250 MB). Intermediate folders are auto-created. Note: response includes operational caveats in notes — read before executing the curl, especially on failure.",
     parameters: z.object({
       path: z
         .string()
