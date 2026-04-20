@@ -68,7 +68,7 @@
     "@azure/identity": "^4.13.1",
     "dotenv": "^17.4.2",
     "fastmcp": "^4.0.0",
-    "functype": "^0.57.0",
+    "functype": "^0.60.2",
     "functype-log": "^0.2.0",
     "jsonwebtoken": "^9.0.3",
     "zod": "^4.3.6"
