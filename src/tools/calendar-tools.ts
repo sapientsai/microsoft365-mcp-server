@@ -57,6 +57,7 @@ export const createEvent = async (params: {
   content_type?: string
   attendees?: string
   is_draft?: boolean
+  online_meeting?: boolean
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -71,6 +72,10 @@ export const createEvent = async (params: {
   if (params.location) event.location = { displayName: params.location }
   if (params.body) event.body = { contentType: params.content_type ?? "Text", content: params.body }
   if (params.is_draft) event.isDraft = true
+  if (params.online_meeting) {
+    event.isOnlineMeeting = true
+    event.onlineMeetingProvider = "teamsForBusiness"
+  }
   if (params.attendees) {
     event.attendees = params.attendees.split(",").map((email) => ({
       emailAddress: { address: email.trim() },

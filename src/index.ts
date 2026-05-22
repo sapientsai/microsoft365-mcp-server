@@ -343,6 +343,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .boolean()
         .optional()
         .describe("Create as draft without sending invites to attendees (default: false)"),
+      online_meeting: z
+        .boolean()
+        .optional()
+        .describe("Add a Teams meeting to the event; joinUrl is returned in the event details (default: false)"),
     }),
     execute: async (params) => unwrapResult(await createEvent(params)),
     domain: "calendar",
