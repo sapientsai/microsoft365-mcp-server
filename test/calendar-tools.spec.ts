@@ -192,5 +192,36 @@ describe("calendar-tools", () => {
         end: { dateTime: "2026-04-07T15:00:00", timeZone: "America/Chicago" },
       })
     })
+
+    it("should update attendees from comma-separated string", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+      await updateEvent({
+        event_id: "evt-123",
+        attendees: "alice@example.com, bob@example.com",
+      })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
+        attendees: [
+          { emailAddress: { address: "alice@example.com" }, type: "required" },
+          { emailAddress: { address: "bob@example.com" }, type: "required" },
+        ],
+      })
+    })
+
+    it("should enable Teams meeting when online_meeting=true", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+      await updateEvent({ event_id: "evt-123", online_meeting: true })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
+        isOnlineMeeting: true,
+        onlineMeetingProvider: "teamsForBusiness",
+      })
+    })
+
+    it("should not send online meeting flags when online_meeting=false", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+      await updateEvent({ event_id: "evt-123", subject: "Renamed", online_meeting: false })
+      const updates = mockClient.updateEvent.mock.calls[0][1] as Record<string, unknown>
+      expect(updates).not.toHaveProperty("isOnlineMeeting")
+      expect(updates).not.toHaveProperty("onlineMeetingProvider")
+    })
   })
 })

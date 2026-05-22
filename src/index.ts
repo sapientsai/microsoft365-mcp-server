@@ -368,6 +368,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       location: z.string().optional().describe("New location"),
       body: z.string().optional().describe("New description"),
       content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
+      attendees: z
+        .string()
+        .optional()
+        .describe("Comma-separated email addresses; replaces the current attendee list when provided"),
+      online_meeting: z
+        .boolean()
+        .optional()
+        .describe(
+          "Add a Teams meeting to the event. One-way per Graph: once enabled it cannot be turned off or re-provisioned. Default: false.",
+        ),
     }),
     execute: async (params) => unwrapResult(await updateEvent(params)),
     domain: "calendar",

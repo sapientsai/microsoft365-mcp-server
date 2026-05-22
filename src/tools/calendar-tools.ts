@@ -104,6 +104,8 @@ export const updateEvent = async (params: {
   location?: string
   body?: string
   content_type?: string
+  attendees?: string
+  online_meeting?: boolean
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -116,6 +118,18 @@ export const updateEvent = async (params: {
   if (params.end) updates.end = { dateTime: params.end, timeZone }
   if (params.location) updates.location = { displayName: params.location }
   if (params.body) updates.body = { contentType: params.content_type ?? "Text", content: params.body }
+  if (params.attendees) {
+    updates.attendees = params.attendees.split(",").map((email) => ({
+      emailAddress: { address: email.trim() },
+      type: "required",
+    }))
+  }
+  // Graph constraint: once isOnlineMeeting is true, it cannot be set false or the provider changed.
+  // We only honor online_meeting=true; explicit false is a no-op (omitted from PATCH).
+  if (params.online_meeting) {
+    updates.isOnlineMeeting = true
+    updates.onlineMeetingProvider = "teamsForBusiness"
+  }
 
   const result = await client.updateEvent(params.event_id, updates)
   return result
