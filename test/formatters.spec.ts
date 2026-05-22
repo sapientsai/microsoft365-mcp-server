@@ -32,6 +32,7 @@ describe("formatters", () => {
       expect(result).toContain("Test Subject")
       expect(result).toContain("[Unread]")
       expect(result).toContain("[Attachments]")
+      expect(result).toContain("ID: msg-1")
     })
 
     it("should format empty message list", () => {
@@ -44,6 +45,7 @@ describe("formatters", () => {
       expect(result).toContain("john@example.com")
       expect(result).toContain("jane@example.com")
       expect(result).toContain("Hello World")
+      expect(result).toContain("- ID: msg-1")
     })
   })
 
@@ -65,6 +67,7 @@ describe("formatters", () => {
       expect(result).toContain("# Events")
       expect(result).toContain("Team Meeting")
       expect(result).toContain("@ Room A")
+      expect(result).toContain("ID: evt-1")
     })
 
     it("should format event detail", () => {
@@ -73,6 +76,7 @@ describe("formatters", () => {
       expect(result).toContain("alice@example.com")
       expect(result).toContain("bob@example.com")
       expect(result).toContain("(accepted)")
+      expect(result).toContain("- ID: evt-1")
     })
   })
 
@@ -109,6 +113,7 @@ describe("formatters", () => {
       expect(result).toContain("# To Do Tasks")
       expect(result).toContain("Buy groceries")
       expect(result).toContain("[notStarted]")
+      expect(result).toContain("ID: task-1")
     })
 
     it("should format todo task detail", () => {
@@ -116,6 +121,7 @@ describe("formatters", () => {
       expect(result).toContain("# Buy groceries")
       expect(result).toContain("notStarted")
       expect(result).toContain("high")
+      expect(result).toContain("- ID: task-1")
     })
   })
 })
