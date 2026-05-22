@@ -71,12 +71,14 @@ export const createEvent = async (params: {
 
   if (params.location) event.location = { displayName: params.location }
   if (params.body) event.body = { contentType: params.content_type ?? "Text", content: params.body }
-  if (params.is_draft) event.isDraft = true
   if (params.online_meeting) {
     event.isOnlineMeeting = true
     event.onlineMeetingProvider = "teamsForBusiness"
   }
-  if (params.attendees) {
+  // When is_draft=true, omit attendees so Graph does not send invitations on POST.
+  // The caller can add attendees later in Outlook and send the meeting from there;
+  // Graph has no API to dispatch deferred invites and `isDraft` is read-only.
+  if (params.attendees && !params.is_draft) {
     event.attendees = params.attendees.split(",").map((email) => ({
       emailAddress: { address: email.trim() },
       type: "required",
@@ -84,9 +86,13 @@ export const createEvent = async (params: {
   }
 
   const result = await client.createEvent(event)
+  const draftSuffix =
+    params.is_draft && params.attendees
+      ? "\n\n_Saved as draft: attendees were not invited. Open in Outlook to add attendees and send the meeting._"
+      : ""
   return result
     .mapLeft((error) => new UserError(`Failed to create event: ${error.message}`))
-    .map((evt) => `Event created.\n\n${formatEventDetail(evt)}`)
+    .map((evt) => `Event created.\n\n${formatEventDetail(evt)}${draftSuffix}`)
 }
 
 export const updateEvent = async (params: {

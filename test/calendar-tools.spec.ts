@@ -108,28 +108,13 @@ describe("calendar-tools", () => {
       )
     })
 
-    it("should create draft event with isDraft flag", async () => {
+    it("should never send isDraft to Graph (read-only per docs)", async () => {
       mockClient.createEvent.mockResolvedValue(Right(mockEvent))
       await createEvent({
         subject: "Draft Meeting",
         start: "2026-04-07T10:00:00",
         end: "2026-04-07T11:00:00",
         is_draft: true,
-      })
-      expect(mockClient.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          isDraft: true,
-        }),
-      )
-    })
-
-    it("should not set isDraft when is_draft is false", async () => {
-      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
-      await createEvent({
-        subject: "Meeting",
-        start: "2026-04-07T10:00:00",
-        end: "2026-04-07T11:00:00",
-        is_draft: false,
       })
       const callArg = mockClient.createEvent.mock.calls[0][0] as Record<string, unknown>
       expect(callArg).not.toHaveProperty("isDraft")
@@ -153,9 +138,9 @@ describe("calendar-tools", () => {
       )
     })
 
-    it("should create draft event with attendees without sending invites", async () => {
+    it("should omit attendees from Graph payload when is_draft=true", async () => {
       mockClient.createEvent.mockResolvedValue(Right(mockEvent))
-      await createEvent({
+      const result = await createEvent({
         subject: "Draft Meeting",
         start: "2026-04-07T10:00:00",
         end: "2026-04-07T11:00:00",
@@ -163,8 +148,9 @@ describe("calendar-tools", () => {
         is_draft: true,
       })
       const callArg = mockClient.createEvent.mock.calls[0][0] as Record<string, unknown>
-      expect(callArg).toHaveProperty("isDraft", true)
-      expect(callArg).toHaveProperty("attendees")
+      expect(callArg).not.toHaveProperty("attendees")
+      expect(callArg).not.toHaveProperty("isDraft")
+      expect(result.value).toContain("Saved as draft")
     })
   })
 

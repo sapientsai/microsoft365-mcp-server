@@ -342,7 +342,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       is_draft: z
         .boolean()
         .optional()
-        .describe("Create as draft without sending invites to attendees (default: false)"),
+        .describe(
+          "Save to your calendar without inviting attendees (any attendees param is ignored). " +
+            "Add attendees and send the meeting later from Outlook. Default: false.",
+        ),
       online_meeting: z
         .boolean()
         .optional()
