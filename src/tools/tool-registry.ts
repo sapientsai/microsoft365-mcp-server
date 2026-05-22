@@ -127,7 +127,10 @@ export type ToolFilterConfig = {
   readonly readOnly?: boolean
   readonly orgMode?: boolean
   readonly transport?: TransportMode
+  readonly requireDraft?: boolean
 }
+
+const DRAFT_BYPASS_TOOLS: ReadonlySet<string> = new Set(["send_message", "reply_to_message"])
 
 export const filterTools = (config: ToolFilterConfig): Set<string> => {
   const allowed = new Set<string>()
@@ -161,6 +164,9 @@ export const filterTools = (config: ToolFilterConfig): Set<string> => {
 
     // Transport filter: skip if tool is restricted to a different transport
     if (meta.transportOnly && config.transport && meta.transportOnly !== config.transport) continue
+
+    // Require-draft filter: skip mail tools that bypass the create_draft/send_draft flow
+    if (config.requireDraft && DRAFT_BYPASS_TOOLS.has(meta.name)) continue
 
     allowed.add(meta.name)
   }

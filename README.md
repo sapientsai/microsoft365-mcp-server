@@ -208,6 +208,7 @@ If not set, all tools are registered.
 MS365_ENABLED_TOOLS="mail|calendar"   # regex pattern — only matching tools registered
 MS365_READ_ONLY=true                  # hide all write tools (send, create, update, delete)
 MS365_ORG_MODE=true                   # enable org-only tools (teams, chats, groups, planner, list_users)
+MS365_REQUIRE_DRAFT=true              # hide send_message and reply_to_message; force create_draft/send_draft flow
 ```
 
 Org mode is required for Teams, Chats, Groups, Planner, and user listing. Without it, these tools are hidden to prevent 403 errors on personal accounts.
@@ -362,6 +363,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_ENABLED_TOOLS`  | Regex pattern to filter tools                                                           | --                  |
 | `MS365_READ_ONLY`      | Hide write tools                                                                        | `false`             |
 | `MS365_ORG_MODE`       | Enable org-only tools (teams, chats, groups, planner)                                   | `false`             |
+| `MS365_REQUIRE_DRAFT`  | Hide `send_message`/`reply_to_message`; force the create_draft/send_draft flow          | `false`             |
 | `TOKEN_STORAGE_PATH`   | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
 | `FASTMCP_HOST`         | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
 

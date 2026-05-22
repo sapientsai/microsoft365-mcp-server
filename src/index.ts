@@ -164,6 +164,7 @@ const resolveFilterConfig = (transport: "stdio" | "httpStream"): ToolFilterConfi
   enabledPattern: process.env.MS365_ENABLED_TOOLS,
   readOnly: process.env.MS365_READ_ONLY === "true",
   orgMode: process.env.MS365_ORG_MODE === "true",
+  requireDraft: process.env.MS365_REQUIRE_DRAFT === "true",
   transport,
 })
 
