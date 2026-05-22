@@ -10,8 +10,10 @@ export const fetchAllPages = async <T>(
   initialUrl: string,
 ): Promise<Either<GraphApiError, ReadonlyArray<T>>> => {
   const allItems: T[] = []
+  /* eslint-disable functype/no-let -- bounded paging loop; cursor and counter advance with each Graph @odata.nextLink */
   let currentUrl: string | null = initialUrl
   let pageCount = 0
+  /* eslint-enable functype/no-let */
 
   while (currentUrl && pageCount < MAX_PAGES) {
     const result = await fetchPage(currentUrl)

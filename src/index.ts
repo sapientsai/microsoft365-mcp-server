@@ -3,7 +3,7 @@ import type { UserError } from "fastmcp"
 import { FastMCP } from "fastmcp"
 // AzureSession shape: { accessToken: string; scopes: string[]; refreshToken?: string; upn?: string }
 type OAuthSessionContext = { accessToken?: string }
-import type { Either } from "functype/either"
+import { type Either, Left, Right } from "functype/either"
 import { z } from "zod"
 
 import { getAccessToken, initializeAuth } from "./auth"
@@ -1001,15 +1001,9 @@ const wrapExecute = (tool: ToolDefinition, oauthMode: boolean): never => {
 }
 
 const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: boolean) => {
-  let registered = 0
-  let skipped = 0
+  const toRegister = toolDefinitions.filter((tool) => allowedTools.has(tool.name))
 
-  for (const tool of toolDefinitions) {
-    if (!allowedTools.has(tool.name)) {
-      skipped++
-      continue
-    }
-
+  toRegister.forEach((tool) => {
     server.addTool({
       name: tool.name,
       description: tool.description,
@@ -1017,10 +1011,11 @@ const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: bo
       execute: wrapExecute(tool, oauthMode),
       annotations: tool.annotations,
     })
-    registered++
-  }
+  })
 
-  console.error(`[Setup] Tools registered: ${registered}, skipped: ${skipped}`)
+  console.error(
+    `[Setup] Tools registered: ${toRegister.length}, skipped: ${toolDefinitions.length - toRegister.length}`,
+  )
 }
 
 const buildUploadWorkflow = (allowedTools: Set<string>): string => {
@@ -1124,15 +1119,17 @@ const handleUpload = async (
     return { status: auth.status ?? 401, body: { error: auth.error ?? "Unauthorized" } }
   }
 
-  let rawBuffer: Buffer
-  try {
-    rawBuffer = Buffer.from(await req.arrayBuffer())
-  } catch (error) {
-    return {
-      status: 400,
-      body: { error: `Failed to read request body: ${error instanceof Error ? error.message : String(error)}` },
+  const rawBufferResult = await (async (): Promise<Either<string, Buffer>> => {
+    try {
+      return Right(Buffer.from(await req.arrayBuffer()))
+    } catch (error) {
+      return Left(`Failed to read request body: ${error instanceof Error ? error.message : String(error)}`)
     }
+  })()
+  if (rawBufferResult.isLeft()) {
+    return { status: 400, body: { error: rawBufferResult.value as string } }
   }
+  const rawBuffer = rawBufferResult.value as Buffer
   if (rawBuffer.length === 0) return { status: 400, body: { error: "Empty request body" } }
 
   const buffer = encoding === "base64" ? decodeBase64Upload(rawBuffer) : rawBuffer

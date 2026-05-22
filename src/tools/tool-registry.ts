@@ -144,10 +144,7 @@ export const filterTools = (config: ToolFilterConfig): Set<string> => {
     allowedDomains.add("auth")
   }
 
-  let enabledRegex: RegExp | undefined
-  if (config.enabledPattern) {
-    enabledRegex = new RegExp(config.enabledPattern, "i")
-  }
+  const enabledRegex: RegExp | undefined = config.enabledPattern ? new RegExp(config.enabledPattern, "i") : undefined
 
   for (const meta of TOOL_METADATA) {
     // Preset filter: skip if presets are set and domain not included

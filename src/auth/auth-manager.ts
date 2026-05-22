@@ -1,4 +1,5 @@
 import type { TokenCredential } from "@azure/identity"
+import { Ref } from "functype"
 import { type Either, Left, Right } from "functype/either"
 import { None, type Option, Some } from "functype/option"
 import jwt from "jsonwebtoken"
@@ -15,7 +16,7 @@ type MutableAuthState = {
   scopes: string[]
 }
 
-let authState: Option<MutableAuthState> = None()
+const authStateRef = Ref<Option<MutableAuthState>>(None())
 
 const parseJwtScopes = (token: string): ReadonlyArray<string> => {
   try {
@@ -50,17 +51,18 @@ export const initializeAuth = async (config: AuthConfig): Promise<Either<AuthErr
     return Left(testResult.value as AuthError)
   }
 
-  authState = Some({ credential, config, scopes: [] as string[] })
+  authStateRef.set(Some({ credential, config, scopes: [] as string[] }))
   return Right(true as const)
 }
 
-export const getAuthState = (): Option<MutableAuthState> => authState
+export const getAuthState = (): Option<MutableAuthState> => authStateRef.get()
 
-export const getCredential = (): Option<TokenCredential> => authState.map((s) => s.credential)
+export const getCredential = (): Option<TokenCredential> => authStateRef.get().map((s) => s.credential)
 
-export const getAuthMode = (): Option<AuthMode> => authState.map((s) => s.config.mode)
+export const getAuthMode = (): Option<AuthMode> => authStateRef.get().map((s) => s.config.mode)
 
 export const setAccessToken = (token: string, expiresOn?: Date): Either<AuthError, true> => {
+  const authState = authStateRef.get()
   if (authState.isNone()) {
     return Left<AuthError, true>({ type: "config", message: "Auth not initialized" })
   }
@@ -91,6 +93,7 @@ export const getAuthStatus = async (): Promise<Either<AuthError, AuthStatus>> =>
     return Right(status)
   }
 
+  const authState = authStateRef.get()
   if (authState.isNone()) {
     return Left<AuthError, AuthStatus>({ type: "config", message: "Auth not initialized" })
   }
@@ -148,6 +151,7 @@ export const getAccessToken = async (): Promise<Either<AuthError, string>> => {
     return Right(contextToken)
   }
 
+  const authState = authStateRef.get()
   if (authState.isNone()) {
     return Left<AuthError, string>({ type: "config", message: "Auth not initialized" })
   }
@@ -166,5 +170,5 @@ export const getAccessToken = async (): Promise<Either<AuthError, string>> => {
 
 // For testing: reset auth state
 export const resetAuth = (): void => {
-  authState = None()
+  authStateRef.set(None())
 }

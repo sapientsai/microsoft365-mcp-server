@@ -1,4 +1,4 @@
-import { None, type Option, Some } from "functype"
+import { None, type Option, Ref, Some } from "functype"
 import { type Either, Left, Right } from "functype/either"
 
 import { getAccessToken } from "../auth"
@@ -101,21 +101,19 @@ const createGraphClient = () => {
   }
 
   const mapHttpError = async <T>(response: Response): Promise<Either<GraphApiError, T>> => {
-    let graphErrorCode: string | undefined
-    let message = `Microsoft Graph API error: ${response.status} ${response.statusText}`
+    const fallbackMessage = `Microsoft Graph API error: ${response.status} ${response.statusText}`
 
-    // eslint-disable-next-line functype/prefer-either -- boundary: parsing error response body
-    try {
-      const errorBody = await response.json()
-      if (errorBody?.error?.message) {
-        message = errorBody.error.message as string
+    const { message, graphErrorCode } = await (async (): Promise<{ message: string; graphErrorCode?: string }> => {
+      try {
+        const errorBody = await response.json()
+        return {
+          message: (errorBody?.error?.message as string | undefined) ?? fallbackMessage,
+          graphErrorCode: errorBody?.error?.code as string | undefined,
+        }
+      } catch {
+        return { message: fallbackMessage }
       }
-      if (errorBody?.error?.code) {
-        graphErrorCode = errorBody.error.code as string
-      }
-    } catch {
-      // Could not parse error body
-    }
+    })()
 
     const retryAfter = response.headers.get("Retry-After")
 
@@ -560,12 +558,12 @@ const createGraphClient = () => {
 
 export type GraphClient = ReturnType<typeof createGraphClient>
 
-let client: Option<GraphClient> = None()
+const clientRef = Ref<Option<GraphClient>>(None())
 
 export const initializeGraphClient = (): GraphClient => {
   const c = createGraphClient()
-  client = Some(c)
+  clientRef.set(Some(c))
   return c
 }
 
-export const getGraphClient = (): Option<GraphClient> => client
+export const getGraphClient = (): Option<GraphClient> => clientRef.get()
