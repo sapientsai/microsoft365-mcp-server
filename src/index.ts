@@ -241,7 +241,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     name: "send_message",
     description: "Send a new email message",
     parameters: z.object({
-      to: z.string().describe("Recipient email address"),
+      to: z.string().describe("Recipient email address(es), comma-separated for multiple"),
       subject: z.string().describe("Email subject"),
       body: z.string().describe("Email body content"),
       content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
@@ -279,7 +279,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     name: "create_draft",
     description: "Create a new email draft in the Drafts folder",
     parameters: z.object({
-      to: z.string().describe("Recipient email address"),
+      to: z.string().describe("Recipient email address(es), comma-separated for multiple"),
       subject: z.string().describe("Email subject"),
       body: z.string().describe("Email body content"),
       content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),

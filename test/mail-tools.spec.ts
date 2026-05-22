@@ -49,6 +49,34 @@ describe("mail-tools", () => {
         },
       })
     })
+
+    it("should split comma-separated 'to' into multiple toRecipients", async () => {
+      mockClient.sendMessage.mockResolvedValue(Right({}))
+      await sendMessage({
+        to: "alice@example.com, bob@example.com,carol@example.com",
+        subject: "Hi",
+        body: "Hello",
+      })
+      const callArg = mockClient.sendMessage.mock.calls[0][0] as { message: Record<string, unknown> }
+      expect(callArg.message.toRecipients).toEqual([
+        { emailAddress: { address: "alice@example.com" } },
+        { emailAddress: { address: "bob@example.com" } },
+        { emailAddress: { address: "carol@example.com" } },
+      ])
+    })
+
+    it("should reject empty 'to' field", async () => {
+      const result = await sendMessage({ to: "", subject: "Hi", body: "Hello" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("recipient is required")
+      expect(mockClient.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it("should reject 'to' containing only whitespace and commas", async () => {
+      const result = await sendMessage({ to: " , , ", subject: "Hi", body: "Hello" })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.sendMessage).not.toHaveBeenCalled()
+    })
   })
 
   describe("createDraft", () => {
@@ -127,6 +155,48 @@ describe("mail-tools", () => {
       await createDraft({ to: "alice@example.com", subject: "Draft", body: "Hi", cc: "" })
       const callArg = mockClient.createDraft.mock.calls[0][0] as Record<string, unknown>
       expect(callArg).not.toHaveProperty("ccRecipients")
+    })
+
+    it("should split comma-separated 'to' into multiple toRecipients", async () => {
+      mockClient.createDraft.mockResolvedValue(Right(draftResponse))
+      await createDraft({
+        to: "alice@example.com, bob@example.com, carol@example.com",
+        subject: "Draft",
+        body: "Hi",
+      })
+      expect(mockClient.createDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toRecipients: [
+            { emailAddress: { address: "alice@example.com" } },
+            { emailAddress: { address: "bob@example.com" } },
+            { emailAddress: { address: "carol@example.com" } },
+          ],
+        }),
+      )
+    })
+
+    it("should trim whitespace and drop empty entries in 'to'", async () => {
+      mockClient.createDraft.mockResolvedValue(Right(draftResponse))
+      await createDraft({
+        to: " alice@example.com , , bob@example.com ",
+        subject: "Draft",
+        body: "Hi",
+      })
+      expect(mockClient.createDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toRecipients: [
+            { emailAddress: { address: "alice@example.com" } },
+            { emailAddress: { address: "bob@example.com" } },
+          ],
+        }),
+      )
+    })
+
+    it("should reject empty 'to' field", async () => {
+      const result = await createDraft({ to: "", subject: "Draft", body: "Hi" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("recipient is required")
+      expect(mockClient.createDraft).not.toHaveBeenCalled()
     })
   })
 

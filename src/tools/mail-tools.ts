@@ -56,11 +56,14 @@ export const sendMessage = async (params: {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
+  const toRecipients = parseRecipients(params.to)
+  if (!toRecipients) return Left(new UserError("At least one recipient is required in the 'to' field."))
+
   const result = await client.sendMessage({
     message: {
       subject: params.subject,
       body: { contentType: params.content_type ?? "Text", content: params.body },
-      toRecipients: [{ emailAddress: { address: params.to } }],
+      toRecipients,
     },
   })
   return result
@@ -104,10 +107,13 @@ export const createDraft = async (params: {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
+  const toRecipients = parseRecipients(params.to)
+  if (!toRecipients) return Left(new UserError("At least one recipient is required in the 'to' field."))
+
   const message: Record<string, unknown> = {
     subject: params.subject,
     body: { contentType: params.content_type ?? "Text", content: params.body },
-    toRecipients: [{ emailAddress: { address: params.to } }],
+    toRecipients,
   }
 
   const cc = parseRecipients(params.cc)
