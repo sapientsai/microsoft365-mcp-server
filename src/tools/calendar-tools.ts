@@ -47,6 +47,27 @@ export const getEvent = async (params: { event_id: string }): Promise<Either<Use
   return result.mapLeft((error) => new UserError(`Failed to get event: ${error.message}`)).map(formatEventDetail)
 }
 
+export const listCalendarView = async (params: {
+  start_date_time: string
+  end_date_time: string
+  top?: number
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (!params.start_date_time || !params.end_date_time) {
+    return Left(new UserError("start_date_time and end_date_time are required (ISO 8601, e.g. 2026-05-22T00:00:00Z)."))
+  }
+
+  const result = await client.listCalendarView(params.start_date_time, params.end_date_time, {
+    $top: params.top ?? 50,
+    $orderby: "start/dateTime",
+  })
+  return result
+    .mapLeft((error) => new UserError(`Failed to list calendar view: ${error.message}`))
+    .map((response) => formatEventList((response as ODataResponse<never>).value))
+}
+
 export const createEvent = async (params: {
   subject: string
   start: string

@@ -34,6 +34,7 @@ import {
   getUser,
   graphQuery,
   listAccountsTool,
+  listCalendarView,
   listChannelMessages,
   listChannels,
   listChatMessages,
@@ -306,13 +307,30 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Calendar Tools ===
   {
     name: "list_events",
-    description: "List calendar events",
+    description:
+      "List calendar event resources (/me/events). Returns series masters for recurring meetings, NOT individual occurrences. " +
+      "For 'what's on my calendar between X and Y' use list_calendar_view instead — it expands recurrences into instances.",
     parameters: z.object({
       top: z.number().optional().describe("Number of events to return (default: 25)"),
       filter: z.string().optional().describe("OData filter expression"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await listEvents(params)),
+    domain: "calendar",
+    readOnly: true,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "list_calendar_view",
+    description:
+      "List event instances on the calendar between start_date_time and end_date_time. Expands recurring series into " +
+      "individual occurrences (unlike list_events which returns series masters). Use this for 'what's on my calendar this week'.",
+    parameters: z.object({
+      start_date_time: z.string().describe("Window start (ISO 8601, e.g. 2026-05-22T00:00:00Z)"),
+      end_date_time: z.string().describe("Window end (ISO 8601, e.g. 2026-05-29T00:00:00Z)"),
+      top: z.number().optional().describe("Max events to return (default: 50)"),
+    }),
+    execute: async (params) => unwrapResult(await listCalendarView(params)),
     domain: "calendar",
     readOnly: true,
     annotations: { readOnlyHint: true },

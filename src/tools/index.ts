@@ -1,5 +1,5 @@
 export { getAuthStatusTool, listAccountsTool, setAccessTokenTool, switchAccountTool } from "./auth-tools"
-export { createEvent, deleteEvent, getEvent, listEvents, updateEvent } from "./calendar-tools"
+export { createEvent, deleteEvent, getEvent, listCalendarView, listEvents, updateEvent } from "./calendar-tools"
 export { listChatMessages, listChats, sendChatMessage } from "./chat-tools"
 export { createContact, getContact, listContacts, searchContacts } from "./contacts-tools"
 export {

@@ -9,7 +9,7 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { createEvent, updateEvent } from "../src/tools/calendar-tools"
+import { createEvent, listCalendarView, updateEvent } from "../src/tools/calendar-tools"
 
 const mockEvent: Partial<GraphEvent> = {
   id: "evt-123",
@@ -21,6 +21,7 @@ const mockEvent: Partial<GraphEvent> = {
 const mockClient = {
   createEvent: vi.fn(),
   updateEvent: vi.fn(),
+  listCalendarView: vi.fn(),
 }
 
 beforeEach(() => {
@@ -222,6 +223,47 @@ describe("calendar-tools", () => {
       const updates = mockClient.updateEvent.mock.calls[0][1] as Record<string, unknown>
       expect(updates).not.toHaveProperty("isOnlineMeeting")
       expect(updates).not.toHaveProperty("onlineMeetingProvider")
+    })
+  })
+
+  describe("listCalendarView", () => {
+    it("should call listCalendarView with start/end and ordering", async () => {
+      mockClient.listCalendarView.mockResolvedValue(Right({ value: [mockEvent] }))
+      const result = await listCalendarView({
+        start_date_time: "2026-05-22T00:00:00Z",
+        end_date_time: "2026-05-29T00:00:00Z",
+      })
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.listCalendarView).toHaveBeenCalledWith("2026-05-22T00:00:00Z", "2026-05-29T00:00:00Z", {
+        $top: 50,
+        $orderby: "start/dateTime",
+      })
+    })
+
+    it("should honor custom top", async () => {
+      mockClient.listCalendarView.mockResolvedValue(Right({ value: [] }))
+      await listCalendarView({
+        start_date_time: "2026-05-22T00:00:00Z",
+        end_date_time: "2026-05-29T00:00:00Z",
+        top: 100,
+      })
+      expect(mockClient.listCalendarView).toHaveBeenCalledWith(
+        "2026-05-22T00:00:00Z",
+        "2026-05-29T00:00:00Z",
+        expect.objectContaining({ $top: 100 }),
+      )
+    })
+
+    it("should reject missing start_date_time", async () => {
+      const result = await listCalendarView({ start_date_time: "", end_date_time: "2026-05-29T00:00:00Z" })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.listCalendarView).not.toHaveBeenCalled()
+    })
+
+    it("should reject missing end_date_time", async () => {
+      const result = await listCalendarView({ start_date_time: "2026-05-22T00:00:00Z", end_date_time: "" })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.listCalendarView).not.toHaveBeenCalled()
     })
   })
 })

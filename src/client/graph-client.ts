@@ -208,6 +208,13 @@ const createGraphClient = () => {
   const listEvents = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphEvent>>("GET", "/me/events", { odataParams })
 
+  // calendarView expands recurring series into individual instances within [start, end].
+  // Required by Graph: startDateTime/endDateTime as query params on the path.
+  const listCalendarView = (startDateTime: string, endDateTime: string, odataParams?: ODataParams) => {
+    const path = `/me/calendarView?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}`
+    return request<ODataResponse<GraphEvent>>("GET", path, { odataParams })
+  }
+
   const getEvent = (id: string) => request<GraphEvent>("GET", `/me/events/${id}`)
 
   const createEvent = (event: Record<string, unknown>) => request<GraphEvent>("POST", "/me/events", { body: event })
@@ -492,6 +499,7 @@ const createGraphClient = () => {
     searchMessages,
     // Calendar
     listEvents,
+    listCalendarView,
     getEvent,
     createEvent,
     updateEvent,
