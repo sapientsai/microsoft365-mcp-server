@@ -40,6 +40,13 @@ const resolveAllowedRedirectUriPatterns = (): ReadonlyArray<string> => {
   return DEFAULT_REDIRECT_URI_PATTERNS
 }
 
+// EncryptedTokenStorage uses an ephemeral random key when encryptionKey is unset,
+// which makes persisted tokens unreadable after restart. Bind it to the client
+// secret so the key is stable across restarts; rotating the secret invalidates
+// stored tokens (intended).
+const resolveEncryptionKey = (clientSecret: string): string =>
+  process.env.MS365_TOKEN_ENCRYPTION_KEY ?? clientSecret
+
 export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider =>
   new AzureProvider({
     baseUrl: config.baseUrl,
@@ -49,5 +56,6 @@ export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider
     scopes: [...(config.scopes ?? DEFAULT_INTERACTIVE_SCOPES)],
     jwtSigningKey: config.clientSecret,
     tokenStorage,
+    encryptionKey: resolveEncryptionKey(config.clientSecret),
     allowedRedirectUriPatterns: [...resolveAllowedRedirectUriPatterns()],
   })
