@@ -44,8 +44,7 @@ const resolveAllowedRedirectUriPatterns = (): ReadonlyArray<string> => {
 // which makes persisted tokens unreadable after restart. Bind it to the client
 // secret so the key is stable across restarts; rotating the secret invalidates
 // stored tokens (intended).
-const resolveEncryptionKey = (clientSecret: string): string =>
-  process.env.MS365_TOKEN_ENCRYPTION_KEY ?? clientSecret
+const resolveEncryptionKey = (clientSecret: string): string => process.env.MS365_TOKEN_ENCRYPTION_KEY ?? clientSecret
 
 export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider =>
   new AzureProvider({
