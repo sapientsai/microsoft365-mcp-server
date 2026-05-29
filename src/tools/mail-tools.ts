@@ -71,17 +71,99 @@ export const sendMessage = async (params: {
     .map(() => `Message sent to ${params.to}.`)
 }
 
-export const replyToMessage = async (params: {
+export const sendReply = async (params: {
   message_id: string
   comment: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.replyToMessage(params.message_id, params.comment)
+  const result = await client.sendReply(params.message_id, params.comment)
   return result
     .mapLeft((error) => new UserError(`Failed to reply: ${error.message}`))
     .map(() => "Reply sent successfully.")
+}
+
+export const sendReplyAll = async (params: {
+  message_id: string
+  comment: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.sendReplyAll(params.message_id, params.comment)
+  return result
+    .mapLeft((error) => new UserError(`Failed to reply-all: ${error.message}`))
+    .map(() => "Reply-all sent successfully.")
+}
+
+export const sendForward = async (params: {
+  message_id: string
+  to: string
+  comment?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const toRecipients = parseRecipients(params.to)
+  if (!toRecipients) return Left(new UserError("At least one recipient is required in the 'to' field."))
+
+  const result = await client.sendForward(params.message_id, params.comment ?? "", toRecipients)
+  return result
+    .mapLeft((error) => new UserError(`Failed to forward: ${error.message}`))
+    .map(() => `Message forwarded to ${params.to}.`)
+}
+
+export const createReplyDraft = async (params: {
+  message_id: string
+  comment: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.createReplyDraft(params.message_id, params.comment)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create reply draft: ${error.message}`))
+    .map(
+      (msg) =>
+        `Reply draft created (original quoted, threaded). ID: ${(msg as { id: string }).id}. Review in Drafts, then send with send_draft.`,
+    )
+}
+
+export const createReplyAllDraft = async (params: {
+  message_id: string
+  comment: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.createReplyAllDraft(params.message_id, params.comment)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create reply-all draft: ${error.message}`))
+    .map(
+      (msg) =>
+        `Reply-all draft created (original quoted, threaded). ID: ${(msg as { id: string }).id}. Review in Drafts, then send with send_draft.`,
+    )
+}
+
+export const createForwardDraft = async (params: {
+  message_id: string
+  to: string
+  comment?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const toRecipients = parseRecipients(params.to)
+  if (!toRecipients) return Left(new UserError("At least one recipient is required in the 'to' field."))
+
+  const result = await client.createForwardDraft(params.message_id, params.comment ?? "", toRecipients)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create forward draft: ${error.message}`))
+    .map(
+      (msg) =>
+        `Forward draft created (original quoted). ID: ${(msg as { id: string }).id}. Review in Drafts, then send with send_draft.`,
+    )
 }
 
 const parseRecipients = (

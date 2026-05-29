@@ -16,7 +16,10 @@ import {
   createDraft,
   createEvent,
   createFolder,
+  createForwardDraft,
   createPlannerTask,
+  createReplyAllDraft,
+  createReplyDraft,
   createTodoTask,
   deleteEvent,
   downloadFile,
@@ -57,7 +60,6 @@ import {
   listTodoLists,
   listTodoTasks,
   listUsers,
-  replyToMessage,
   searchContacts,
   searchFiles,
   searchMessages,
@@ -65,7 +67,10 @@ import {
   sendChannelMessage,
   sendChatMessage,
   sendDraft,
+  sendForward,
   sendMessage,
+  sendReply,
+  sendReplyAll,
   setAccessTokenTool,
   switchAccountTool,
   updateEvent,
@@ -254,16 +259,81 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     annotations: { destructiveHint: true },
   },
   {
-    name: "reply_to_message",
-    description: "Reply to an email message",
+    name: "send_reply",
+    description:
+      "Reply to the sender of an email and send immediately. Threads into the conversation and quotes the original. Use create_reply_draft to review before sending.",
     parameters: z.object({
       message_id: z.string().describe("The message ID to reply to"),
-      comment: z.string().describe("Reply content"),
+      comment: z.string().describe("Reply content (added above the quoted original)"),
     }),
-    execute: async (params) => unwrapResult(await replyToMessage(params)),
+    execute: async (params) => unwrapResult(await sendReply(params)),
     domain: "mail",
     readOnly: false,
     annotations: { destructiveHint: true },
+  },
+  {
+    name: "send_reply_all",
+    description:
+      "Reply to all recipients of an email and send immediately. Threads into the conversation and quotes the original. Use create_reply_all_draft to review before sending.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID to reply to"),
+      comment: z.string().describe("Reply content (added above the quoted original)"),
+    }),
+    execute: async (params) => unwrapResult(await sendReplyAll(params)),
+    domain: "mail",
+    readOnly: false,
+    annotations: { destructiveHint: true },
+  },
+  {
+    name: "send_forward",
+    description:
+      "Forward an email to new recipients and send immediately. Quotes the original. Use create_forward_draft to review before sending.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID to forward"),
+      to: z.string().describe("Recipient email address(es), comma-separated for multiple"),
+      comment: z.string().optional().describe("Optional note added above the quoted original"),
+    }),
+    execute: async (params) => unwrapResult(await sendForward(params)),
+    domain: "mail",
+    readOnly: false,
+    annotations: { destructiveHint: true },
+  },
+  {
+    name: "create_reply_draft",
+    description:
+      "Create a reply draft (to the sender) in the Drafts folder. Threads into the conversation with the original quoted underneath. Review, then send with send_draft.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID to reply to"),
+      comment: z.string().describe("Reply content (added above the quoted original)"),
+    }),
+    execute: async (params) => unwrapResult(await createReplyDraft(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "create_reply_all_draft",
+    description:
+      "Create a reply-all draft (to all recipients) in the Drafts folder. Threads into the conversation with the original quoted underneath. Review, then send with send_draft.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID to reply to"),
+      comment: z.string().describe("Reply content (added above the quoted original)"),
+    }),
+    execute: async (params) => unwrapResult(await createReplyAllDraft(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "create_forward_draft",
+    description:
+      "Create a forward draft in the Drafts folder with the original quoted underneath. Review, then send with send_draft.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID to forward"),
+      to: z.string().describe("Recipient email address(es), comma-separated for multiple"),
+      comment: z.string().optional().describe("Optional note added above the quoted original"),
+    }),
+    execute: async (params) => unwrapResult(await createForwardDraft(params)),
+    domain: "mail",
+    readOnly: false,
   },
   {
     name: "search_messages",

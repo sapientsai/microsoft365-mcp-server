@@ -9,12 +9,28 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { createDraft, sendDraft, sendMessage } from "../src/tools/mail-tools"
+import {
+  createDraft,
+  createForwardDraft,
+  createReplyAllDraft,
+  createReplyDraft,
+  sendDraft,
+  sendForward,
+  sendMessage,
+  sendReply,
+  sendReplyAll,
+} from "../src/tools/mail-tools"
 
 const mockClient = {
   sendMessage: vi.fn(),
   createDraft: vi.fn(),
   sendDraft: vi.fn(),
+  sendReply: vi.fn(),
+  sendReplyAll: vi.fn(),
+  sendForward: vi.fn(),
+  createReplyDraft: vi.fn(),
+  createReplyAllDraft: vi.fn(),
+  createForwardDraft: vi.fn(),
 }
 
 beforeEach(() => {
@@ -207,6 +223,93 @@ describe("mail-tools", () => {
       expect(result.isRight()).toBe(true)
       expect(result.value).toContain("Draft sent successfully")
       expect(mockClient.sendDraft).toHaveBeenCalledWith("draft-123")
+    })
+  })
+
+  describe("sendReply", () => {
+    it("should send a reply by message ID", async () => {
+      mockClient.sendReply.mockResolvedValue(Right({}))
+      const result = await sendReply({ message_id: "msg-1", comment: "Thanks!" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("Reply sent successfully")
+      expect(mockClient.sendReply).toHaveBeenCalledWith("msg-1", "Thanks!")
+    })
+  })
+
+  describe("sendReplyAll", () => {
+    it("should send a reply-all by message ID", async () => {
+      mockClient.sendReplyAll.mockResolvedValue(Right({}))
+      const result = await sendReplyAll({ message_id: "msg-1", comment: "Thanks all!" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("Reply-all sent successfully")
+      expect(mockClient.sendReplyAll).toHaveBeenCalledWith("msg-1", "Thanks all!")
+    })
+  })
+
+  describe("sendForward", () => {
+    it("should forward with recipients and an optional comment", async () => {
+      mockClient.sendForward.mockResolvedValue(Right({}))
+      const result = await sendForward({ message_id: "msg-1", to: "alice@example.com", comment: "FYI" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("alice@example.com")
+      expect(mockClient.sendForward).toHaveBeenCalledWith("msg-1", "FYI", [
+        { emailAddress: { address: "alice@example.com" } },
+      ])
+    })
+
+    it("should default an omitted comment to an empty string", async () => {
+      mockClient.sendForward.mockResolvedValue(Right({}))
+      await sendForward({ message_id: "msg-1", to: "alice@example.com" })
+      expect(mockClient.sendForward).toHaveBeenCalledWith("msg-1", "", [
+        { emailAddress: { address: "alice@example.com" } },
+      ])
+    })
+
+    it("should reject an empty 'to' field", async () => {
+      const result = await sendForward({ message_id: "msg-1", to: "" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("recipient is required")
+      expect(mockClient.sendForward).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("createReplyDraft", () => {
+    it("should create a threaded reply draft and return its ID", async () => {
+      mockClient.createReplyDraft.mockResolvedValue(Right({ id: "draft-r1" }))
+      const result = await createReplyDraft({ message_id: "msg-1", comment: "Will do" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("draft-r1")
+      expect(result.value).toContain("send_draft")
+      expect(mockClient.createReplyDraft).toHaveBeenCalledWith("msg-1", "Will do")
+    })
+  })
+
+  describe("createReplyAllDraft", () => {
+    it("should create a threaded reply-all draft and return its ID", async () => {
+      mockClient.createReplyAllDraft.mockResolvedValue(Right({ id: "draft-ra1" }))
+      const result = await createReplyAllDraft({ message_id: "msg-1", comment: "Will do" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("draft-ra1")
+      expect(mockClient.createReplyAllDraft).toHaveBeenCalledWith("msg-1", "Will do")
+    })
+  })
+
+  describe("createForwardDraft", () => {
+    it("should create a forward draft with recipients and return its ID", async () => {
+      mockClient.createForwardDraft.mockResolvedValue(Right({ id: "draft-f1" }))
+      const result = await createForwardDraft({ message_id: "msg-1", to: "alice@example.com", comment: "FYI" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("draft-f1")
+      expect(mockClient.createForwardDraft).toHaveBeenCalledWith("msg-1", "FYI", [
+        { emailAddress: { address: "alice@example.com" } },
+      ])
+    })
+
+    it("should reject an empty 'to' field", async () => {
+      const result = await createForwardDraft({ message_id: "msg-1", to: "" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("recipient is required")
+      expect(mockClient.createForwardDraft).not.toHaveBeenCalled()
     })
   })
 })

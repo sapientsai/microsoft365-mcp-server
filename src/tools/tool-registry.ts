@@ -54,9 +54,14 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "list_messages", domain: "mail", readOnly: true, orgOnly: false },
   { name: "get_message", domain: "mail", readOnly: true, orgOnly: false },
   { name: "send_message", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "reply_to_message", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_reply", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_reply_all", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_forward", domain: "mail", readOnly: false, orgOnly: false },
   { name: "search_messages", domain: "mail", readOnly: true, orgOnly: false },
   { name: "create_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "create_reply_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "create_reply_all_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "create_forward_draft", domain: "mail", readOnly: false, orgOnly: false },
   { name: "send_draft", domain: "mail", readOnly: false, orgOnly: false },
   // Calendar
   { name: "list_events", domain: "calendar", readOnly: true, orgOnly: false },
@@ -131,7 +136,12 @@ export type ToolFilterConfig = {
   readonly requireDraft?: boolean
 }
 
-const DRAFT_BYPASS_TOOLS: ReadonlySet<string> = new Set(["send_message", "reply_to_message"])
+const DRAFT_BYPASS_TOOLS: ReadonlySet<string> = new Set([
+  "send_message",
+  "send_reply",
+  "send_reply_all",
+  "send_forward",
+])
 
 export const filterTools = (config: ToolFilterConfig): Set<string> => {
   const allowed = new Set<string>()

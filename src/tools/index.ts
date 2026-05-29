@@ -16,12 +16,17 @@ export { graphQuery } from "./graph-query-tools"
 export { getGroup, listGroupMembers, listGroups } from "./groups-tools"
 export {
   createDraft,
+  createForwardDraft,
+  createReplyAllDraft,
+  createReplyDraft,
   getMessage,
   listMessages,
-  replyToMessage,
   searchMessages,
   sendDraft,
+  sendForward,
   sendMessage,
+  sendReply,
+  sendReplyAll,
 } from "./mail-tools"
 export { getPageContent, listNotebooks, listPages, listSections } from "./onenote-tools"
 export { createPlannerTask, getPlannerTask, listPlannerTasks, listPlans, updatePlannerTask } from "./planner-tools"

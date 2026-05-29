@@ -109,24 +109,33 @@ describe("tool-registry", () => {
       }
     })
 
-    it("should exclude send_message and reply_to_message when requireDraft is true", () => {
+    it("should exclude all send_* mail tools but keep create_*_draft when requireDraft is true", () => {
       const result = filterTools({ requireDraft: true })
       expect(result.has("send_message")).toBe(false)
-      expect(result.has("reply_to_message")).toBe(false)
+      expect(result.has("send_reply")).toBe(false)
+      expect(result.has("send_reply_all")).toBe(false)
+      expect(result.has("send_forward")).toBe(false)
       expect(result.has("create_draft")).toBe(true)
+      expect(result.has("create_reply_draft")).toBe(true)
+      expect(result.has("create_reply_all_draft")).toBe(true)
+      expect(result.has("create_forward_draft")).toBe(true)
       expect(result.has("send_draft")).toBe(true)
     })
 
-    it("should include send_message and reply_to_message when requireDraft is false", () => {
+    it("should include all send_* mail tools when requireDraft is false", () => {
       const result = filterTools({ requireDraft: false })
       expect(result.has("send_message")).toBe(true)
-      expect(result.has("reply_to_message")).toBe(true)
+      expect(result.has("send_reply")).toBe(true)
+      expect(result.has("send_reply_all")).toBe(true)
+      expect(result.has("send_forward")).toBe(true)
     })
 
-    it("should include send_message and reply_to_message when requireDraft is omitted", () => {
+    it("should include all send_* mail tools when requireDraft is omitted", () => {
       const result = filterTools({})
       expect(result.has("send_message")).toBe(true)
-      expect(result.has("reply_to_message")).toBe(true)
+      expect(result.has("send_reply")).toBe(true)
+      expect(result.has("send_reply_all")).toBe(true)
+      expect(result.has("send_forward")).toBe(true)
     })
 
     it("should leave non-mail tools untouched when requireDraft is true", () => {

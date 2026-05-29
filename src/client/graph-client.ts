@@ -196,8 +196,31 @@ const createGraphClient = () => {
 
   const sendDraft = (messageId: string) => request<Record<string, never>>("POST", `/me/messages/${messageId}/send`)
 
-  const replyToMessage = (id: string, comment: string) =>
+  const sendReply = (id: string, comment: string) =>
     request<Record<string, never>>("POST", `/me/messages/${id}/reply`, { body: { comment } })
+
+  // Draft-creating reply actions: return a threaded draft (original quoted) for review.
+  const createReplyDraft = (id: string, comment: string) =>
+    request<GraphMessage>("POST", `/me/messages/${id}/createReply`, { body: { comment } })
+
+  const createReplyAllDraft = (id: string, comment: string) =>
+    request<GraphMessage>("POST", `/me/messages/${id}/createReplyAll`, { body: { comment } })
+
+  const createForwardDraft = (
+    id: string,
+    comment: string,
+    toRecipients: ReadonlyArray<{ emailAddress: { address: string } }>,
+  ) => request<GraphMessage>("POST", `/me/messages/${id}/createForward`, { body: { comment, toRecipients } })
+
+  // Immediate-send reply actions: thread + quote, then send in one step.
+  const sendReplyAll = (id: string, comment: string) =>
+    request<Record<string, never>>("POST", `/me/messages/${id}/replyAll`, { body: { comment } })
+
+  const sendForward = (
+    id: string,
+    comment: string,
+    toRecipients: ReadonlyArray<{ emailAddress: { address: string } }>,
+  ) => request<Record<string, never>>("POST", `/me/messages/${id}/forward`, { body: { comment, toRecipients } })
 
   const searchMessages = (query: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphMessage>>("GET", "/me/messages", {
@@ -495,7 +518,12 @@ const createGraphClient = () => {
     sendMessage,
     createDraft,
     sendDraft,
-    replyToMessage,
+    sendReply,
+    sendReplyAll,
+    sendForward,
+    createReplyDraft,
+    createReplyAllDraft,
+    createForwardDraft,
     searchMessages,
     // Calendar
     listEvents,

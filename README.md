@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **58 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **66 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -208,24 +208,33 @@ If not set, all tools are registered.
 MS365_ENABLED_TOOLS="mail|calendar"   # regex pattern — only matching tools registered
 MS365_READ_ONLY=true                  # hide all write tools (send, create, update, delete)
 MS365_ORG_MODE=true                   # enable org-only tools (teams, chats, groups, planner, list_users)
-MS365_REQUIRE_DRAFT=true              # hide send_message and reply_to_message; force create_draft/send_draft flow
+MS365_REQUIRE_DRAFT=true              # hide all send_* mail tools; force the create_*_draft + send_draft flow
 ```
 
 Org mode is required for Teams, Chats, Groups, Planner, and user listing. Without it, these tools are hidden to prevent 403 errors on personal accounts.
 
 ## Available Tools
 
-### Mail (7 tools)
+### Mail (12 tools)
 
-| Tool               | Description                                   |
-| ------------------ | --------------------------------------------- |
-| `list_messages`    | List inbox messages with optional filtering   |
-| `get_message`      | Get a specific message with full body         |
-| `send_message`     | Send a new email                              |
-| `reply_to_message` | Reply to a message                            |
-| `search_messages`  | Search messages by query                      |
-| `create_draft`     | Create a new email draft in the Drafts folder |
-| `send_draft`       | Send an existing email draft                  |
+| Tool                     | Description                                                              |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `list_messages`          | List inbox messages with optional filtering                              |
+| `get_message`            | Get a specific message with full body                                    |
+| `search_messages`        | Search messages by query                                                 |
+| `send_message`           | Send a new email                                                         |
+| `send_reply`             | Reply to the sender and send now (threaded, original quoted)             |
+| `send_reply_all`         | Reply to all recipients and send now (threaded, original quoted)         |
+| `send_forward`           | Forward a message to new recipients and send now (original quoted)       |
+| `create_draft`           | Create a new email draft in the Drafts folder                            |
+| `create_reply_draft`     | Create a reply draft — threaded, with the original quoted underneath     |
+| `create_reply_all_draft` | Create a reply-all draft — threaded, with the original quoted underneath |
+| `create_forward_draft`   | Create a forward draft — original quoted, recipients you specify         |
+| `send_draft`             | Send an existing email draft                                             |
+
+> The `create_*_draft` tools produce a properly threaded draft (same conversation, full
+> quoted history) for review, then send via `send_draft`. They remain available under
+> `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode.
 
 ### Calendar (5 tools)
 
@@ -363,7 +372,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_ENABLED_TOOLS`  | Regex pattern to filter tools                                                           | --                  |
 | `MS365_READ_ONLY`      | Hide write tools                                                                        | `false`             |
 | `MS365_ORG_MODE`       | Enable org-only tools (teams, chats, groups, planner)                                   | `false`             |
-| `MS365_REQUIRE_DRAFT`  | Hide `send_message`/`reply_to_message`; force the create_draft/send_draft flow          | `false`             |
+| `MS365_REQUIRE_DRAFT`  | Hide all `send_*` mail tools; force the `create_*_draft` + `send_draft` flow            | `false`             |
 | `TOKEN_STORAGE_PATH`   | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
 | `FASTMCP_HOST`         | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
 
