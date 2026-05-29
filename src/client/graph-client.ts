@@ -33,7 +33,8 @@ import { fetchAllPages, parseJsonResponse } from "../utils/pagination"
 
 type RequestOptions = {
   readonly version?: GraphApiVersion
-  readonly body?: Record<string, unknown>
+  readonly body?: Record<string, unknown> | readonly unknown[] | string
+  readonly contentType?: string
   readonly odataParams?: ODataParams
   readonly headers?: Record<string, string>
 }
@@ -66,13 +67,13 @@ const createGraphClient = () => {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+          "Content-Type": options?.contentType ?? "application/json",
           ...(options?.headers ?? {}),
         },
       }
 
-      if (options?.body && (method === "POST" || method === "PUT" || method === "PATCH")) {
-        fetchOptions.body = JSON.stringify(options.body)
+      if (options?.body !== undefined && (method === "POST" || method === "PUT" || method === "PATCH")) {
+        fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
       }
 
       const response = await fetch(url, fetchOptions)
@@ -424,15 +425,33 @@ const createGraphClient = () => {
     })
 
   // OneNote
-  const listNotebooks = () => request<ODataResponse<GraphNotebook>>("GET", "/me/onenote/notebooks")
+  const listOnenoteNotebooks = () => request<ODataResponse<GraphNotebook>>("GET", "/me/onenote/notebooks")
 
-  const listSections = (notebookId: string) =>
+  const listOnenoteSections = (notebookId: string) =>
     request<ODataResponse<GraphSection>>("GET", `/me/onenote/notebooks/${notebookId}/sections`)
 
-  const listPages = (sectionId: string) =>
+  const listOnenotePages = (sectionId: string) =>
     request<ODataResponse<GraphPage>>("GET", `/me/onenote/sections/${sectionId}/pages`)
 
-  const getPageContent = (pageId: string) => request<string>("GET", `/me/onenote/pages/${pageId}/content`)
+  const getOnenotePageContent = (pageId: string) => request<string>("GET", `/me/onenote/pages/${pageId}/content`)
+
+  // OneNote writes. createOnenotePage sends raw text/html; the rest are JSON.
+  const createOnenotePage = (sectionId: string, html: string) =>
+    request<GraphPage>("POST", `/me/onenote/sections/${sectionId}/pages`, { body: html, contentType: "text/html" })
+
+  const updateOnenotePageContent = (pageId: string, commands: readonly unknown[]) =>
+    request<Record<string, never>>("PATCH", `/me/onenote/pages/${pageId}/content`, { body: commands })
+
+  const createOnenoteSection = (notebookId: string, displayName: string) =>
+    request<GraphSection>("POST", `/me/onenote/notebooks/${notebookId}/sections`, { body: { displayName } })
+
+  const createOnenoteNotebook = (displayName: string) =>
+    request<GraphNotebook>("POST", "/me/onenote/notebooks", { body: { displayName } })
+
+  const copyOnenotePage = (pageId: string, sectionId: string) =>
+    request<Record<string, never>>("POST", `/me/onenote/pages/${pageId}/copyToSection`, { body: { id: sectionId } })
+
+  const deleteOnenotePage = (pageId: string) => request<Record<string, never>>("DELETE", `/me/onenote/pages/${pageId}`)
 
   // To Do
   const listTodoLists = () => request<ODataResponse<GraphTodoList>>("GET", "/me/todo/lists")
@@ -576,10 +595,16 @@ const createGraphClient = () => {
     createPlannerTask,
     updatePlannerTask,
     // OneNote
-    listNotebooks,
-    listSections,
-    listPages,
-    getPageContent,
+    listOnenoteNotebooks,
+    listOnenoteSections,
+    listOnenotePages,
+    getOnenotePageContent,
+    createOnenotePage,
+    updateOnenotePageContent,
+    createOnenoteSection,
+    createOnenoteNotebook,
+    copyOnenotePage,
+    deleteOnenotePage,
     // To Do
     listTodoLists,
     listTodoTasks,

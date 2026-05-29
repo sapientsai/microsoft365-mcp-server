@@ -28,7 +28,18 @@ export {
   sendReply,
   sendReplyAll,
 } from "./mail-tools"
-export { getPageContent, listNotebooks, listPages, listSections } from "./onenote-tools"
+export {
+  copyOnenotePage,
+  createOnenoteNotebook,
+  createOnenotePage,
+  createOnenoteSection,
+  deleteOnenotePage,
+  getOnenotePageContent,
+  listOnenoteNotebooks,
+  listOnenotePages,
+  listOnenoteSections,
+  updateOnenotePageContent,
+} from "./onenote-tools"
 export { createPlannerTask, getPlannerTask, listPlannerTasks, listPlans, updatePlannerTask } from "./planner-tools"
 export { getSite, listSiteDrives, listSiteItems, listSites, searchSiteFiles } from "./sharepoint-tools"
 export { listChannelMessages, listChannels, listTeams, sendChannelMessage } from "./teams-tools"

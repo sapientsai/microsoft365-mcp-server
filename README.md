@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **66 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **72 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -143,7 +143,7 @@ You need an Azure AD (Entra ID) app registration:
 | `Team.ReadBasic.All`                           | Teams            |
 | `Channel.ReadBasic.All`, `ChannelMessage.Send` | Channels         |
 | `Tasks.ReadWrite`                              | Planner & To Do  |
-| `Notes.Read`                                   | OneNote          |
+| `Notes.ReadWrite`                              | OneNote          |
 
 5. Grant admin consent (for org tenants)
 6. Create a client secret (for client-secret and OAuth proxy modes)
@@ -316,14 +316,24 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 | `create_planner_task` | Create a new task    |
 | `update_planner_task` | Update a task        |
 
-### OneNote (4 tools)
+### OneNote (10 tools)
 
-| Tool               | Description                 |
-| ------------------ | --------------------------- |
-| `list_notebooks`   | List notebooks              |
-| `list_sections`    | List sections in a notebook |
-| `list_pages`       | List pages in a section     |
-| `get_page_content` | Get page content as HTML    |
+| Tool                          | Description                                              |
+| ----------------------------- | -------------------------------------------------------- |
+| `list_onenote_notebooks`      | List notebooks                                           |
+| `list_onenote_sections`       | List sections in a notebook                              |
+| `list_onenote_pages`          | List pages in a section                                  |
+| `get_onenote_page_content`    | Get page content as HTML                                 |
+| `create_onenote_page`         | Create a page from HTML (title + body)                   |
+| `update_onenote_page_content` | Append to / modify a page's content without rewriting it |
+| `create_onenote_section`      | Create a section in a notebook                           |
+| `create_onenote_notebook`     | Create a notebook                                        |
+| `copy_onenote_page`           | Copy a page to another section (async)                   |
+| `delete_onenote_page`         | Delete a page (destructive)                              |
+
+> `create_onenote_page` and `update_onenote_page_content` take HTML. OneNote supports a
+> constrained HTML subset and silently drops unsupported CSS/tags, so a page can post
+> successfully yet render differently than the source.
 
 ### To Do (4 tools)
 

@@ -12,7 +12,15 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listNotebooks = async (params?: { fetch_all_pages?: boolean }): Promise<Either<UserError, string>> => {
+const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+// OneNote create-page expects a full HTML document; the <title> becomes the page title.
+const buildPageHtml = (title: string, content: string): string =>
+  `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title></head><body>${content}</body></html>`
+
+export const listOnenoteNotebooks = async (params?: {
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
@@ -23,13 +31,13 @@ export const listNotebooks = async (params?: { fetch_all_pages?: boolean }): Pro
       .map((items) => formatNotebookList(items))
   }
 
-  const result = await client.listNotebooks()
+  const result = await client.listOnenoteNotebooks()
   return result
     .mapLeft((error) => new UserError(`Failed to list notebooks: ${error.message}`))
     .map((response) => formatNotebookList((response as ODataResponse<never>).value))
 }
 
-export const listSections = async (params: {
+export const listOnenoteSections = async (params: {
   notebook_id: string
   fetch_all_pages?: boolean
 }): Promise<Either<UserError, string>> => {
@@ -43,13 +51,13 @@ export const listSections = async (params: {
       .map((items) => formatSectionList(items))
   }
 
-  const result = await client.listSections(params.notebook_id)
+  const result = await client.listOnenoteSections(params.notebook_id)
   return result
     .mapLeft((error) => new UserError(`Failed to list sections: ${error.message}`))
     .map((response) => formatSectionList((response as ODataResponse<never>).value))
 }
 
-export const listPages = async (params: {
+export const listOnenotePages = async (params: {
   section_id: string
   fetch_all_pages?: boolean
 }): Promise<Either<UserError, string>> => {
@@ -63,18 +71,102 @@ export const listPages = async (params: {
       .map((items) => formatPageList(items))
   }
 
-  const result = await client.listPages(params.section_id)
+  const result = await client.listOnenotePages(params.section_id)
   return result
     .mapLeft((error) => new UserError(`Failed to list pages: ${error.message}`))
     .map((response) => formatPageList((response as ODataResponse<never>).value))
 }
 
-export const getPageContent = async (params: { page_id: string }): Promise<Either<UserError, string>> => {
+export const getOnenotePageContent = async (params: { page_id: string }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.getPageContent(params.page_id)
+  const result = await client.getOnenotePageContent(params.page_id)
   return result
     .mapLeft((error) => new UserError(`Failed to get page content: ${error.message}`))
     .map((content) => `# Page Content\n\n${content}`)
+}
+
+export const createOnenotePage = async (params: {
+  section_id: string
+  title: string
+  content: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const html = buildPageHtml(params.title, params.content)
+  const result = await client.createOnenotePage(params.section_id, html)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create page: ${error.message}`))
+    .map((page) => `Page created. ID: ${(page as { id: string }).id} — "${params.title}"`)
+}
+
+export const updateOnenotePageContent = async (params: {
+  page_id: string
+  content: string
+  action?: string
+  target?: string
+  position?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const command: Record<string, string> = {
+    target: params.target ?? "body",
+    action: params.action ?? "append",
+    content: params.content,
+  }
+  if (params.position) command.position = params.position
+
+  const result = await client.updateOnenotePageContent(params.page_id, [command])
+  return result
+    .mapLeft((error) => new UserError(`Failed to update page content: ${error.message}`))
+    .map(() => `Page content updated (${command.action} on "${command.target}").`)
+}
+
+export const createOnenoteSection = async (params: {
+  notebook_id: string
+  display_name: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.createOnenoteSection(params.notebook_id, params.display_name)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create section: ${error.message}`))
+    .map((section) => `Section created. ID: ${(section as { id: string }).id} — "${params.display_name}"`)
+}
+
+export const createOnenoteNotebook = async (params: { display_name: string }): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.createOnenoteNotebook(params.display_name)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create notebook: ${error.message}`))
+    .map((notebook) => `Notebook created. ID: ${(notebook as { id: string }).id} — "${params.display_name}"`)
+}
+
+export const copyOnenotePage = async (params: {
+  page_id: string
+  section_id: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.copyOnenotePage(params.page_id, params.section_id)
+  return result
+    .mapLeft((error) => new UserError(`Failed to copy page: ${error.message}`))
+    .map(() => `Copy initiated to section ${params.section_id}. Copy runs asynchronously in OneNote.`)
+}
+
+export const deleteOnenotePage = async (params: { page_id: string }): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.deleteOnenotePage(params.page_id)
+  return result
+    .mapLeft((error) => new UserError(`Failed to delete page: ${error.message}`))
+    .map(() => `Page ${params.page_id} deleted.`)
 }
