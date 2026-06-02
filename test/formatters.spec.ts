@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest"
 
-import type { GraphEvent, GraphMessage, GraphTodoTask, GraphUser } from "../src/types"
+import type {
+  GraphEvent,
+  GraphMessage,
+  GraphNotebook,
+  GraphPage,
+  GraphSection,
+  GraphTodoList,
+  GraphTodoTask,
+  GraphUser,
+} from "../src/types"
 import {
   formatEventDetail,
   formatEventList,
   formatMessageDetail,
   formatMessageList,
+  formatNotebookList,
+  formatPageList,
+  formatSectionList,
+  formatTodoListList,
   formatTodoTaskDetail,
   formatTodoTaskList,
   formatUserDetail,
@@ -116,12 +129,48 @@ describe("formatters", () => {
       expect(result).toContain("ID: task-1")
     })
 
+    it("should include the list ID so list_todo_tasks can be called", () => {
+      const list: GraphTodoList = { id: "list-1", displayName: "Tasks", wellknownListName: "defaultList" }
+      const result = formatTodoListList([list])
+      expect(result).toContain("# To Do Lists")
+      expect(result).toContain("Tasks")
+      expect(result).toContain("[defaultList]")
+      expect(result).toContain("ID: list-1")
+    })
+
     it("should format todo task detail", () => {
       const result = formatTodoTaskDetail(task)
       expect(result).toContain("# Buy groceries")
       expect(result).toContain("notStarted")
       expect(result).toContain("high")
       expect(result).toContain("- ID: task-1")
+    })
+  })
+
+  describe("onenote formatters", () => {
+    it("should include the notebook ID so the typed tools can chain", () => {
+      const notebook: GraphNotebook = { id: "nb-1", displayName: "Graph API Test", isDefault: true }
+      const result = formatNotebookList([notebook])
+      expect(result).toContain("# Notebooks")
+      expect(result).toContain("Graph API Test")
+      expect(result).toContain("[Default]")
+      expect(result).toContain("ID: nb-1")
+    })
+
+    it("should include the section ID so list_onenote_pages can be called", () => {
+      const section: GraphSection = { id: "sec-1", displayName: "Quick Notes" }
+      const result = formatSectionList([section])
+      expect(result).toContain("# Sections")
+      expect(result).toContain("Quick Notes")
+      expect(result).toContain("ID: sec-1")
+    })
+
+    it("should include the page ID so get_onenote_page_content can be called", () => {
+      const page: GraphPage = { id: "pg-1", title: "Meeting Notes", lastModifiedDateTime: "2026-06-02T10:00:00Z" }
+      const result = formatPageList([page])
+      expect(result).toContain("# Pages")
+      expect(result).toContain("Meeting Notes")
+      expect(result).toContain("ID: pg-1")
     })
   })
 })

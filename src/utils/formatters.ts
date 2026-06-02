@@ -360,19 +360,20 @@ export const formatPlannerTaskDetail = (task: GraphPlannerTask): string =>
 // OneNote
 export const formatNotebookSummary = (nb: GraphNotebook): string => {
   const def = nb.isDefault ? " [Default]" : ""
-  return `- **${nb.displayName ?? "Untitled"}**${def}`
+  return `- **${nb.displayName ?? "Untitled"}**${def} (ID: ${nb.id ?? ""})`
 }
 
 export const formatNotebookList = (notebooks: ReadonlyArray<GraphNotebook>): string =>
   notebooks.length === 0 ? "No notebooks found." : `# Notebooks\n\n${notebooks.map(formatNotebookSummary).join("\n")}`
 
-export const formatSectionSummary = (section: GraphSection): string => `- **${section.displayName ?? "Untitled"}**`
+export const formatSectionSummary = (section: GraphSection): string =>
+  `- **${section.displayName ?? "Untitled"}** (ID: ${section.id ?? ""})`
 
 export const formatSectionList = (sections: ReadonlyArray<GraphSection>): string =>
   sections.length === 0 ? "No sections found." : `# Sections\n\n${sections.map(formatSectionSummary).join("\n")}`
 
 export const formatPageSummary = (page: GraphPage): string =>
-  `- **${page.title ?? "Untitled"}** (${page.lastModifiedDateTime ?? ""})`
+  `- **${page.title ?? "Untitled"}** (${page.lastModifiedDateTime ?? ""}) (ID: ${page.id ?? ""})`
 
 export const formatPageList = (pages: ReadonlyArray<GraphPage>): string =>
   pages.length === 0 ? "No pages found." : `# Pages\n\n${pages.map(formatPageSummary).join("\n")}`
@@ -385,7 +386,7 @@ export const formatTodoListSummary = (list: GraphTodoList): string => {
       () => "",
       (v) => v,
     )
-  return `- **${list.displayName ?? "Untitled"}**${wellKnown}`
+  return `- **${list.displayName ?? "Untitled"}**${wellKnown} (ID: ${list.id ?? ""})`
 }
 
 export const formatTodoListList = (lists: ReadonlyArray<GraphTodoList>): string =>
