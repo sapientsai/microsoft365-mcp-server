@@ -68,15 +68,15 @@
     "@azure/identity": "^4.13.1",
     "dotenv": "^17.4.2",
     "fastmcp": "^4.0.1",
-    "functype": "^0.60.7",
-    "functype-log": "^0.60.7",
+    "functype": "^1.2.2",
+    "functype-log": "^1.2.2",
     "jsonwebtoken": "^9.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.12.4",
-    "ts-builds": "^2.8.1",
+    "ts-builds": "^2.8.2",
     "tsdown": "^0.22.1"
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
