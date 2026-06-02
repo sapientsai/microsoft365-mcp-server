@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildODataQuery } from "../src/utils/odata-helpers"
+import { appendODataQuery, buildODataQuery } from "../src/utils/odata-helpers"
 
 describe("buildODataQuery", () => {
   it("should return empty string for no params", () => {
@@ -46,5 +46,29 @@ describe("buildODataQuery", () => {
     expect(result).toContain("$top=5")
     expect(result).toContain("$orderby=")
     expect(result.startsWith("?")).toBe(true)
+  })
+})
+
+describe("appendODataQuery", () => {
+  it("should return the path unchanged when there is no query string", () => {
+    expect(appendODataQuery("/me/messages", "")).toBe("/me/messages")
+  })
+
+  it("should append with '?' when the path has no existing query", () => {
+    expect(appendODataQuery("/me/messages", "?$top=10")).toBe("/me/messages?$top=10")
+  })
+
+  it("should append with '&' when the path already has a query string", () => {
+    const path = "/me/calendarView?startDateTime=2026-06-04T00:00:00Z&endDateTime=2026-06-04T23:59:59Z"
+    const result = appendODataQuery(path, "?$orderby=start%2FdateTime")
+    expect(result).toBe(`${path}&$orderby=start%2FdateTime`)
+  })
+
+  it("should not fold the appended params into the previous value (calendarView regression)", () => {
+    const path = "/me/calendarView?startDateTime=2026-06-01T00:00:00Z&endDateTime=2026-06-04T23:59:59Z"
+    const result = appendODataQuery(path, "?$orderby=start%2FdateTime")
+    // The bug produced "...endDateTime=2026-06-04T23:59:59Z?$orderby=..." (a second '?').
+    expect(result).not.toContain("Z?$orderby")
+    expect(result.match(/\?/g)?.length).toBe(1)
   })
 })

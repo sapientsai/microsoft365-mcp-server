@@ -28,13 +28,14 @@ import type {
   ODataParams,
   ODataResponse,
 } from "../types"
-import { buildODataQuery } from "../utils/odata-helpers"
+import { appendODataQuery, buildODataQuery } from "../utils/odata-helpers"
 import { fetchAllPages, parseJsonResponse } from "../utils/pagination"
 
 type RequestOptions = {
   readonly version?: GraphApiVersion
   readonly body?: Record<string, unknown> | readonly unknown[] | string
   readonly contentType?: string
+  readonly responseType?: "json" | "text"
   readonly odataParams?: ODataParams
   readonly headers?: Record<string, string>
 }
@@ -59,7 +60,7 @@ const createGraphClient = () => {
     const token = tokenResult.value as string
     const version = options?.version ?? defaultVersion()
     const queryString = buildODataQuery(options?.odataParams)
-    const url = `${GRAPH_API_BASE}/${version}${path}${queryString}`
+    const url = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
 
     // eslint-disable-next-line functype/prefer-either -- boundary between throwing fetch API and Either-returning client
     try {
@@ -90,6 +91,11 @@ const createGraphClient = () => {
       const text = await response.text()
       if (!text || text.trim() === "") {
         return Right<GraphApiError, T>({} as T)
+      }
+
+      // Some endpoints return raw text (e.g. OneNote page /content is text/html, not JSON).
+      if (options?.responseType === "text") {
+        return Right<GraphApiError, T>(text as T)
       }
 
       return parseJsonResponse<T>(text)
@@ -144,7 +150,7 @@ const createGraphClient = () => {
   ): Promise<Either<GraphApiError, ReadonlyArray<T>>> => {
     const version = options?.version ?? defaultVersion()
     const queryString = buildODataQuery(options?.odataParams)
-    const initialUrl = `${GRAPH_API_BASE}/${version}${path}${queryString}`
+    const initialUrl = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
 
     return fetchAllPages<T>(async (url: string) => {
       const tokenResult = await getAccessToken()
@@ -433,7 +439,9 @@ const createGraphClient = () => {
   const listOnenotePages = (sectionId: string) =>
     request<ODataResponse<GraphPage>>("GET", `/me/onenote/sections/${sectionId}/pages`)
 
-  const getOnenotePageContent = (pageId: string) => request<string>("GET", `/me/onenote/pages/${pageId}/content`)
+  // The /content endpoint returns text/html, not JSON — read it as raw text.
+  const getOnenotePageContent = (pageId: string) =>
+    request<string>("GET", `/me/onenote/pages/${pageId}/content`, { responseType: "text" })
 
   // OneNote writes. createOnenotePage sends raw text/html; the rest are JSON.
   const createOnenotePage = (sectionId: string, html: string) =>
