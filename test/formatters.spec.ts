@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type {
   GraphEvent,
+  GraphMeetingTimeSuggestionsResult,
   GraphMessage,
   GraphNotebook,
   GraphPage,
@@ -13,6 +14,7 @@ import type {
 import {
   formatEventDetail,
   formatEventList,
+  formatMeetingTimeSuggestions,
   formatMessageDetail,
   formatMessageList,
   formatNotebookList,
@@ -90,6 +92,41 @@ describe("formatters", () => {
       expect(result).toContain("bob@example.com")
       expect(result).toContain("(accepted)")
       expect(result).toContain("- ID: evt-1")
+    })
+  })
+
+  describe("meeting time suggestions formatter", () => {
+    it("should render slots with confidence and attendee availability", () => {
+      const result: GraphMeetingTimeSuggestionsResult = {
+        emptySuggestionsReason: "",
+        meetingTimeSuggestions: [
+          {
+            confidence: 100,
+            organizerAvailability: "free",
+            attendeeAvailability: [
+              { availability: "free", attendee: { emailAddress: { address: "bob@example.com" } } },
+            ],
+            meetingTimeSlot: {
+              start: { dateTime: "2026-06-04T15:00:00.0000000", timeZone: "UTC" },
+              end: { dateTime: "2026-06-04T15:30:00.0000000", timeZone: "UTC" },
+            },
+          },
+        ],
+      }
+      const output = formatMeetingTimeSuggestions(result)
+      expect(output).toContain("# Meeting Time Suggestions")
+      expect(output).toContain("2026-06-04T15:00:00.0000000 → 2026-06-04T15:30:00.0000000")
+      expect(output).toContain("100% confidence")
+      expect(output).toContain("bob@example.com: free")
+    })
+
+    it("should render the no-availability message with the empty reason", () => {
+      const output = formatMeetingTimeSuggestions({
+        emptySuggestionsReason: "AttendeesUnavailable",
+        meetingTimeSuggestions: [],
+      })
+      expect(output).toContain("No common availability found")
+      expect(output).toContain("AttendeesUnavailable")
     })
   })
 

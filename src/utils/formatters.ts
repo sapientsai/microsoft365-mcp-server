@@ -9,6 +9,8 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphMeetingTimeSuggestion,
+  GraphMeetingTimeSuggestionsResult,
   GraphMessage,
   GraphNotebook,
   GraphPage,
@@ -144,6 +146,54 @@ ${attendees}
 
 ## Body
 ${body}`
+}
+
+const formatMeetingTimeSuggestion = (suggestion: GraphMeetingTimeSuggestion): string => {
+  const slot = suggestion.meetingTimeSlot
+  const start = slot?.start?.dateTime ?? ""
+  const end = slot?.end?.dateTime ?? ""
+  const confidence = Option(suggestion.confidence)
+    .map((c) => ` — ${c}% confidence`)
+    .fold(
+      () => "",
+      (v) => v,
+    )
+  const organizer = Option(suggestion.organizerAvailability)
+    .map((a) => `\n  - Organizer: ${a}`)
+    .fold(
+      () => "",
+      (v) => v,
+    )
+  // Pass each attendee's availability through, including "unknown" (external/cross-tenant
+  // attendees Graph can't see free/busy on) — the slot is still bookable.
+  const attendees = Option(suggestion.attendeeAvailability)
+    .map((list) =>
+      list
+        .map((a) => `\n  - ${a.attendee?.emailAddress?.address ?? "unknown"}: ${a.availability ?? "unknown"}`)
+        .join(""),
+    )
+    .fold(
+      () => "",
+      (v) => v,
+    )
+  return `- **${start} → ${end}**${confidence}${organizer}${attendees}`
+}
+
+export const formatMeetingTimeSuggestions = (result: GraphMeetingTimeSuggestionsResult): string => {
+  const suggestions = result.meetingTimeSuggestions ?? []
+  if (suggestions.length === 0) {
+    // Surface emptySuggestionsReason (e.g. AttendeesUnavailable) so callers know WHY nothing
+    // came back rather than getting a silent empty list.
+    const reason = Option(result.emptySuggestionsReason)
+      .filter((r) => r.trim() !== "")
+      .map((r) => ` (reason: ${r})`)
+      .fold(
+        () => "",
+        (v) => v,
+      )
+    return `No common availability found.${reason}`
+  }
+  return `# Meeting Time Suggestions\n\n${suggestions.map(formatMeetingTimeSuggestion).join("\n")}`
 }
 
 // Contacts

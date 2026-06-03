@@ -28,6 +28,7 @@ import {
   deleteEvent,
   deleteOnenotePage,
   downloadFile,
+  findMeetingAvailability,
   getAuthStatusTool,
   getContact,
   getDriveItem,
@@ -407,6 +408,37 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       top: z.number().optional().describe("Max events to return (default: 50)"),
     }),
     execute: async (params) => unwrapResult(await listCalendarView(params)),
+    domain: "calendar",
+    readOnly: true,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "find_meeting_availability",
+    description:
+      "Find meeting time suggestions where all participants are free, ranked by confidence. Searches between " +
+      "after_date_time and before_date_time for a slot of duration_minutes. Read-only: suggests times only — " +
+      "use create_event to book one.",
+    parameters: z.object({
+      participants: z
+        .array(z.string())
+        .min(1)
+        .describe("Attendee email addresses. The signed-in user is automatically the organizer."),
+      after_date_time: z.string().describe("Search window start (ISO 8601, e.g. 2026-06-04T00:00:00Z)"),
+      before_date_time: z.string().describe("Search window end (ISO 8601, e.g. 2026-06-06T00:00:00Z)"),
+      duration_minutes: z
+        .number()
+        .int()
+        .min(15)
+        .max(480)
+        .optional()
+        .describe("Meeting length in minutes (default: 30)"),
+      max_candidates: z.number().int().min(1).max(50).optional().describe("Max slots to return (default: 3)"),
+      is_organizer_optional: z
+        .boolean()
+        .optional()
+        .describe("Whether the organizer's attendance is optional (default: false)"),
+    }),
+    execute: async (params) => unwrapResult(await findMeetingAvailability(params)),
     domain: "calendar",
     readOnly: true,
     annotations: { readOnlyHint: true },

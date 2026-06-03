@@ -4,7 +4,7 @@ import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphEvent, ODataResponse } from "../types"
-import { formatEventDetail, formatEventList } from "../utils/formatters"
+import { formatEventDetail, formatEventList, formatMeetingTimeSuggestions } from "../utils/formatters"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -166,4 +166,56 @@ export const deleteEvent = async (params: { event_id: string }): Promise<Either<
   return result
     .mapLeft((error) => new UserError(`Failed to delete event: ${error.message}`))
     .map(() => "Event deleted successfully.")
+}
+
+export const findMeetingAvailability = async (params: {
+  participants: string[]
+  after_date_time: string
+  before_date_time: string
+  duration_minutes?: number
+  max_candidates?: number
+  is_organizer_optional?: boolean
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (!params.participants?.length) {
+    return Left(new UserError("participants is required (at least one attendee email)."))
+  }
+  if (!params.after_date_time || !params.before_date_time) {
+    return Left(
+      new UserError("after_date_time and before_date_time are required (ISO 8601, e.g. 2026-06-04T00:00:00Z)."),
+    )
+  }
+  if (params.before_date_time <= params.after_date_time) {
+    return Left(new UserError("before_date_time must be after after_date_time."))
+  }
+
+  const body = {
+    attendees: params.participants.map((address) => ({
+      type: "required",
+      emailAddress: { address: address.trim() },
+    })),
+    timeConstraint: {
+      activityDomain: "work",
+      timeSlots: [
+        {
+          start: { dateTime: params.after_date_time, timeZone: "UTC" },
+          end: { dateTime: params.before_date_time, timeZone: "UTC" },
+        },
+      ],
+    },
+    // ISO 8601 duration (PT30M), NOT minutes — easy to get wrong.
+    meetingDuration: `PT${params.duration_minutes ?? 30}M`,
+    maxCandidates: params.max_candidates ?? 3,
+    isOrganizerOptional: params.is_organizer_optional ?? false,
+    // 100 => only return slots where every attendee is free (mirrors the generic connector).
+    minimumAttendeePercentage: 100,
+    returnSuggestionReasons: true,
+  }
+
+  const result = await client.findMeetingTimes(body)
+  return result
+    .mapLeft((error) => new UserError(`Failed to find meeting times: ${error.message}`))
+    .map((res) => formatMeetingTimeSuggestions(res))
 }

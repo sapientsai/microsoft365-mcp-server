@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **72 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **73 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -130,20 +130,21 @@ You need an Azure AD (Entra ID) app registration:
    - **Web platform**: `http://localhost:3000/oauth/callback` (for OAuth proxy mode)
 4. Add Microsoft Graph **delegated** permissions:
 
-| Permission                                     | Domain           |
-| ---------------------------------------------- | ---------------- |
-| `User.Read`                                    | User profile     |
-| `Mail.Read`, `Mail.Send`                       | Email            |
-| `Calendars.ReadWrite`                          | Calendar         |
-| `Contacts.Read`                                | Contacts         |
-| `Files.ReadWrite`                              | OneDrive         |
-| `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites |
-| `Chat.ReadWrite`                               | Teams chats      |
-| `ChatMessage.Read`, `ChatMessage.Send`         | Chat messages    |
-| `Team.ReadBasic.All`                           | Teams            |
-| `Channel.ReadBasic.All`, `ChannelMessage.Send` | Channels         |
-| `Tasks.ReadWrite`                              | Planner & To Do  |
-| `Notes.ReadWrite`                              | OneNote          |
+| Permission                                     | Domain                                         |
+| ---------------------------------------------- | ---------------------------------------------- |
+| `User.Read`                                    | User profile                                   |
+| `Mail.Read`, `Mail.Send`                       | Email                                          |
+| `Calendars.ReadWrite`                          | Calendar                                       |
+| `Calendars.Read.Shared`                        | Calendar free/busy (find_meeting_availability) |
+| `Contacts.Read`                                | Contacts                                       |
+| `Files.ReadWrite`                              | OneDrive                                       |
+| `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites                               |
+| `Chat.ReadWrite`                               | Teams chats                                    |
+| `ChatMessage.Read`, `ChatMessage.Send`         | Chat messages                                  |
+| `Team.ReadBasic.All`                           | Teams                                          |
+| `Channel.ReadBasic.All`, `ChannelMessage.Send` | Channels                                       |
+| `Tasks.ReadWrite`                              | Planner & To Do                                |
+| `Notes.ReadWrite`                              | OneNote                                        |
 
 5. Grant admin consent (for org tenants)
 6. Create a client secret (for client-secret and OAuth proxy modes)
@@ -236,15 +237,17 @@ Org mode is required for Teams, Chats, Groups, Planner, and user listing. Withou
 > quoted history) for review, then send via `send_draft`. They remain available under
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode.
 
-### Calendar (5 tools)
+### Calendar (7 tools)
 
-| Tool           | Description              |
-| -------------- | ------------------------ |
-| `list_events`  | List calendar events     |
-| `get_event`    | Get event details        |
-| `create_event` | Create a new event       |
-| `update_event` | Update an existing event |
-| `delete_event` | Delete an event          |
+| Tool                        | Description                                                     |
+| --------------------------- | --------------------------------------------------------------- |
+| `list_events`               | List calendar events                                            |
+| `list_calendar_view`        | List event instances in a date range (expands recurring series) |
+| `find_meeting_availability` | Suggest meeting times where all participants are free           |
+| `get_event`                 | Get event details                                               |
+| `create_event`              | Create a new event                                              |
+| `update_event`              | Update an existing event                                        |
+| `delete_event`              | Delete an event                                                 |
 
 ### Contacts (4 tools)
 

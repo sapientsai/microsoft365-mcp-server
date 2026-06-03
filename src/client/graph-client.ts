@@ -15,6 +15,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphMeetingTimeSuggestionsResult,
   GraphMessage,
   GraphNotebook,
   GraphPage,
@@ -253,6 +254,14 @@ const createGraphClient = () => {
     request<GraphEvent>("PATCH", `/me/events/${id}`, { body: event })
 
   const deleteEvent = (id: string) => request<Record<string, never>>("DELETE", `/me/events/${id}`)
+
+  // findMeetingTimes suggests slots where attendees are free. POST body; Prefer header forces
+  // UTC in the response so callers don't get mailbox-local times back unexpectedly.
+  const findMeetingTimes = (body: Record<string, unknown>) =>
+    request<GraphMeetingTimeSuggestionsResult>("POST", "/me/findMeetingTimes", {
+      body,
+      headers: { Prefer: 'outlook.timezone="UTC"' },
+    })
 
   // Contacts
   const listContacts = (odataParams?: ODataParams) =>
@@ -559,6 +568,7 @@ const createGraphClient = () => {
     createEvent,
     updateEvent,
     deleteEvent,
+    findMeetingTimes,
     // Contacts
     listContacts,
     getContact,

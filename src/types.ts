@@ -123,6 +123,26 @@ export type GraphEvent = {
   readonly recurrence?: unknown
 }
 
+export type GraphMeetingTimeSuggestion = {
+  readonly confidence?: number
+  readonly order?: number
+  readonly organizerAvailability?: string
+  readonly suggestionReason?: string
+  readonly attendeeAvailability?: ReadonlyArray<{
+    readonly availability?: string
+    readonly attendee?: { readonly emailAddress?: { readonly address?: string } }
+  }>
+  readonly meetingTimeSlot?: {
+    readonly start?: { readonly dateTime?: string; readonly timeZone?: string }
+    readonly end?: { readonly dateTime?: string; readonly timeZone?: string }
+  }
+}
+
+export type GraphMeetingTimeSuggestionsResult = {
+  readonly emptySuggestionsReason?: string
+  readonly meetingTimeSuggestions?: ReadonlyArray<GraphMeetingTimeSuggestion>
+}
+
 export type GraphContact = {
   readonly id: string
   readonly displayName?: string

@@ -7,6 +7,9 @@ export const GRAPH_SCOPES = {
   // Calendar
   CALENDARS_READ: "Calendars.Read",
   CALENDARS_READWRITE: "Calendars.ReadWrite",
+  // Required by findMeetingTimes to read attendees' free/busy. Distinct from the non-Shared
+  // scopes above — Calendars.ReadWrite does NOT grant it.
+  CALENDARS_READ_SHARED: "Calendars.Read.Shared",
 
   // Contacts
   CONTACTS_READ: "Contacts.Read",
@@ -65,6 +68,7 @@ export const DEFAULT_INTERACTIVE_SCOPES: ReadonlyArray<string> = [
   GRAPH_SCOPES.MAIL_READWRITE,
   GRAPH_SCOPES.MAIL_SEND,
   GRAPH_SCOPES.CALENDARS_READWRITE,
+  GRAPH_SCOPES.CALENDARS_READ_SHARED,
   GRAPH_SCOPES.CONTACTS_READ,
   GRAPH_SCOPES.FILES_READWRITE,
   GRAPH_SCOPES.TEAM_READ_BASIC_ALL,

@@ -9,7 +9,7 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { createEvent, listCalendarView, updateEvent } from "../src/tools/calendar-tools"
+import { createEvent, findMeetingAvailability, listCalendarView, updateEvent } from "../src/tools/calendar-tools"
 
 const mockEvent: Partial<GraphEvent> = {
   id: "evt-123",
@@ -22,6 +22,7 @@ const mockClient = {
   createEvent: vi.fn(),
   updateEvent: vi.fn(),
   listCalendarView: vi.fn(),
+  findMeetingTimes: vi.fn(),
 }
 
 beforeEach(() => {
@@ -264,6 +265,90 @@ describe("calendar-tools", () => {
       const result = await listCalendarView({ start_date_time: "2026-05-22T00:00:00Z", end_date_time: "" })
       expect(result.isLeft()).toBe(true)
       expect(mockClient.listCalendarView).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("findMeetingAvailability", () => {
+    const mockResult = {
+      emptySuggestionsReason: "",
+      meetingTimeSuggestions: [
+        {
+          confidence: 100,
+          organizerAvailability: "free",
+          attendeeAvailability: [{ availability: "free", attendee: { emailAddress: { address: "bob@example.com" } } }],
+          meetingTimeSlot: {
+            start: { dateTime: "2026-06-04T15:00:00.0000000", timeZone: "UTC" },
+            end: { dateTime: "2026-06-04T15:30:00.0000000", timeZone: "UTC" },
+          },
+        },
+      ],
+    }
+
+    it("should return ranked suggestions and send the correct Graph body", async () => {
+      mockClient.findMeetingTimes.mockResolvedValue(Right(mockResult))
+      const result = await findMeetingAvailability({
+        participants: ["bob@example.com"],
+        after_date_time: "2026-06-04T00:00:00Z",
+        before_date_time: "2026-06-06T00:00:00Z",
+      })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("Meeting Time Suggestions")
+      expect(result.value).toContain("100% confidence")
+      expect(mockClient.findMeetingTimes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attendees: [{ type: "required", emailAddress: { address: "bob@example.com" } }],
+          meetingDuration: "PT30M",
+          maxCandidates: 3,
+          isOrganizerOptional: false,
+          minimumAttendeePercentage: 100,
+          returnSuggestionReasons: true,
+        }),
+      )
+    })
+
+    it("should encode duration_minutes as an ISO 8601 duration", async () => {
+      mockClient.findMeetingTimes.mockResolvedValue(Right(mockResult))
+      await findMeetingAvailability({
+        participants: ["bob@example.com"],
+        after_date_time: "2026-06-04T00:00:00Z",
+        before_date_time: "2026-06-06T00:00:00Z",
+        duration_minutes: 45,
+      })
+      expect(mockClient.findMeetingTimes).toHaveBeenCalledWith(expect.objectContaining({ meetingDuration: "PT45M" }))
+    })
+
+    it("should surface emptySuggestionsReason when no slot is found", async () => {
+      mockClient.findMeetingTimes.mockResolvedValue(
+        Right({ emptySuggestionsReason: "AttendeesUnavailable", meetingTimeSuggestions: [] }),
+      )
+      const result = await findMeetingAvailability({
+        participants: ["bob@example.com"],
+        after_date_time: "2026-06-04T00:00:00Z",
+        before_date_time: "2026-06-06T00:00:00Z",
+      })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("No common availability found")
+      expect(result.value).toContain("AttendeesUnavailable")
+    })
+
+    it("should reject an empty participants list", async () => {
+      const result = await findMeetingAvailability({
+        participants: [],
+        after_date_time: "2026-06-04T00:00:00Z",
+        before_date_time: "2026-06-06T00:00:00Z",
+      })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.findMeetingTimes).not.toHaveBeenCalled()
+    })
+
+    it("should reject when before_date_time is not after after_date_time", async () => {
+      const result = await findMeetingAvailability({
+        participants: ["bob@example.com"],
+        after_date_time: "2026-06-06T00:00:00Z",
+        before_date_time: "2026-06-04T00:00:00Z",
+      })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.findMeetingTimes).not.toHaveBeenCalled()
     })
   })
 })
