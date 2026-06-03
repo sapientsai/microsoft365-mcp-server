@@ -1,0 +1,13 @@
+# pnpm 11 requires an explicit allow/deny per dependency build script. Both were
+# already skipped under pnpm 10 (no build config) and aren't on the build path —
+# tsdown bundles via rolldown and the published artifact is prebuilt dist/.
+allowBuilds:
+  esbuild: false
+  tldjs: false
+publicHoistPattern:
+  - "*eslint*"
+  - "*prettier*"
+  - "*vitest*"
+  - "typescript"
+  - "*rimraf*"
+  - "*cross-env*"
