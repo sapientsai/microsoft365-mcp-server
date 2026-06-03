@@ -4,6 +4,12 @@
 allowBuilds:
   esbuild: false
   tldjs: false
+
+# Force the patched Vite line. vite is transitive (vitest 4.x, dev-only) and the
+# vulnerable versions (<7.3.2) are dev-server CVEs not reachable here, but this keeps
+# the lockfile clean of the advisories. vitest 4.1.8 allows ^6 || ^7 || ^8; pin 7.x.
+overrides:
+  vite: "^7.3.2"
 publicHoistPattern:
   - "*eslint*"
   - "*prettier*"
