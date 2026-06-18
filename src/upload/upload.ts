@@ -7,6 +7,25 @@ export const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024 // 4 MB
 export const MAX_UPLOAD_SIZE = 250 * 1024 * 1024 // 250 MB
 const CHUNK_SIZE = 10 * 1024 * 1024 // 10 MB (must be multiple of 320 KiB)
 
+// undici's fetch wraps the real failure as `error.cause` and reports a generic
+// "fetch failed" message. Surface the cause (and its `code`, e.g. ENOTFOUND /
+// ECONNREFUSED / UND_ERR_*) so a network/egress failure names itself instead of
+// hiding behind "fetch failed".
+export const describeFetchError = (error: unknown): { message: string; code?: string } => {
+  if (!(error instanceof Error)) return { message: String(error) }
+  const { cause } = error as { cause?: unknown }
+  if (cause instanceof Error) {
+    const { code } = cause as { code?: unknown }
+    const codeStr = typeof code === "string" ? code : undefined
+    return {
+      message: `${error.message} (cause: ${cause.message}${codeStr ? `, code: ${codeStr}` : ""})`,
+      ...(codeStr ? { code: codeStr } : {}),
+    }
+  }
+  if (cause !== undefined) return { message: `${error.message} (cause: ${String(cause)})` }
+  return { message: error.message }
+}
+
 const parseGraphError = async (response: Response): Promise<string> => {
   try {
     const body = (await response.json()) as { error?: { message?: string } }
@@ -58,9 +77,11 @@ export const simpleUpload = async (
     const item = (await response.json()) as GraphDriveItem
     return Right(item)
   } catch (error) {
+    const { message } = describeFetchError(error)
+    console.error(`[Upload] simple PUT to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error during upload: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Network error during upload: ${message}`,
     })
   }
 }
@@ -94,9 +115,11 @@ export const sessionUpload = async (
     const session = (await createResponse.json()) as { uploadUrl: string }
     return uploadChunks(session.uploadUrl, buffer, 0)
   } catch (error) {
+    const { message } = describeFetchError(error)
+    console.error(`[Upload] createUploadSession to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error creating upload session: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Network error creating upload session: ${message}`,
     })
   }
 }
@@ -139,9 +162,11 @@ const uploadChunks = async (
 
     return uploadChunks(uploadUrl, buffer, offset + CHUNK_SIZE)
   } catch (error) {
+    const { message } = describeFetchError(error)
+    console.error(`[Upload] chunk PUT at byte ${offset} threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error uploading chunk at byte ${offset}: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Network error uploading chunk at byte ${offset}: ${message}`,
     })
   }
 }

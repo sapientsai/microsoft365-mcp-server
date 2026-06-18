@@ -89,7 +89,15 @@ import {
 import type { ToolDefinition } from "./tools/tool-definitions"
 import { filterTools, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
-import { decodeBase64Upload, MAX_UPLOAD_SIZE, sessionUpload, SIMPLE_UPLOAD_LIMIT, simpleUpload } from "./upload/upload"
+import {
+  decodeBase64Upload,
+  describeFetchError,
+  MAX_UPLOAD_SIZE,
+  sessionUpload,
+  SIMPLE_UPLOAD_LIMIT,
+  simpleUpload,
+} from "./upload/upload"
+import { resolveUploadTicket } from "./upload/upload-ticket"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
 import { filenameFromPath, resolveUploadContentType } from "./utils/upload-helpers"
 
@@ -1295,6 +1303,13 @@ const resolveUploadAccessToken = async (
   oauthMode: boolean,
   bearer: string | undefined,
 ): Promise<{ token?: string; error?: string; status?: number }> => {
+  // Preferred path: an opaque upload ticket resolves to the Graph token held
+  // server-side, so the raw delegated JWT never travels in the tool transcript.
+  if (bearer) {
+    const ticketed = resolveUploadTicket(bearer)
+    if (ticketed) return { token: ticketed }
+  }
+
   if (oauthMode) {
     if (!bearer) return { error: "Missing Bearer token", status: 401 }
     return { token: bearer }
@@ -1388,7 +1403,7 @@ const mountUploadRoute = (server: FastMCP, oauthMode: boolean): void => {
       const result = await handleUpload(c.req as UploadRequestContext, oauthMode)
       return c.json(result.body, result.status)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error"
+      const { message } = describeFetchError(err)
       console.error("[Upload] unhandled error:", message)
       return c.json({ error: message }, 500)
     }
