@@ -10,7 +10,8 @@ import { GRAPH_API_BASE } from "../auth/scopes"
 import { getContextToken } from "../auth/token-context"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphDriveItem, ODataResponse } from "../types"
-import { MAX_UPLOAD_SIZE, sessionUpload, SIMPLE_UPLOAD_LIMIT, simpleUpload } from "../upload/upload"
+import { describeFetchError, MAX_UPLOAD_SIZE, sessionUpload, SIMPLE_UPLOAD_LIMIT, simpleUpload } from "../upload/upload"
+import { mintUploadTicket } from "../upload/upload-ticket"
 import { formatDriveItemDetail, formatDriveItemList } from "../utils/formatters"
 import { filenameFromPath, formatBytes, resolveUploadContentType } from "../utils/upload-helpers"
 
@@ -200,8 +201,19 @@ export const getUploadConfig = async (params: {
   })
   const uploadUrl = `${baseUrl}/upload?${query.toString()}`
 
-  const token = getContextToken() ?? process.env.MS365_UPLOAD_TOKEN
-  const authHeader = token ? `Authorization: Bearer ${token}` : undefined
+  // Resolve the real Graph token server-side and hand back an opaque, short-lived
+  // ticket instead — the raw delegated JWT must never land in the tool transcript.
+  // Falls back to the shared upload secret for non-OAuth deployments.
+  const graphToken =
+    getContextToken() ??
+    (await getAccessToken()).fold<string | undefined>(
+      () => undefined,
+      (value) => value as string,
+    )
+  const uploadCredential = graphToken ? mintUploadTicket(graphToken) : process.env.MS365_UPLOAD_TOKEN
+  const authHeader = uploadCredential ? `Authorization: Bearer ${uploadCredential}` : undefined
+
+  const reachability = await probeGraphReachability()
 
   const curlParts = [
     `base64 "${localFile}" | tr -d '\\n'`,
@@ -223,11 +235,14 @@ export const getUploadConfig = async (params: {
     encoding: "base64",
     ...(authHeader ? { authHeader } : {}),
     curl: curlParts,
+    graphReachableFromServer: reachability.ok,
+    graphReachabilityDetail: reachability.detail,
     notes: [
       "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
       "Server decodes base64, then PUTs to Microsoft Graph (simple PUT up to 4 MB; chunked session upload above).",
       "Intermediate folders in the Graph path are auto-created.",
-      "Known issue: curl from claude.ai code-execution sandbox may return HTTP 503 'DNS cache overflow' on binary bodies >~40KB — this is a sandbox egress-proxy bug, not a server error. If this occurs, the upload likely did not succeed; retry from a local shell (WSL/VM/Claude Code CLI). For text/markdown/JSON, prefer the upload_file MCP tool instead (different egress path).",
+      "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not your Graph token. It only authorizes this upload relay.",
+      "If a /upload call fails with a network error, check graphReachableFromServer: it reflects whether THIS server can reach Microsoft Graph. false ⇒ a server-side egress/DNS/TLS problem, not your client; true ⇒ retry, and report the returned error text (it now includes the underlying cause).",
     ],
   }
 
@@ -295,6 +310,22 @@ export const uploadFileFromPath = async (params: {
   return result
     .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))
     .map((item) => `File uploaded (${formatBytes(buffer.length)}).\n\n${formatDriveItemDetail(item)}`)
+}
+
+// Server-side reachability probe: an unauthenticated GET to Graph returns 401 quickly
+// when egress works (any HTTP response proves reachability); a thrown fetch means the
+// server itself cannot reach Graph (DNS/TLS/egress). This replaces the previous, false
+// claim that upload failures were a client-side sandbox bug.
+const probeGraphReachability = async (): Promise<{ ok: boolean; detail: string }> => {
+  try {
+    const response = await fetch(`${GRAPH_API_BASE}/v1.0/`, {
+      method: "GET",
+      signal: AbortSignal.timeout(5000),
+    })
+    return { ok: true, detail: `reached Graph (HTTP ${response.status})` }
+  } catch (error) {
+    return { ok: false, detail: describeFetchError(error).message }
+  }
 }
 
 const resolveUploadBaseUrl = (): string | undefined => {
