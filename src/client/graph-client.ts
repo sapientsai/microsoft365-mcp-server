@@ -63,7 +63,6 @@ const createGraphClient = () => {
     const queryString = buildODataQuery(options?.odataParams)
     const url = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
 
-    // eslint-disable-next-line functype/prefer-either -- boundary between throwing fetch API and Either-returning client
     try {
       const fetchOptions: RequestInit = {
         method,
@@ -165,7 +164,6 @@ const createGraphClient = () => {
 
       const token = tokenResult.value as string
 
-      // eslint-disable-next-line functype/prefer-either -- boundary: fetch API
       try {
         const response = await fetch(url, {
           headers: {
@@ -305,7 +303,7 @@ const createGraphClient = () => {
     const token = tokenResult.value as string
     const version = defaultVersion()
     const url = `${GRAPH_API_BASE}/${version}/me/drive/items/${id}/content`
-    // eslint-disable-next-line functype/prefer-either -- boundary between throwing fetch API and Either-returning client
+
     try {
       const response = await fetch(url, {
         method: "GET",
@@ -505,7 +503,6 @@ const createGraphClient = () => {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 60_000)
 
-    // eslint-disable-next-line functype/prefer-either -- boundary: fetch API
     try {
       const response = await fetch(url, {
         method: "PUT",

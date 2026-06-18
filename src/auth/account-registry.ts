@@ -100,7 +100,7 @@ export const getAccountToken = async (accountId?: string): Promise<Either<AuthEr
   }
 
   const acct = account.value as Account
-  // eslint-disable-next-line functype/prefer-either -- boundary: credential.getToken throws
+
   try {
     const token = await acct.credential.getToken(GRAPH_DEFAULT_SCOPE)
     if (!token?.token) {
