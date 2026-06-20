@@ -242,7 +242,10 @@ server {
 - **HTTPS required**: OAuth callbacks must use HTTPS in production. Use a reverse proxy or managed platform.
 - **Tenant restriction**: Set `MS365_TENANT_ID` to your org's tenant ID to prevent other organizations from authenticating.
 - **Read-only mode**: Use `MS365_READ_ONLY=true` for demos or untrusted environments.
-- **Token storage**: FastMCP stores OAuth tokens in memory by default. Tokens are lost on server restart (users re-authenticate). For persistence, configure a `DiskStore` or custom `TokenStorage`.
+- **Dedicated signing/encryption keys (oauth-proxy)**: set `MS365_JWT_SIGNING_KEY` and `MS365_TOKEN_ENCRYPTION_KEY` to independent secrets. If unset they fall back to `MS365_CLIENT_SECRET` (key reuse — logged as a warning on startup). Use separate, high-entropy values in production. Note: setting/rotating `MS365_TOKEN_ENCRYPTION_KEY` invalidates persisted tokens, so users re-authenticate once.
+- **Token storage**: persisted OAuth tokens are encrypted on disk in a directory created mode `0700`. Default `/tmp/ms365-tokens`; set `TOKEN_STORAGE_PATH` to a persistent, private path (not world-writable `/tmp`) for real deployments.
+- **Bind address**: `httpStream` binds `127.0.0.1` by default. The Docker image sets `FASTMCP_HOST=0.0.0.0` to expose it inside the container (front it with the HTTPS reverse proxy). Set `HOST`/`FASTMCP_HOST` deliberately; don't expose `0.0.0.0` without a proxy.
+- **Upload endpoint auth (non-oauth httpStream)**: the write-capable `/upload` relay requires `MS365_UPLOAD_TOKEN` outside oauth-proxy mode. If it's unset the endpoint refuses requests (`503`) rather than uploading with the server's own credentials. (In oauth-proxy mode the per-request bearer is required.)
 
 ## Dokploy Deployment
 

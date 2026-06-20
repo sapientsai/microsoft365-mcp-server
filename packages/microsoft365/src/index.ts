@@ -6,7 +6,7 @@ type OAuthSessionContext = { accessToken?: string }
 import { type Either, Left, Right } from "functype/either"
 import { z } from "zod"
 
-import { getAccessToken, initializeAuth } from "./auth"
+import { initializeAuth } from "./auth"
 import { createAzureAuthProvider } from "./auth/oauth-provider"
 import { GRAPH_API_BASE } from "./auth/scopes"
 import { withToken } from "./auth/token-context"
@@ -97,7 +97,7 @@ import {
   SIMPLE_UPLOAD_LIMIT,
   simpleUpload,
 } from "./upload/upload"
-import { resolveUploadTicket } from "./upload/upload-ticket"
+import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
 import { filenameFromPath, resolveUploadContentType } from "./utils/upload-helpers"
 
@@ -1299,34 +1299,6 @@ type UploadRequestContext = {
   arrayBuffer: () => Promise<ArrayBuffer>
 }
 
-const resolveUploadAccessToken = async (
-  oauthMode: boolean,
-  bearer: string | undefined,
-): Promise<{ token?: string; error?: string; status?: number }> => {
-  // Preferred path: an opaque upload ticket resolves to the Graph token held
-  // server-side, so the raw delegated JWT never travels in the tool transcript.
-  if (bearer) {
-    const ticketed = resolveUploadTicket(bearer)
-    if (ticketed) return { token: ticketed }
-  }
-
-  if (oauthMode) {
-    if (!bearer) return { error: "Missing Bearer token", status: 401 }
-    return { token: bearer }
-  }
-
-  const sharedSecret = process.env.MS365_UPLOAD_TOKEN
-  if (sharedSecret && bearer !== sharedSecret) {
-    return { error: "Invalid upload token", status: 401 }
-  }
-
-  const result = await getAccessToken()
-  if (result.isLeft()) {
-    return { error: (result.value as { message: string }).message, status: 401 }
-  }
-  return { token: result.value as string }
-}
-
 const handleUpload = async (
   req: UploadRequestContext,
   oauthMode: boolean,
@@ -1453,8 +1425,9 @@ const main = async () => {
     mountUploadRoute(server, true)
 
     const port = parseInt(process.env.PORT ?? "3000", 10)
-    await server.start({ transportType: "httpStream", httpStream: { port } })
-    console.error(`[Server] MS 365 MCP Server v${VERSION} (OAuth proxy) running on port ${port}`)
+    const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
+    await server.start({ transportType: "httpStream", httpStream: { port, host } })
+    console.error(`[Server] MS 365 MCP Server v${VERSION} (OAuth proxy) running on ${host}:${port}`)
   } else {
     // Standard mode: credential-based auth
     await setupAuth()
@@ -1473,8 +1446,8 @@ const main = async () => {
     if (transportType === "httpStream") {
       mountUploadRoute(server, false)
       const port = parseInt(process.env.PORT ?? "3000", 10)
-      const host = process.env.HOST ?? "127.0.0.1"
-      await server.start({ transportType: "httpStream", httpStream: { port } })
+      const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
+      await server.start({ transportType: "httpStream", httpStream: { port, host } })
       console.error(`[Server] MS 365 MCP Server v${VERSION} running on ${host}:${port}`)
     } else {
       await server.start({ transportType: "stdio" })
