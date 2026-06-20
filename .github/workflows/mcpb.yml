@@ -17,9 +17,11 @@ jobs:
           node-version: "20"
 
       - name: Build .mcpb bundle
+        working-directory: packages/microsoft365
         run: bash scripts/build-mcpb.sh
 
       - name: Upload .mcpb to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" microsoft365-mcp-server-*.mcpb
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG_NAME" packages/microsoft365/microsoft365-mcp-server-*.mcpb
