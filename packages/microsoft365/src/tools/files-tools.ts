@@ -1,6 +1,17 @@
 import { readFile, stat } from "node:fs/promises"
 import { basename } from "node:path"
 
+import {
+  describeFetchError,
+  filenameFromPath,
+  formatBytes,
+  MAX_UPLOAD_SIZE,
+  mintUploadTicket,
+  resolveUploadContentType,
+  sessionUpload,
+  SIMPLE_UPLOAD_LIMIT,
+  simpleUpload,
+} from "@sapientsai/ms-graph-core"
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
@@ -10,10 +21,7 @@ import { GRAPH_API_BASE } from "../auth/scopes"
 import { getContextToken } from "../auth/token-context"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphDriveItem, ODataResponse } from "../types"
-import { describeFetchError, MAX_UPLOAD_SIZE, sessionUpload, SIMPLE_UPLOAD_LIMIT, simpleUpload } from "../upload/upload"
-import { mintUploadTicket } from "../upload/upload-ticket"
 import { formatDriveItemDetail, formatDriveItemList } from "../utils/formatters"
-import { filenameFromPath, formatBytes, resolveUploadContentType } from "../utils/upload-helpers"
 
 const requireClient = () => {
   const client = getGraphClient()
