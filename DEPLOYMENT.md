@@ -209,7 +209,7 @@ Mail, calendar, contacts, To Do, files, OneNote. No Teams/chat exposure.
 MS365_ORG_MODE=true
 ```
 
-All 58 tools enabled across all domains.
+All 73 tools enabled across all domains.
 
 ## Reverse Proxy
 
