@@ -1,3 +1,4 @@
+import { appendODataQuery, buildODataQuery, fetchAllPages, parseJsonResponse } from "@sapientsai/ms-graph-core"
 import { None, type Option, Ref, Some } from "functype"
 import { type Either, Left, Right } from "functype/either"
 
@@ -29,8 +30,6 @@ import type {
   ODataParams,
   ODataResponse,
 } from "../types"
-import { appendODataQuery, buildODataQuery } from "../utils/odata-helpers"
-import { fetchAllPages, parseJsonResponse } from "../utils/pagination"
 
 type RequestOptions = {
   readonly version?: GraphApiVersion

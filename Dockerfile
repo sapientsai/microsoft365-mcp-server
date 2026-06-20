@@ -7,13 +7,15 @@ WORKDIR /app
 
 # Workspace manifests first for a cached install layer
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/core/package.json ./packages/core/
 COPY packages/microsoft365/package.json ./packages/microsoft365/
 RUN pnpm install --frozen-lockfile
 
-# Build the server, then produce a self-contained production deployment
-# (prod-only node_modules + the package's published files) outside the workspace.
+# Build core then the server (-r = topological), so the server bundles core's dist.
+# Then produce a self-contained production deployment (prod-only node_modules + the
+# package's published files) outside the workspace.
 COPY . .
-RUN pnpm --filter microsoft365-mcp-server build
+RUN pnpm -r build
 RUN pnpm --filter microsoft365-mcp-server deploy --prod /prod
 
 # Production stage

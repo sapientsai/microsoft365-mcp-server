@@ -3,6 +3,16 @@ import type { UserError } from "fastmcp"
 import { FastMCP } from "fastmcp"
 // AzureSession shape: { accessToken: string; scopes: string[]; refreshToken?: string; upn?: string }
 type OAuthSessionContext = { accessToken?: string }
+import {
+  decodeBase64Upload,
+  describeFetchError,
+  filenameFromPath,
+  MAX_UPLOAD_SIZE,
+  resolveUploadContentType,
+  sessionUpload,
+  SIMPLE_UPLOAD_LIMIT,
+  simpleUpload,
+} from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import { z } from "zod"
 
@@ -89,17 +99,8 @@ import {
 import type { ToolDefinition } from "./tools/tool-definitions"
 import { filterTools, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
-import {
-  decodeBase64Upload,
-  describeFetchError,
-  MAX_UPLOAD_SIZE,
-  sessionUpload,
-  SIMPLE_UPLOAD_LIMIT,
-  simpleUpload,
-} from "./upload/upload"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
-import { filenameFromPath, resolveUploadContentType } from "./utils/upload-helpers"
 
 dotenv.config({ quiet: true })
 

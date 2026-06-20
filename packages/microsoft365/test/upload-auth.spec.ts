@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../src/auth", () => ({ getAccessToken: vi.fn() }))
 
+import { mintUploadTicket } from "@sapientsai/ms-graph-core"
+
 import { getAccessToken } from "../src/auth"
 import { resolveUploadAccessToken } from "../src/upload/upload-auth"
-import { mintUploadTicket } from "../src/upload/upload-ticket"
 
 describe("resolveUploadAccessToken", () => {
   beforeEach(() => {

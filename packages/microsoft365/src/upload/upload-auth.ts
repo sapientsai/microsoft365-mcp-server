@@ -1,5 +1,6 @@
+import { resolveUploadTicket } from "@sapientsai/ms-graph-core"
+
 import { getAccessToken } from "../auth"
-import { resolveUploadTicket } from "./upload-ticket"
 
 export type UploadAuthResult = { token?: string; error?: string; status?: number }
 
