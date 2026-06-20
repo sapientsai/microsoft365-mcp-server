@@ -1,3 +1,11 @@
+packages:
+  - "packages/*"
+
+# Required for `pnpm deploy` (Docker prod build) since pnpm 10, and the correct
+# behavior once packages/core becomes a workspace dependency — workspace deps are
+# hard-linked into the deployed node_modules rather than symlinked.
+injectWorkspacePackages: true
+
 # pnpm 11 requires an explicit allow/deny per dependency build script. Both were
 # already skipped under pnpm 10 (no build config) and aren't on the build path —
 # tsdown bundles via rolldown and the published artifact is prebuilt dist/.
