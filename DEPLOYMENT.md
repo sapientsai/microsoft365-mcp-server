@@ -260,7 +260,7 @@ If you're using [Dokploy](https://dokploy.com/):
    - `PORT=8080`
    - `TRANSPORT_TYPE=httpStream`
 4. Set the port to 8080
-5. Configure the domain (e.g., `ms365-mcp.civala.ai`)
+5. Configure the domain (e.g., `ms365-mcp.example.com`)
 6. Deploy
 
 Don't forget to add `https://<your-dokploy-domain>/oauth/callback` as a redirect URI on the Azure AD app.
