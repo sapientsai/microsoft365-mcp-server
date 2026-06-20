@@ -1,3 +1,5 @@
+import { chmodSync, mkdirSync } from "node:fs"
+
 import { AzureProvider, DiskStore } from "fastmcp/auth"
 
 import { DEFAULT_INTERACTIVE_SCOPES } from "./scopes"
@@ -9,10 +11,6 @@ export type OAuthProxyConfig = {
   readonly tenantId?: string
   readonly scopes?: ReadonlyArray<string>
 }
-
-const tokenStorage = new DiskStore({
-  directory: process.env.TOKEN_STORAGE_PATH ?? "/tmp/ms365-tokens",
-})
 
 // fastmcp v4 defaults allowedRedirectUriPatterns to [] (rejects all DCR).
 // Explicit allow-list:
@@ -40,11 +38,40 @@ const resolveAllowedRedirectUriPatterns = (): ReadonlyArray<string> => {
   return DEFAULT_REDIRECT_URI_PATTERNS
 }
 
-// EncryptedTokenStorage uses an ephemeral random key when encryptionKey is unset,
-// which makes persisted tokens unreadable after restart. Bind it to the client
-// secret so the key is stable across restarts; rotating the secret invalidates
-// stored tokens (intended).
-const resolveEncryptionKey = (clientSecret: string): string => process.env.MS365_TOKEN_ENCRYPTION_KEY ?? clientSecret
+// Persisted tokens are encrypted; create the store directory owner-only (0700) so the
+// encrypted material is never world-readable (the previous /tmp default left it open).
+// Override the location with TOKEN_STORAGE_PATH (recommend a persistent, private dir).
+export const resolveTokenStoragePath = (): string => process.env.TOKEN_STORAGE_PATH ?? "/tmp/ms365-tokens"
+
+const createTokenStorage = (): DiskStore => {
+  const directory = resolveTokenStoragePath()
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  chmodSync(directory, 0o700) // enforce on a pre-existing (possibly world-readable) dir too
+  return new DiskStore({ directory })
+}
+
+// JWT signing and token-encryption keys must be independent secrets, NOT reused from
+// the OAuth client secret. Prefer dedicated env vars; warn loudly when falling back
+// (key reuse is acceptable only for local/dev — set both in production).
+export const resolveSigningKey = (clientSecret: string): string => {
+  const dedicated = process.env.MS365_JWT_SIGNING_KEY
+  if (dedicated) return dedicated
+  console.error(
+    "[Auth][WARN] MS365_JWT_SIGNING_KEY is not set; falling back to the OAuth client secret for JWT signing. " +
+      "Set a dedicated MS365_JWT_SIGNING_KEY in production to avoid key reuse.",
+  )
+  return clientSecret
+}
+
+export const resolveEncryptionKey = (clientSecret: string): string => {
+  const dedicated = process.env.MS365_TOKEN_ENCRYPTION_KEY
+  if (dedicated) return dedicated
+  console.error(
+    "[Auth][WARN] MS365_TOKEN_ENCRYPTION_KEY is not set; falling back to the OAuth client secret for token encryption. " +
+      "Set a dedicated MS365_TOKEN_ENCRYPTION_KEY in production to avoid key reuse.",
+  )
+  return clientSecret
+}
 
 export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider =>
   new AzureProvider({
@@ -53,8 +80,8 @@ export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider
     clientSecret: config.clientSecret,
     tenantId: config.tenantId ?? "common",
     scopes: [...(config.scopes ?? DEFAULT_INTERACTIVE_SCOPES)],
-    jwtSigningKey: config.clientSecret,
-    tokenStorage,
+    jwtSigningKey: resolveSigningKey(config.clientSecret),
+    tokenStorage: createTokenStorage(),
     encryptionKey: resolveEncryptionKey(config.clientSecret),
     allowedRedirectUriPatterns: [...resolveAllowedRedirectUriPatterns()],
   })
