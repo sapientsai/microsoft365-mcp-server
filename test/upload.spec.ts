@@ -98,7 +98,7 @@ describe("getUploadConfig token hardening", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env.MS365_PUBLIC_BASE_URL = "https://ms365.civala.ai"
+    process.env.MS365_PUBLIC_BASE_URL = "https://ms365.example.com"
     vi.mocked(getContextToken).mockReturnValue(RAW_JWT)
     vi.stubGlobal(
       "fetch",
