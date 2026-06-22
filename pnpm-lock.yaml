@@ -32,6 +32,34 @@ importers:
         specifier: ^0.22.3
         version: 0.22.3(typescript@6.0.3)
 
+  packages/graph:
+    dependencies:
+      '@sapientsai/ms-graph-core':
+        specifier: workspace:*
+        version: link:../core
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
+      functype:
+        specifier: ^1.4.3
+        version: 1.4.3
+      somamcp:
+        specifier: ^1.0.15
+        version: 1.0.15
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+      ts-builds:
+        specifier: ^3.2.0
+        version: 3.2.0(@typescript-eslint/eslint-plugin@8.61.1(@typescript-eslint/parser@8.61.1(eslint@10.5.0)(typescript@6.0.3))(eslint@10.5.0)(typescript@6.0.3))(@typescript-eslint/parser@8.61.1(eslint@10.5.0)(typescript@6.0.3))(tsdown@0.22.3(typescript@6.0.3))(vite@7.3.5(@types/node@24.13.2))
+      tsdown:
+        specifier: ^0.22.3
+        version: 0.22.3(typescript@6.0.3)
+
   packages/microsoft365:
     dependencies:
       '@azure/identity':
@@ -1408,6 +1436,12 @@ packages:
     peerDependencies:
       functype: '>=0.60.0'
 
+  functype-log@1.4.4:
+    resolution: {integrity: sha512-Pr7WaHzW+Q36I1tpcHb4P+xJngFIiROFSQiuHL24jrMbWeay/kflvprEPLcgXGfLcKcfBOubfuKzMRuO74XbJA==}
+    engines: {node: '>=18.17.0'}
+    peerDependencies:
+      functype: '>=0.60.0'
+
   functype-os@1.4.3:
     resolution: {integrity: sha512-/bEYOXKV8LX0TRBlYHP3KI4Qfg1/T84EUOt/9Tc5nzGVbpK8Xf+37XSzAI/f22CLnpXMgqpUrizObQO7V78/yw==}
     engines: {node: '>=18.17.0'}
@@ -1416,6 +1450,10 @@ packages:
 
   functype@1.4.3:
     resolution: {integrity: sha512-YSybL1ixM1iYGoevJC93J+wkhjdDenDQi5Yuphzz/ZLM/UCNUkem6Hsy9kk+P9YW+UrI3yq65vSTNKV7OTVjuw==}
+    hasBin: true
+
+  functype@1.4.4:
+    resolution: {integrity: sha512-2sgDr5dozwpCq28tm0/nRI+LT8KXtFJ0JgyJIDjDU4L9Q1dfDKs7jYdfx3cGXL6Kxxs7sA+++1brBb9KDPC0fQ==}
     hasBin: true
 
   fuse.js@7.4.2:
@@ -1480,6 +1518,10 @@ packages:
 
   hono@4.12.25:
     resolution: {integrity: sha512-2NFaIyNVgJmBs/ecmtGzlmluTFs5cHEWGTdu0t1HBwYzoGXOL5nUQBRMXsXWla5i4KkG//QMzVP88m1+I3fdAQ==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.12.26:
+    resolution: {integrity: sha512-uyZtpnYxM9CmQ7QsQknM4zN8EftNqhON1qYeIKM0Se67CCEe2c44xyGURwB0axX2fBDu1dqHrHAc1hmNT8ITkw==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -2019,6 +2061,9 @@ packages:
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
+
+  somamcp@1.0.15:
+    resolution: {integrity: sha512-viHf/Ydr1VyiUO1k3a6CxWCDyXAz/SWh+PuwFPcycMLhSnh5eC8JZ/J/s8MRxM1d5fL/v+Hj6u9bwiEIxqgq7Q==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -3688,11 +3733,18 @@ snapshots:
       functype: 1.4.3
       loglayer: 9.3.0
 
+  functype-log@1.4.4(functype@1.4.4):
+    dependencies:
+      functype: 1.4.4
+      loglayer: 9.3.0
+
   functype-os@1.4.3(functype@1.4.3):
     dependencies:
       functype: 1.4.3
 
   functype@1.4.3: {}
+
+  functype@1.4.4: {}
 
   fuse.js@7.4.2: {}
 
@@ -3750,6 +3802,8 @@ snapshots:
       function-bind: 1.1.2
 
   hono@4.12.25: {}
+
+  hono@4.12.26: {}
 
   hookable@6.1.1: {}
 
@@ -4333,6 +4387,23 @@ snapshots:
       '@polka/url': 1.0.0-next.29
       mrmime: 2.0.1
       totalist: 3.0.1
+
+  somamcp@1.0.15:
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
+      fastmcp: 4.3.0
+      functype: 1.4.4
+      functype-log: 1.4.4(functype@1.4.4)
+      hono: 4.12.26
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - '@valibot/to-json-schema'
+      - arktype
+      - effect
+      - jose
+      - supports-color
+      - sury
 
   source-map-js@1.2.1: {}
 

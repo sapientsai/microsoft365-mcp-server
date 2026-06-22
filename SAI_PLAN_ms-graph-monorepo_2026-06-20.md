@@ -11,6 +11,40 @@ working in similar capacities.**
 
 ---
 
+## Progress (as of 2026-06-22)
+
+- ✅ **Phase 1** (#33) — workspacified into a pnpm monorepo (`packages/microsoft365`).
+- ✅ **Phase 2a** (#35) — extracted `@sapientsai/ms-graph-core` (auth-free plumbing + `AuthStrategy` seam).
+- ✅ **Phase 2b** (#36) — inverted `graph-client` onto `AuthStrategy`; zero `../auth` imports.
+- ✅ **somamcp spike** (below) — GO.
+- ⏭️ **Phase 3** — stand up `packages/graph` on somamcp + core (next).
+
+## somamcp spike result (2026-06-22): **GO**
+
+Verified `somamcp@1.0.15` (fastmcp `^4.3.0` — matches microsoft365; functype `^1.4.4`) against the
+gateway's six hard requirements, with direct source citations:
+
+| Requirement | Verdict |
+|---|---|
+| stdio + httpStream transport (with `host`) | ✅ `TransportConfig` (`src/types/server.ts`); passes through to FastMCP |
+| Tool registration (`addTool`, zod params) | ✅ `SomaServerInstance.addTool` → FastMCP `addTool` |
+| **Raw HTTP route mount (`POST /upload`)** | ✅ `getApp(): Hono` (`src/Server.ts:217`) returns the live FastMCP Hono app — `getApp().post('/upload', …)` works as today |
+| Auth gate | ⚠️ `authenticate` option protects the MCP transport + `protected` artifacts, but **NOT** a hand-mounted POST route |
+| Health endpoint | ✅ `/health` (+ `/health/detail`, `/info`, `/dashboard`) built-in |
+| Telemetry/observability | ✅ generous for free (auto-wrapped tools, error classification, introspection) |
+
+`createServer` + `SomaServerInstance`/`SomaServerOptions` are exported from the package entry.
+
+**The one ergonomic gap (not a blocker):** somamcp's artifacts pipeline auto-applies `authenticate`
+only to `app.get` routes; there's no POST/PUT artifact type. So `packages/graph` mounts `/upload` via
+the `getApp().post(...)` escape hatch and **must self-apply the API-key check** —
+`getApp().use('/upload', authMiddleware)` reusing the same key check (write the check to tolerate both
+the Hono `Request` and `http.IncomingMessage` shapes). This is exactly the kind of fix the bottom-up
+adoption is meant to surface; optionally upstream a method-aware protected-artifact type into somamcp
+later (quality-of-life, not required for Phase 3).
+
+---
+
 ## Decision
 
 Keep **two deployable servers** in a pnpm monorepo over a shared core — **three packages**:

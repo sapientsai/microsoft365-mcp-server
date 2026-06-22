@@ -1,0 +1,52 @@
+{
+  "name": "@sapientsai/ms-graph-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal app-only Microsoft Graph MCP server (built on somamcp + @sapientsai/ms-graph-core). Will replace microsoft-mcp-server at cutover.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ms-graph-mcp-server": "dist/bin.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "validate": "ts-builds validate",
+    "format": "ts-builds format",
+    "format:check": "ts-builds format:check",
+    "lint": "ts-builds lint",
+    "lint:check": "ts-builds lint:check",
+    "typecheck": "ts-builds typecheck",
+    "test": "ts-builds test",
+    "test:watch": "ts-builds test:watch",
+    "test:coverage": "ts-builds test:coverage",
+    "build": "NODE_ENV=production ts-builds build",
+    "dev": "ts-builds dev"
+  },
+  "prettier": "ts-builds/prettier",
+  "dependencies": {
+    "@sapientsai/ms-graph-core": "workspace:*",
+    "dotenv": "^17.4.2",
+    "functype": "^1.4.3",
+    "somamcp": "^1.0.15",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "ts-builds": "^3.2.0",
+    "tsdown": "^0.22.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
