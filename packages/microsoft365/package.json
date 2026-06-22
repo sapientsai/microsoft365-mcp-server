@@ -67,7 +67,7 @@
   "dependencies": {
     "@azure/identity": "^4.13.1",
     "dotenv": "^17.4.2",
-    "fastmcp": "^4.3.0",
+    "fastmcp": "^4.3.2",
     "functype": "^1.4.3",
     "functype-log": "^1.4.3",
     "jsonwebtoken": "^9.0.3",
