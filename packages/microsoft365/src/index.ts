@@ -16,7 +16,7 @@ import {
 import { type Either, Left, Right } from "functype/either"
 import { z } from "zod"
 
-import { initializeAuth } from "./auth"
+import { getAccessToken, initializeAuth } from "./auth"
 import { createAzureAuthProvider } from "./auth/oauth-provider"
 import { GRAPH_API_BASE } from "./auth/scopes"
 import { withToken } from "./auth/token-context"
@@ -167,7 +167,7 @@ const setupAuth = async () => {
     console.error(`[Setup] Authentication initialized (${config.mode} mode)`)
   }
 
-  initializeGraphClient()
+  initializeGraphClient({ getAccessToken })
   console.error("[Setup] Graph client initialized")
 }
 
@@ -1420,7 +1420,7 @@ const main = async () => {
     } as never)
 
     // Initialize graph client without credential-based auth (tokens come from session)
-    initializeGraphClient()
+    initializeGraphClient({ getAccessToken })
 
     registerTools(server, allowedTools, true)
     mountUploadRoute(server, true)

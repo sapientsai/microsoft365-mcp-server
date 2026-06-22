@@ -85,5 +85,6 @@ export const DEFAULT_INTERACTIVE_SCOPES: ReadonlyArray<string> = [
   GRAPH_SCOPES.SITES_READWRITE_ALL,
 ]
 
-export const GRAPH_API_BASE = "https://graph.microsoft.com"
+// GRAPH_API_BASE is owned by @sapientsai/ms-graph-core; re-exported here for back-compat.
+export { GRAPH_API_BASE } from "@sapientsai/ms-graph-core"
 export const GRAPH_DEFAULT_SCOPE = "https://graph.microsoft.com/.default"

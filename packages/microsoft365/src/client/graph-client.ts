@@ -1,9 +1,14 @@
-import { appendODataQuery, buildODataQuery, fetchAllPages, parseJsonResponse } from "@sapientsai/ms-graph-core"
+import {
+  appendODataQuery,
+  type AuthStrategy,
+  buildODataQuery,
+  fetchAllPages,
+  GRAPH_API_BASE,
+  parseJsonResponse,
+} from "@sapientsai/ms-graph-core"
 import { None, type Option, Ref, Some } from "functype"
 import { type Either, Left, Right } from "functype/either"
 
-import { getAccessToken } from "../auth"
-import { GRAPH_API_BASE } from "../auth/scopes"
 import type {
   GraphApiError,
   GraphApiVersion,
@@ -42,13 +47,13 @@ type RequestOptions = {
 
 const defaultVersion = (): GraphApiVersion => (process.env.MS365_GRAPH_VERSION === "beta" ? "beta" : "v1.0")
 
-const createGraphClient = () => {
+const createGraphClient = (auth: AuthStrategy) => {
   const request = async <T>(
     method: string,
     path: string,
     options?: RequestOptions,
   ): Promise<Either<GraphApiError, T>> => {
-    const tokenResult = await getAccessToken()
+    const tokenResult = await auth.getAccessToken()
 
     if (tokenResult.isLeft()) {
       return Left<GraphApiError, T>({
@@ -152,7 +157,7 @@ const createGraphClient = () => {
     const initialUrl = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
 
     return fetchAllPages<T>(async (url: string) => {
-      const tokenResult = await getAccessToken()
+      const tokenResult = await auth.getAccessToken()
 
       if (tokenResult.isLeft()) {
         return Left<GraphApiError, ODataResponse<T>>({
@@ -292,7 +297,7 @@ const createGraphClient = () => {
   const downloadFile = (id: string) => request<GraphDriveItem>("GET", `/me/drive/items/${id}`)
 
   const downloadFileContent = async (id: string): Promise<Either<GraphApiError, string>> => {
-    const tokenResult = await getAccessToken()
+    const tokenResult = await auth.getAccessToken()
     if (tokenResult.isLeft()) {
       return Left<GraphApiError, string>({
         type: "auth",
@@ -486,7 +491,7 @@ const createGraphClient = () => {
     contentType: string = "text/plain",
     conflictBehavior: "rename" | "replace" | "fail" = "rename",
   ): Promise<Either<GraphApiError, GraphDriveItem>> => {
-    const tokenResult = await getAccessToken()
+    const tokenResult = await auth.getAccessToken()
     if (tokenResult.isLeft()) {
       return Left<GraphApiError, GraphDriveItem>({
         type: "auth",
@@ -635,8 +640,8 @@ export type GraphClient = ReturnType<typeof createGraphClient>
 
 const clientRef = Ref<Option<GraphClient>>(None())
 
-export const initializeGraphClient = (): GraphClient => {
-  const c = createGraphClient()
+export const initializeGraphClient = (auth: AuthStrategy): GraphClient => {
+  const c = createGraphClient(auth)
   clientRef.set(Some(c))
   return c
 }
