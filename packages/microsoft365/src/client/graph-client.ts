@@ -1,9 +1,8 @@
 import {
-  appendODataQuery,
   type AuthStrategy,
-  buildODataQuery,
-  fetchAllPages,
+  createGraphRequest,
   GRAPH_API_BASE,
+  mapHttpError,
   parseJsonResponse,
 } from "@sapientsai/ms-graph-core"
 import { None, type Option, Ref, Some } from "functype"
@@ -36,161 +35,12 @@ import type {
   ODataResponse,
 } from "../types"
 
-type RequestOptions = {
-  readonly version?: GraphApiVersion
-  readonly body?: Record<string, unknown> | readonly unknown[] | string
-  readonly contentType?: string
-  readonly responseType?: "json" | "text"
-  readonly odataParams?: ODataParams
-  readonly headers?: Record<string, string>
-}
-
 const defaultVersion = (): GraphApiVersion => (process.env.MS365_GRAPH_VERSION === "beta" ? "beta" : "v1.0")
 
 const createGraphClient = (auth: AuthStrategy) => {
-  const request = async <T>(
-    method: string,
-    path: string,
-    options?: RequestOptions,
-  ): Promise<Either<GraphApiError, T>> => {
-    const tokenResult = await auth.getAccessToken()
-
-    if (tokenResult.isLeft()) {
-      return Left<GraphApiError, T>({
-        type: "auth",
-        message: (tokenResult.value as { message: string }).message,
-      })
-    }
-
-    const token = tokenResult.value as string
-    const version = options?.version ?? defaultVersion()
-    const queryString = buildODataQuery(options?.odataParams)
-    const url = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
-
-    try {
-      const fetchOptions: RequestInit = {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": options?.contentType ?? "application/json",
-          ...(options?.headers ?? {}),
-        },
-      }
-
-      if (options?.body !== undefined && (method === "POST" || method === "PUT" || method === "PATCH")) {
-        fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
-      }
-
-      const response = await fetch(url, fetchOptions)
-
-      if (!response.ok) {
-        return mapHttpError<T>(response)
-      }
-
-      // Handle 204 No Content
-      if (response.status === 204) {
-        return Right<GraphApiError, T>({} as T)
-      }
-
-      const text = await response.text()
-      if (!text || text.trim() === "") {
-        return Right<GraphApiError, T>({} as T)
-      }
-
-      // Some endpoints return raw text (e.g. OneNote page /content is text/html, not JSON).
-      if (options?.responseType === "text") {
-        return Right<GraphApiError, T>(text as T)
-      }
-
-      return parseJsonResponse<T>(text)
-    } catch (error) {
-      return Left<GraphApiError, T>({
-        type: "network",
-        message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
-      })
-    }
-  }
-
-  const mapHttpError = async <T>(response: Response): Promise<Either<GraphApiError, T>> => {
-    const fallbackMessage = `Microsoft Graph API error: ${response.status} ${response.statusText}`
-
-    const { message, graphErrorCode } = await (async (): Promise<{ message: string; graphErrorCode?: string }> => {
-      try {
-        const errorBody = await response.json()
-        return {
-          message: (errorBody?.error?.message as string | undefined) ?? fallbackMessage,
-          graphErrorCode: errorBody?.error?.code as string | undefined,
-        }
-      } catch {
-        return { message: fallbackMessage }
-      }
-    })()
-
-    const retryAfter = response.headers.get("Retry-After")
-
-    switch (response.status) {
-      case 401:
-        return Left<GraphApiError, T>({ type: "auth", message, status: 401, graphErrorCode })
-      case 403:
-        return Left<GraphApiError, T>({ type: "forbidden", message, status: 403, graphErrorCode })
-      case 404:
-        return Left<GraphApiError, T>({ type: "not_found", message, status: 404, graphErrorCode })
-      case 429:
-        return Left<GraphApiError, T>({
-          type: "throttle",
-          message,
-          status: 429,
-          graphErrorCode,
-          retryAfter: retryAfter ? parseInt(retryAfter, 10) : undefined,
-        })
-      default:
-        return Left<GraphApiError, T>({ type: "api", message, status: response.status, graphErrorCode })
-    }
-  }
-
-  const requestPaginated = async <T>(
-    path: string,
-    options?: RequestOptions,
-  ): Promise<Either<GraphApiError, ReadonlyArray<T>>> => {
-    const version = options?.version ?? defaultVersion()
-    const queryString = buildODataQuery(options?.odataParams)
-    const initialUrl = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
-
-    return fetchAllPages<T>(async (url: string) => {
-      const tokenResult = await auth.getAccessToken()
-
-      if (tokenResult.isLeft()) {
-        return Left<GraphApiError, ODataResponse<T>>({
-          type: "auth",
-          message: (tokenResult.value as { message: string }).message,
-        })
-      }
-
-      const token = tokenResult.value as string
-
-      try {
-        const response = await fetch(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            ...(options?.headers ?? {}),
-          },
-        })
-
-        if (!response.ok) {
-          return mapHttpError<ODataResponse<T>>(response)
-        }
-
-        const text = await response.text()
-        return parseJsonResponse<ODataResponse<T>>(text)
-      } catch (error) {
-        return Left<GraphApiError, ODataResponse<T>>({
-          type: "network",
-          message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
-        })
-      }
-    }, initialUrl)
-  }
+  // Generic request machinery (auth injection, OData, error mapping, pagination) lives in
+  // @sapientsai/ms-graph-core; this client builds the M365 domain methods on top of it.
+  const { request, requestPaginated } = createGraphRequest(auth, { defaultVersion })
 
   // Mail
   const listMessages = (odataParams?: ODataParams) =>

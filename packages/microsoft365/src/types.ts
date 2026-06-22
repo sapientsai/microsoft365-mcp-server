@@ -1,9 +1,13 @@
 // Generic Graph infrastructure types are owned by @sapientsai/ms-graph-core and
 // re-exported here so existing `from "../types"` / `from "./types"` imports keep working.
-export type { AuthError, GraphApiError, GraphDriveItem, ODataParams, ODataResponse } from "@sapientsai/ms-graph-core"
-
-// Graph API version
-export type GraphApiVersion = "v1.0" | "beta"
+export type {
+  AuthError,
+  GraphApiError,
+  GraphApiVersion,
+  GraphDriveItem,
+  ODataParams,
+  ODataResponse,
+} from "@sapientsai/ms-graph-core"
 
 // Auth mode
 export type AuthMode = "interactive" | "certificate" | "client-secret" | "client-token" | "oauth-proxy"
