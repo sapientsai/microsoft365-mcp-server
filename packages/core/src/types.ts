@@ -14,6 +14,8 @@ export type AuthError = {
   readonly message: string
 }
 
+export type GraphApiVersion = "v1.0" | "beta"
+
 export type ODataResponse<T> = {
   readonly "@odata.context"?: string
   readonly "@odata.nextLink"?: string
