@@ -1,10 +1,11 @@
-import type { AuthStrategy } from "@sapientsai/ms-graph-core"
+import { type AuthStrategy, createGraphRequest } from "@sapientsai/ms-graph-core"
 import dotenv from "dotenv"
 import { createServer, type SomaServerInstance } from "somamcp"
 import { z } from "zod"
 
 import { createAppOnlyAuthStrategy } from "./auth/app-only-strategy"
 import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
+import { buildMicrosoftGraphBatchTool, buildMicrosoftGraphTool } from "./tools/graph-passthrough"
 
 dotenv.config({ quiet: true })
 
@@ -35,7 +36,7 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
       : {}),
   })
 
-  // Proves the app-only auth path end-to-end without leaking the token.
+  // Reports whether the server can acquire an app-only Microsoft Graph token (no leak).
   server.addTool({
     name: "get_auth_status",
     description: "Report whether the server can acquire an app-only Microsoft Graph token.",
@@ -50,6 +51,11 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
       )
     },
   })
+
+  // Generic Graph plumbing from core, driven by the app-only strategy.
+  const graph = createGraphRequest(auth)
+  server.addTool(buildMicrosoftGraphTool(graph, process.env.MCP_INSTRUCTIONS))
+  server.addTool(buildMicrosoftGraphBatchTool(graph))
 
   return server
 }
