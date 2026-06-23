@@ -57,10 +57,13 @@ export const createAppOnlyAuthStrategy = (
   const getAccessToken = async (): Promise<Either<AuthError, string>> => {
     if (cache.token && isValid(cache.token)) return Right(cache.token.accessToken)
     const result = await fetchToken()
-    return result.map((t) => {
-      cache.token = t
-      return t.accessToken
-    })
+    return result.fold<Either<AuthError, string>>(
+      (error) => Left(error),
+      (t) => {
+        cache.token = t
+        return Right(t.accessToken)
+      },
+    )
   }
 
   return { getAccessToken }

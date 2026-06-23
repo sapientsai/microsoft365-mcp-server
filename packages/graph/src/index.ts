@@ -6,6 +6,7 @@ import { z } from "zod"
 import { createAppOnlyAuthStrategy } from "./auth/app-only-strategy"
 import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
 import { buildMicrosoftGraphBatchTool, buildMicrosoftGraphTool } from "./tools/graph-passthrough"
+import { buildReadDocumentTool } from "./tools/read-document"
 
 dotenv.config({ quiet: true })
 
@@ -56,6 +57,7 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
   const graph = createGraphRequest(auth)
   server.addTool(buildMicrosoftGraphTool(graph, process.env.MCP_INSTRUCTIONS))
   server.addTool(buildMicrosoftGraphBatchTool(graph))
+  server.addTool(buildReadDocumentTool(auth))
 
   return server
 }
