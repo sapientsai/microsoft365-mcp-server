@@ -15,6 +15,7 @@ export type ServerRuntimeConfig = {
   readonly transport: "stdio" | "httpStream"
   readonly port: number
   readonly host: string
+  readonly publicBaseUrl: string
   readonly aiSearch?: AiSearchConfig
 }
 
@@ -74,12 +75,15 @@ export const resolveAppOnlyConfig = (env: NodeJS.ProcessEnv = process.env): Eith
 export const resolveServerRuntimeConfig = (env: NodeJS.ProcessEnv = process.env): Either<string, ServerRuntimeConfig> =>
   resolveAppOnlyConfig(env).map((auth) => {
     const trimmedKey = env.MCP_API_KEY?.trim()
+    const port = parseInt(env.PORT ?? "8080", 10)
+    const host = env.HOST ?? env.FASTMCP_HOST ?? "127.0.0.1"
     return {
       auth,
       apiKey: trimmedKey === "" ? undefined : trimmedKey,
       transport: env.TRANSPORT_TYPE === "stdio" ? ("stdio" as const) : ("httpStream" as const),
-      port: parseInt(env.PORT ?? "8080", 10),
-      host: env.HOST ?? env.FASTMCP_HOST ?? "127.0.0.1",
+      port,
+      host,
+      publicBaseUrl: (blankToUndefined(env.MCP_PUBLIC_BASE_URL) ?? `http://${host}:${port}`).replace(/\/$/, ""),
       aiSearch: resolveAiSearchConfig(env),
     }
   })
