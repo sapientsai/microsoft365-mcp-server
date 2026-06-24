@@ -1,5 +1,7 @@
 import { type Either, Left, Right } from "functype/either"
 
+import type { AiSearchConfig } from "./search/ai-search-client"
+
 export type AppOnlyConfig = {
   readonly tenantId: string
   readonly clientId: string
@@ -13,6 +15,28 @@ export type ServerRuntimeConfig = {
   readonly transport: "stdio" | "httpStream"
   readonly port: number
   readonly host: string
+  readonly aiSearch?: AiSearchConfig
+}
+
+const blankToUndefined = (value?: string): string | undefined => {
+  const trimmed = value?.trim()
+  return trimmed === "" ? undefined : trimmed
+}
+
+// Azure AI Search is optional — present only when endpoint + api key + index are all set.
+export const resolveAiSearchConfig = (env: NodeJS.ProcessEnv = process.env): AiSearchConfig | undefined => {
+  const endpoint = blankToUndefined(env.AZURE_AI_SEARCH_ENDPOINT)
+  const apiKey = env.AZURE_AI_SEARCH_API_KEY
+  const indexName = blankToUndefined(env.AZURE_AI_SEARCH_INDEX)
+  if (!endpoint || !apiKey || !indexName) return undefined
+  return {
+    endpoint: endpoint.replace(/\/$/, ""),
+    apiKey,
+    indexName,
+    semanticConfiguration: blankToUndefined(env.AZURE_AI_SEARCH_SEMANTIC_CONFIG),
+    vectorFields: blankToUndefined(env.AZURE_AI_SEARCH_VECTOR_FIELDS),
+    selectFields: blankToUndefined(env.AZURE_AI_SEARCH_SELECT_FIELDS),
+  }
 }
 
 const DEFAULT_APP_SCOPE = "https://graph.microsoft.com/.default"
@@ -56,5 +80,6 @@ export const resolveServerRuntimeConfig = (env: NodeJS.ProcessEnv = process.env)
       transport: env.TRANSPORT_TYPE === "stdio" ? ("stdio" as const) : ("httpStream" as const),
       port: parseInt(env.PORT ?? "8080", 10),
       host: env.HOST ?? env.FASTMCP_HOST ?? "127.0.0.1",
+      aiSearch: resolveAiSearchConfig(env),
     }
   })

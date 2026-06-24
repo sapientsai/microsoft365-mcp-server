@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { createAppOnlyAuthStrategy } from "./auth/app-only-strategy"
 import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
+import { buildAiSearchTool } from "./tools/ai-search"
 import { buildMicrosoftGraphBatchTool, buildMicrosoftGraphTool } from "./tools/graph-passthrough"
 import { buildReadDocumentTool } from "./tools/read-document"
 
@@ -58,6 +59,9 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
   server.addTool(buildMicrosoftGraphTool(graph, process.env.MCP_INSTRUCTIONS))
   server.addTool(buildMicrosoftGraphBatchTool(graph))
   server.addTool(buildReadDocumentTool(auth))
+
+  // Azure AI Search — optional, only when AZURE_AI_SEARCH_* env is configured.
+  if (config.aiSearch) server.addTool(buildAiSearchTool(config.aiSearch))
 
   return server
 }
