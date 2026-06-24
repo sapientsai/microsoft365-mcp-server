@@ -8,6 +8,8 @@ import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
 import { buildAiSearchTool } from "./tools/ai-search"
 import { buildMicrosoftGraphBatchTool, buildMicrosoftGraphTool } from "./tools/graph-passthrough"
 import { buildReadDocumentTool } from "./tools/read-document"
+import { buildGetUploadConfigTool } from "./tools/upload-config"
+import { mountUploadRoute } from "./upload/upload-route"
 
 dotenv.config({ quiet: true })
 
@@ -62,6 +64,11 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
 
   // Azure AI Search — optional, only when AZURE_AI_SEARCH_* env is configured.
   if (config.aiSearch) server.addTool(buildAiSearchTool(config.aiSearch))
+
+  // Binary upload relay: a custom /upload HTTP route (somamcp's getApp() escape hatch) with
+  // a self-applied API-key gate, plus get_upload_config which hands back an opaque ticket.
+  server.addTool(buildGetUploadConfigTool(config.publicBaseUrl, config.apiKey))
+  mountUploadRoute(server.getApp() as never, auth, config.apiKey)
 
   return server
 }
