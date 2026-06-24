@@ -10,8 +10,8 @@ import { z } from "zod"
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const
 const API_VERSIONS = ["v1.0", "beta"] as const
 
-const unwrap = <T>(result: Either<GraphApiError, T>): string =>
-  result.fold(
+const unwrap = (result: Either<GraphApiError, unknown>): string =>
+  result.fold<string>(
     (error) => {
       throw new Error(error.message)
     },
