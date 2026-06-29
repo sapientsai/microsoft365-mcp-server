@@ -8,6 +8,7 @@ import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
 import { buildAiSearchTool } from "./tools/ai-search"
 import { buildMicrosoftGraphBatchTool, buildMicrosoftGraphTool } from "./tools/graph-passthrough"
 import { buildReadDocumentTool } from "./tools/read-document"
+import { buildSharePointSearchTool } from "./tools/sharepoint-search"
 import { buildGetUploadConfigTool } from "./tools/upload-config"
 import { mountUploadRoute } from "./upload/upload-route"
 
@@ -61,6 +62,7 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
   server.addTool(buildMicrosoftGraphTool(graph, process.env.MCP_INSTRUCTIONS))
   server.addTool(buildMicrosoftGraphBatchTool(graph))
   server.addTool(buildReadDocumentTool(auth))
+  server.addTool(buildSharePointSearchTool(graph, config.sharePointSearch))
 
   // Azure AI Search — optional, only when AZURE_AI_SEARCH_* env is configured.
   if (config.aiSearch) server.addTool(buildAiSearchTool(config.aiSearch))
