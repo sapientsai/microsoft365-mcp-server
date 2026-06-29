@@ -1,6 +1,7 @@
 import { type Either, Left, Right } from "functype/either"
 
 import type { AiSearchConfig } from "./search/ai-search-client"
+import type { SharePointSearchConfig } from "./tools/sharepoint-search"
 
 export type AppOnlyConfig = {
   readonly tenantId: string
@@ -17,7 +18,15 @@ export type ServerRuntimeConfig = {
   readonly host: string
   readonly publicBaseUrl: string
   readonly aiSearch?: AiSearchConfig
+  readonly sharePointSearch: SharePointSearchConfig
 }
+
+// App-only SharePoint search uses the Graph Search API with a region (default NAM).
+export const resolveSharePointSearchConfig = (env: NodeJS.ProcessEnv = process.env): SharePointSearchConfig => ({
+  region: blankToUndefined(env.GRAPH_SEARCH_REGION) ?? "NAM",
+  defaultSiteId: blankToUndefined(env.SITE_ID),
+  defaultSiteUrl: blankToUndefined(env.SITE_URL)?.replace(/\/$/, ""),
+})
 
 const blankToUndefined = (value?: string): string | undefined => {
   const trimmed = value?.trim()
@@ -85,5 +94,6 @@ export const resolveServerRuntimeConfig = (env: NodeJS.ProcessEnv = process.env)
       host,
       publicBaseUrl: (blankToUndefined(env.MCP_PUBLIC_BASE_URL) ?? `http://${host}:${port}`).replace(/\/$/, ""),
       aiSearch: resolveAiSearchConfig(env),
+      sharePointSearch: resolveSharePointSearchConfig(env),
     }
   })
