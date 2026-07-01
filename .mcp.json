@@ -2,7 +2,7 @@
   "mcpServers": {
     "microsoft365": {
       "command": "node",
-      "args": ["./dist/index.js"],
+      "args": ["./packages/microsoft365/dist/index.js"],
       "env": {
         "MS365_AUTH_MODE": "${MS365_AUTH_MODE:-interactive}",
         "MS365_TENANT_ID": "${MS365_TENANT_ID}",
