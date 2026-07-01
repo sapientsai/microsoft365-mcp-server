@@ -1,25 +1,26 @@
 # @sapientsai/ms-graph-server
 
 Minimal **app-only** Microsoft Graph MCP server, built on [somamcp](https://github.com/sapientsai/SomaMCP)
-+ [`@sapientsai/ms-graph-core`](../core). The lean, headless counterpart to the delegated
-`microsoft365-mcp-server` — it will replace `microsoft-mcp-server` at cutover.
 
-- **Auth:** app-only (`client_credentials`) against a concrete tenant, via core's `AuthStrategy`.
-- **Transport:** stdio or httpStream (somamcp). `/health`, `/info`, `/dashboard` come free from somamcp.
-- **Server shell:** somamcp `createServer()` (telemetry/introspection included).
+- [`@sapientsai/ms-graph-core`](../core). The lean, headless counterpart to the delegated
+  `microsoft365-mcp-server` — it will replace `microsoft-mcp-server` at cutover.
+
+* **Auth:** app-only (`client_credentials`) against a concrete tenant, via core's `AuthStrategy`.
+* **Transport:** stdio or httpStream (somamcp). `/health`, `/info`, `/dashboard` come free from somamcp.
+* **Server shell:** somamcp `createServer()` (telemetry/introspection included).
 
 ## Tools
 
-| Tool | Notes |
-|------|-------|
-| `get_auth_status` | Reports whether an app-only token can be acquired (no token leak). |
-| `microsoft_graph` | Generic Graph passthrough (any method/path/body, v1.0/beta). |
-| `microsoft_graph_batch` | `$batch` — up to 20 requests, `dependsOn`. |
-| `read_document` | Download + extract text (DOCX/PDF/XLSX/text), truncated to `max_chars`. |
-| `sharepoint_search` | KQL document-library search via the Graph Search API (region-scoped). |
-| `azure_ai_search` | *Optional* — only when `AZURE_AI_SEARCH_*` is configured. |
-| `get_upload_config` | Returns a curl for `/upload`; Authorization is an opaque ticket, **not** the raw key. |
-| `/upload` (HTTP) | Binary upload relay (POST/PUT) — self-applied `MCP_API_KEY` gate, uploads with the server's own app-only token. |
+| Tool                    | Notes                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_auth_status`       | Reports whether an app-only token can be acquired (no token leak).                                                                               |
+| `microsoft_graph`       | Generic Graph passthrough (any method/path/body, v1.0/beta).                                                                                     |
+| `microsoft_graph_batch` | `$batch` — up to 20 requests, `dependsOn`.                                                                                                       |
+| `read_document`         | Download + extract text (DOCX/PDF/XLSX/text), truncated to `max_chars`.                                                                          |
+| `sharepoint_search`     | KQL document-library search via the Graph Search API (region-scoped).                                                                            |
+| `azure_ai_search`       | _Optional_ — only when `AZURE_AI_SEARCH_*` is configured.                                                                                        |
+| `get_upload_config`     | Returns a curl for `/upload`; Authorization is an opaque ticket, **not** the raw key.                                                            |
+| `/upload` (HTTP)        | Binary upload relay (POST/PUT) — a somamcp `protected` route behind the shared `MCP_API_KEY` gate, uploads with the server's own app-only token. |
 
 ## Configuration
 
