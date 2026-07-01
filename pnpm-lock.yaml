@@ -51,8 +51,8 @@ importers:
         specifier: ^1.12.0
         version: 1.12.0
       somamcp:
-        specifier: ^1.0.15
-        version: 1.0.15
+        specifier: ^1.1.0
+        version: 1.1.0
       unpdf:
         specifier: ^1.6.2
         version: 1.6.2
@@ -1471,6 +1471,15 @@ packages:
       jose:
         optional: true
 
+  fastmcp@4.3.2:
+    resolution: {integrity: sha512-sbGT0DSTv143JqInYq8Igz7C1NZCNddgGZIT2sR+UFgGaj0gStCu0UVunp0ZujHmG7BymtkdXrp4WoPOai+9sQ==}
+    hasBin: true
+    peerDependencies:
+      jose: ^5.0.0
+    peerDependenciesMeta:
+      jose:
+        optional: true
+
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
@@ -1560,8 +1569,8 @@ packages:
     peerDependencies:
       functype: 1.4.4
 
-  functype-log@1.4.4:
-    resolution: {integrity: sha512-Pr7WaHzW+Q36I1tpcHb4P+xJngFIiROFSQiuHL24jrMbWeay/kflvprEPLcgXGfLcKcfBOubfuKzMRuO74XbJA==}
+  functype-log@1.5.0:
+    resolution: {integrity: sha512-BeipXYjhm/8u51QAjHFvuX3cUDY5ilzt81+bcsEfm78gFLejMAXt5G8i6bL6JlRCM8q+bVPvQ026Cvl12KfaJA==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
       functype: 1.4.4
@@ -1649,6 +1658,10 @@ packages:
 
   hono@4.12.26:
     resolution: {integrity: sha512-uyZtpnYxM9CmQ7QsQknM4zN8EftNqhON1qYeIKM0Se67CCEe2c44xyGURwB0axX2fBDu1dqHrHAc1hmNT8ITkw==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.12.27:
+    resolution: {integrity: sha512-1yrb/+w6HWQJrUCLkJ2IF5jNIPvvFkblV5RNOYl6bV+OA6p9GLcMpHFFGTosSvHvcAUibuUukRqhlYI4z32C7Q==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -2307,8 +2320,8 @@ packages:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
 
-  somamcp@1.0.15:
-    resolution: {integrity: sha512-viHf/Ydr1VyiUO1k3a6CxWCDyXAz/SWh+PuwFPcycMLhSnh5eC8JZ/J/s8MRxM1d5fL/v+Hj6u9bwiEIxqgq7Q==}
+  somamcp@1.1.0:
+    resolution: {integrity: sha512-rDRuHETjI5QkL6sBsYTjqxamFfnd/651D/r7QiXl+ukycnWUwAU1MB6dcnxnxA3S6JiwTelCSSSjAHKSNr8PYg==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -4103,6 +4116,30 @@ snapshots:
       - supports-color
       - sury
 
+  fastmcp@4.3.2:
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
+      '@standard-schema/spec': 1.1.0
+      execa: 9.6.1
+      file-type: 21.3.4
+      fuse.js: 7.4.2
+      hono: 4.12.26
+      mcp-proxy: 6.5.1
+      strict-event-emitter-types: 2.0.0
+      undici: 7.28.0
+      uri-templates: 0.2.0
+      xsschema: 0.4.4(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
+      yargs: 18.0.0
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - '@valibot/to-json-schema'
+      - arktype
+      - effect
+      - supports-color
+      - sury
+
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
       picomatch: 4.0.4
@@ -4188,7 +4225,7 @@ snapshots:
       functype: 1.4.4
       loglayer: 9.3.0
 
-  functype-log@1.4.4(functype@1.4.4):
+  functype-log@1.5.0(functype@1.4.4):
     dependencies:
       functype: 1.4.4
       loglayer: 9.3.0
@@ -4268,6 +4305,8 @@ snapshots:
   hono@4.12.25: {}
 
   hono@4.12.26: {}
+
+  hono@4.12.27: {}
 
   hookable@6.1.1: {}
 
@@ -4971,13 +5010,13 @@ snapshots:
       mrmime: 2.0.1
       totalist: 3.0.1
 
-  somamcp@1.0.15:
+  somamcp@1.1.0:
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
-      fastmcp: 4.3.0
+      fastmcp: 4.3.2
       functype: 1.4.4
-      functype-log: 1.4.4(functype@1.4.4)
-      hono: 4.12.26
+      functype-log: 1.5.0(functype@1.4.4)
+      hono: 4.12.27
       zod: 4.4.3
     transitivePeerDependencies:
       - '@cfworker/json-schema'

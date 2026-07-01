@@ -6,57 +6,35 @@ import {
   GRAPH_API_BASE,
   MAX_UPLOAD_SIZE,
   resolveUploadContentType,
-  resolveUploadTicket,
   sessionUpload,
   SIMPLE_UPLOAD_LIMIT,
   simpleUpload,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
+import type { RouteConfig } from "somamcp"
 
-// Minimal structural shapes for the somamcp/FastMCP Hono app, so we don't take a direct
-// hono dependency just for these signatures.
+// Minimal structural shape for the parts of Hono's request we read, so we don't take a
+// direct hono dependency just for this signature (the real `c.req` satisfies it).
 export type UploadRequestContext = {
   header: (name: string) => string | undefined
   query: (name: string) => string | undefined
   arrayBuffer: () => Promise<ArrayBuffer>
 }
-type HonoContext = { req: UploadRequestContext; json: (body: unknown, status: number) => unknown }
-type HonoLike = {
-  post: (path: string, h: (c: HonoContext) => unknown) => void
-  put: (path: string, h: (c: HonoContext) => unknown) => void
-}
 
-// Authorize the CALLER to the relay. somamcp does not auto-protect a hand-mounted POST
-// route (only GET artifacts), so we self-apply the check here. Accepts an opaque upload
-// ticket (resolving to the api key) or the raw api key. Refuses (503) when no api key is
-// configured — never serve a write endpoint backed by the server's own app-only token to
-// an unauthenticated caller.
-const authorizeCaller = (
-  bearer: string | undefined,
-  apiKey: string | undefined,
-): { ok: true } | { ok: false; status: number; error: string } => {
-  if (!apiKey) {
-    return { ok: false, status: 503, error: "Upload endpoint is not configured for authentication (set MCP_API_KEY)." }
-  }
-  const provided = bearer ? (resolveUploadTicket(bearer) ?? bearer) : undefined
-  if (provided !== apiKey) return { ok: false, status: 401, error: "Unauthorized" }
-  return { ok: true }
-}
+const jsonResponse = (body: unknown, status: number): Response =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
+// Upload mechanics only. Caller authorization is handled upstream by somamcp's `protected`
+// route gate (the server's `authenticate` callback), so this no longer re-checks the key —
+// it always uploads with the server's own app-only Graph token (never the caller's).
 export const handleUpload = async (
   req: UploadRequestContext,
   auth: AuthStrategy,
-  apiKey: string | undefined,
 ): Promise<{ status: number; body: unknown }> => {
   const path = req.query("path")
   if (!path) return { status: 400, body: { error: "path query parameter is required" } }
   if (!/:\/content$/i.test(path)) return { status: 400, body: { error: 'path must end with ":/content"' } }
 
-  const bearer = (req.header("authorization") ?? req.header("Authorization"))?.replace(/^Bearer\s+/i, "")
-  const caller = authorizeCaller(bearer, apiKey)
-  if (!caller.ok) return { status: caller.status, body: { error: caller.error } }
-
-  // The relay uploads with the server's own app-only Graph token (never the caller's).
   const tokenResult = await auth.getAccessToken()
   if (tokenResult.isLeft()) {
     return { status: 401, body: { error: (tokenResult.value as { message: string }).message } }
@@ -96,17 +74,32 @@ export const handleUpload = async (
   )
 }
 
-export const mountUploadRoute = (app: HonoLike, auth: AuthStrategy, apiKey: string | undefined): void => {
-  const handler = async (c: HonoContext): Promise<unknown> => {
+// The binary upload relay as a first-class somamcp protected route. `protected: true` runs
+// the server's `authenticate` gate before the handler (401 on a bad key / ticket). When no
+// MCP_API_KEY is configured the server registers no `authenticate`, so the gate rejects every
+// request — `onUnauthorized` surfaces that as a 503 "not configured" instead of a bare 401,
+// never serving a write endpoint (backed by the server's app-only token) unauthenticated.
+export const buildUploadRoute = (auth: AuthStrategy, apiKey: string | undefined): RouteConfig => ({
+  method: ["POST", "PUT"],
+  path: "/upload",
+  protected: true,
+  onUnauthorized: () =>
+    apiKey
+      ? jsonResponse({ error: "Unauthorized" }, 401)
+      : jsonResponse({ error: "Upload endpoint is not configured for authentication (set MCP_API_KEY)." }, 503),
+  handler: async (c) => {
     try {
-      const result = await handleUpload(c.req, auth, apiKey)
-      return c.json(result.body, result.status)
+      const req: UploadRequestContext = {
+        header: (name) => c.req.header(name),
+        query: (name) => c.req.query(name),
+        arrayBuffer: () => c.req.arrayBuffer(),
+      }
+      const result = await handleUpload(req, auth)
+      return jsonResponse(result.body, result.status)
     } catch (err) {
       const { message } = describeFetchError(err)
       console.error("[Upload] unhandled error:", message)
-      return c.json({ error: message }, 500)
+      return jsonResponse({ error: message }, 500)
     }
-  }
-  app.post("/upload", handler)
-  app.put("/upload", handler)
-}
+  },
+})
