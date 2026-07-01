@@ -1,0 +1,39 @@
+# Local dev / deployment reference for @sapientsai/ms-graph-server.
+#
+# Usage (from the monorepo root, since the Dockerfile references the workspace):
+#   docker compose -f packages/graph/docker-compose.yml up --build
+#
+# All env is sourced from a .env at the invocation directory (or the shell).
+# See packages/graph/.env.example for the full surface.
+services:
+  ms-graph-mcp:
+    build:
+      context: ../..
+      dockerfile: packages/graph/Dockerfile
+    ports:
+      - "${GRAPH_PORT:-8081}:8080"
+    environment:
+      - MS_GRAPH_TENANT_ID=${MS_GRAPH_TENANT_ID:?MS_GRAPH_TENANT_ID is required}
+      - MS_GRAPH_CLIENT_ID=${MS_GRAPH_CLIENT_ID:?MS_GRAPH_CLIENT_ID is required}
+      - MS_GRAPH_CLIENT_SECRET=${MS_GRAPH_CLIENT_SECRET:?MS_GRAPH_CLIENT_SECRET is required}
+      - MS_GRAPH_APP_SCOPES=${MS_GRAPH_APP_SCOPES:-}
+      - MCP_API_KEY=${MCP_API_KEY:-}
+      - MCP_PUBLIC_BASE_URL=${MCP_PUBLIC_BASE_URL:-}
+      - GRAPH_SEARCH_REGION=${GRAPH_SEARCH_REGION:-NAM}
+      - SITE_ID=${SITE_ID:-}
+      - SITE_URL=${SITE_URL:-}
+      - AZURE_AI_SEARCH_ENDPOINT=${AZURE_AI_SEARCH_ENDPOINT:-}
+      - AZURE_AI_SEARCH_API_KEY=${AZURE_AI_SEARCH_API_KEY:-}
+      - AZURE_AI_SEARCH_INDEX=${AZURE_AI_SEARCH_INDEX:-}
+      - AZURE_AI_SEARCH_SEMANTIC_CONFIG=${AZURE_AI_SEARCH_SEMANTIC_CONFIG:-}
+      - AZURE_AI_SEARCH_VECTOR_FIELDS=${AZURE_AI_SEARCH_VECTOR_FIELDS:-}
+      - AZURE_AI_SEARCH_SELECT_FIELDS=${AZURE_AI_SEARCH_SELECT_FIELDS:-}
+      - MCP_INSTRUCTIONS=${MCP_INSTRUCTIONS:-}
+      - PORT=8080
+      - TRANSPORT_TYPE=httpStream
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

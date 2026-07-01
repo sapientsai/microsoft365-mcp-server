@@ -27,6 +27,16 @@ See [`.env.example`](.env.example). App-only auth (`MS_GRAPH_TENANT_ID`/`CLIENT_
 is required; `MCP_API_KEY` gates the transport + `/upload`; SharePoint search and Azure AI Search
 have their own optional env.
 
+## Deployment
+
+- **Docker image:** `ghcr.io/sapientsai/ms-graph-server` (published by CI on push to `main` and on
+  `v*` tags — see [`.github/workflows/docker-graph.yml`](../../.github/workflows/docker-graph.yml)).
+- **Dockerfile:** [`packages/graph/Dockerfile`](./Dockerfile) — multi-stage, `linux/amd64` +
+  `linux/arm64`, health check on `/ping`.
+- **Local run:** from the monorepo root,
+  `docker compose -f packages/graph/docker-compose.yml up --build` (env from your shell / a `.env`
+  at the invocation directory).
+
 ## Parity with `microsoft-mcp-server` (the gateway it replaces)
 
 All gateway capabilities are ported, with two deliberate scoping decisions:
