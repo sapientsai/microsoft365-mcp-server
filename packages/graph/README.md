@@ -34,7 +34,9 @@ All gateway capabilities are ported, with two deliberate scoping decisions:
 - **SharePoint search:** only the Graph Search API path is ported (what app-only always uses; the
   region defaults to `NAM`). The gateway's drive-fan-out + site-cache path is unreachable for
   app-only and was intentionally not carried over.
-- **`download_file`:** **not ported** (decision pending review). It returns inline images / raw
-  base64 / disk-saved binaries — a delegated/interactive UX feature that overlaps `read_document`
-  (text) and the `microsoft_graph` passthrough (raw GET), and is tangential to this server's
-  document-RAG purpose. Porting it cleanly also needs a somamcp image-content passthrough check.
+- **`download_file`:** **not ported** — out of scope for this server's document-RAG purpose. It
+  returns inline images / raw base64 / disk-saved binaries — a delegated/interactive UX feature
+  that overlaps `read_document` (text extraction) and the `microsoft_graph` passthrough (raw GET).
+  The somamcp-side blocker is resolved (`wrapTool` passes content-array/image returns through
+  unchanged; `imageContent` is exported), so a later port is a straightforward scope call, not a
+  dependency wait.
