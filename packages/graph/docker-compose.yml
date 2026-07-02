@@ -1,4 +1,4 @@
-# Local dev / deployment reference for @sapientsai/ms-graph-server.
+# Local dev / deployment reference for microsoft-mcp-server (app-only Graph server).
 #
 # Usage (from the monorepo root, since the Dockerfile references the workspace):
 #   docker compose -f packages/graph/docker-compose.yml up --build
