@@ -16,7 +16,7 @@ RUN pnpm install --frozen-lockfile
 # package's published files) outside the workspace.
 COPY . .
 RUN pnpm -r build
-RUN pnpm --filter @sapientsai/ms-graph-server deploy --prod /prod
+RUN pnpm --filter microsoft-mcp-server deploy --prod /prod
 
 # Production stage
 FROM node:24-alpine AS production

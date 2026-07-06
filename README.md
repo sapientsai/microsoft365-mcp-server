@@ -1,8 +1,9 @@
 # microsoft365-mcp monorepo
 
-pnpm workspace for the Microsoft Graph MCP servers. Successor to the archived
-[`sapientsai/microsoft-mcp-server`](https://github.com/sapientsai/microsoft-mcp-server) — split
-into two focused servers over a shared core.
+pnpm workspace for the Microsoft Graph MCP servers. Descends from the archived
+[`sapientsai/microsoft-mcp-server`](https://github.com/sapientsai/microsoft-mcp-server) — split into
+**two focused servers over a shared core**. The app-only server keeps the original
+`microsoft-mcp-server` name; the delegated server is `microsoft365-mcp-server`.
 
 ## Packages
 
@@ -11,11 +12,11 @@ into two focused servers over a shared core.
   OneNote, To Do, and more via Microsoft Graph. Published to
   [npm](https://www.npmjs.com/package/microsoft365-mcp-server). See its
   [README](packages/microsoft365/README.md) and the monorepo [DEPLOYMENT.md](DEPLOYMENT.md).
-- **[`packages/graph`](packages/graph)** — `@sapientsai/ms-graph-server`, a lean **app-only**
-  (`client_credentials`) server purpose-built for headless document-RAG:
+- **[`packages/graph`](packages/graph)** — `microsoft-mcp-server` (the original name), a lean
+  **app-only** (`client_credentials`) server purpose-built for headless document-RAG:
   `microsoft_graph` passthrough + `microsoft_graph_batch` + `read_document` + `sharepoint_search` +
   optional `azure_ai_search` + a `/upload` relay. Ships as a Docker image at
-  `ghcr.io/sapientsai/ms-graph-server`. See its [README](packages/graph/README.md).
+  `ghcr.io/sapientsai/microsoft-mcp-server`. See its [README](packages/graph/README.md).
 - **[`packages/core`](packages/core)** — `@sapientsai/ms-graph-core`, the shared plumbing (upload
   helpers, ticket tokens, OData/pagination, error and auth-strategy types) used by both servers.
   Internal workspace package, not published.
@@ -36,7 +37,7 @@ Per-package commands run inside the package dir, e.g.:
 
 ```bash
 pnpm --filter microsoft365-mcp-server build
-pnpm --filter @sapientsai/ms-graph-server dev
+pnpm --filter microsoft-mcp-server dev
 ```
 
 ## History

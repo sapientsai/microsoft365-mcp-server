@@ -5,6 +5,12 @@
 
 A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calendar, contacts, files, Teams chats, channels, Planner, OneNote, To Do, users, and groups via Microsoft Graph API.
 
+> **Which server?** This is the **delegated** (per-user OAuth) server — the full interactive M365
+> assistant. Its sibling in this monorepo, [`microsoft-mcp-server`](../graph), is the **app-only**
+> (`client_credentials`) server for headless, tenant-wide document-RAG. Both sit on the shared
+> [`@sapientsai/ms-graph-core`](../core). Use this one when a user is present to sign in; use
+> `microsoft-mcp-server` when there's no user to consent (a service/tenant credential).
+
 ## Features
 
 - **73 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch

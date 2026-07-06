@@ -1,13 +1,29 @@
-# @sapientsai/ms-graph-server
+# microsoft-mcp-server
 
-Minimal **app-only** Microsoft Graph MCP server, built on [somamcp](https://github.com/sapientsai/SomaMCP)
+**App-only** (`client_credentials`) Microsoft Graph MCP server for headless, tenant-wide
+document-RAG — built on [somamcp](https://github.com/sapientsai/SomaMCP) +
+[`@sapientsai/ms-graph-core`](../core). This is the successor to the archived
+[`sapientsai/microsoft-mcp-server`](https://github.com/sapientsai/microsoft-mcp-server),
+rebuilt in this monorepo over the shared core.
 
-- [`@sapientsai/ms-graph-core`](../core). The lean, headless counterpart to the delegated
-  `microsoft365-mcp-server` — it will replace `microsoft-mcp-server` at cutover.
+## Which server? (this vs `microsoft365-mcp-server`)
 
-* **Auth:** app-only (`client_credentials`) against a concrete tenant, via core's `AuthStrategy`.
-* **Transport:** stdio or httpStream (somamcp). `/health`, `/info`, `/dashboard` come free from somamcp.
-* **Server shell:** somamcp `createServer()` (telemetry/introspection included).
+The monorepo ships **two** MCP servers over the same [`@sapientsai/ms-graph-core`](../core) — the
+overlap was large, so they share roots but differ by auth model and purpose:
+
+|              | `microsoft-mcp-server` (this package)                                       | [`microsoft365-mcp-server`](../microsoft365)                           |
+| ------------ | --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Auth**     | **app-only** (`client_credentials`) — no user present                       | **delegated** (per-user OAuth)                                         |
+| **Use case** | headless, tenant-wide document-RAG / automation                             | interactive Microsoft 365 assistant                                    |
+| **Surface**  | lean: `microsoft_graph` + `read_document` + `sharepoint_search` + `/upload` | full: 70+ tools across mail, calendar, files, Teams, Planner, OneNote… |
+| **Deploy**   | Docker image (`ghcr.io/sapientsai/microsoft-mcp-server`)                    | npm (`microsoft365-mcp-server`)                                        |
+
+Pick **this** one when there's **no user to consent** (a service/tenant credential); pick
+`microsoft365-mcp-server` when a user is present to sign in.
+
+- **Auth:** app-only (`client_credentials`) against a concrete tenant, via core's `AuthStrategy`.
+- **Transport:** stdio or httpStream (somamcp). `/health`, `/info`, `/dashboard` come free from somamcp.
+- **Server shell:** somamcp `createServer()` (telemetry/introspection included).
 
 ## Tools
 
@@ -30,7 +46,7 @@ have their own optional env.
 
 ## Deployment
 
-- **Docker image:** `ghcr.io/sapientsai/ms-graph-server` (published by CI on push to `main` and on
+- **Docker image:** `ghcr.io/sapientsai/microsoft-mcp-server` (published by CI on push to `main` and on
   `v*` tags — see [`.github/workflows/docker-graph.yml`](../../.github/workflows/docker-graph.yml)).
 - **Dockerfile:** [`packages/graph/Dockerfile`](./Dockerfile) — multi-stage, `linux/amd64` +
   `linux/arm64`, health check on `/ping`.
@@ -38,9 +54,12 @@ have their own optional env.
   `docker compose -f packages/graph/docker-compose.yml up --build` (env from your shell / a `.env`
   at the invocation directory).
 
-## Parity with `microsoft-mcp-server` (the gateway it replaces)
+## Parity with the archived predecessor
 
-All gateway capabilities are ported, with two deliberate scoping decisions:
+This package carries forward the [archived
+`sapientsai/microsoft-mcp-server`](https://github.com/sapientsai/microsoft-mcp-server) name and its
+app-only capabilities. All of the old gateway's capabilities are ported, with two deliberate scoping
+decisions:
 
 - **SharePoint search:** only the Graph Search API path is ported (what app-only always uses; the
   region defaults to `NAM`). The gateway's drive-fan-out + site-cache path is unreachable for

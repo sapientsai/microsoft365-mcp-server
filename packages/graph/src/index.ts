@@ -26,7 +26,7 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
   // Capture as a const so the truthy-narrowing to `string` survives into the closure.
   const { apiKey } = config
   const server = createServer({
-    name: "ms-graph-mcp-server",
+    name: "microsoft-mcp-server",
     version: VERSION,
     instructions: "Minimal app-only Microsoft Graph MCP server.",
     ...(apiKey
@@ -97,9 +97,9 @@ export const main = async (): Promise<void> => {
       transportType: "httpStream",
       httpStream: { port: config.port, host: config.host, endpoint: "/mcp" },
     })
-    console.error(`[Server] ms-graph-mcp-server v${VERSION} (app-only) on ${config.host}:${config.port}`)
+    console.error(`[Server] microsoft-mcp-server v${VERSION} (app-only) on ${config.host}:${config.port}`)
   } else {
     await server.start({ transportType: "stdio" })
-    console.error(`[Server] ms-graph-mcp-server v${VERSION} (app-only) on stdio`)
+    console.error(`[Server] microsoft-mcp-server v${VERSION} (app-only) on stdio`)
   }
 }

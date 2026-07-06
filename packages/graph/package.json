@@ -1,8 +1,8 @@
 {
-  "name": "@sapientsai/ms-graph-server",
+  "name": "microsoft-mcp-server",
   "version": "0.0.0",
   "private": true,
-  "description": "Minimal app-only Microsoft Graph MCP server (built on somamcp + @sapientsai/ms-graph-core). Will replace microsoft-mcp-server at cutover.",
+  "description": "App-only (client_credentials) Microsoft Graph MCP server for headless document-RAG — the successor to the archived sapientsai/microsoft-mcp-server, rebuilt on somamcp + @sapientsai/ms-graph-core. Sibling to the delegated microsoft365-mcp-server.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -15,7 +15,7 @@
     }
   },
   "bin": {
-    "ms-graph-mcp-server": "dist/bin.js"
+    "microsoft-mcp-server": "dist/bin.js"
   },
   "files": [
     "dist/"
