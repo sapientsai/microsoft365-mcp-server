@@ -7,11 +7,14 @@ Checkpoint for continuing the `microsoft365-mcp-server` → layered monorepo wor
 
 ## What this is
 
-Consolidating two deployed Microsoft Graph MCP servers into a **pnpm monorepo over a shared core**,
-keeping **two products** (delegated + app-only). Deployments:
-- `microsoft365-mcp-server` (this repo, delegated/per-user) → `ms365.civala.ai`.
-- `microsoft-mcp-server` (separate repo, app-only) → `ms-mcp-central.civala.ai` — **being replaced** by
-  the new `packages/graph`.
+Consolidating two Microsoft Graph MCP servers into a **pnpm monorepo over a shared core**, keeping
+**two products** (delegated + app-only), both built & deployed from this repo:
+- **`microsoft365-mcp-server`** (`packages/microsoft365`, delegated/per-user OAuth) → published to npm;
+  Docker via `docker.yml` → `ghcr.io/sapientsai/microsoft365-mcp-server`. Serves `ms365.civala.ai`.
+- **`microsoft-mcp-server`** (`packages/graph`, app-only `client_credentials`) → the reclaimed original
+  name (see `#53`); Docker via `docker-graph.yml` → `ghcr.io/sapientsai/microsoft-mcp-server`. This is the
+  successor to the archived `sapientsai/microsoft-mcp-server` repo (already archived).
+  (Note: the old memo claim that it maps to `ms-mcp-central.civala.ai` was never verified — don't trust it.)
 
 ## Current state — `main` @ latest is a 3-package monorepo
 
@@ -22,8 +25,9 @@ microsoft365-mcp-server/                (repo root = private workspace)
 │                           generic types (GraphApiError, GraphApiVersion, ODataResponse, GraphDriveItem),
 │                           GRAPH_API_BASE, upload-helpers. Bundled into microsoft365's dist by tsdown.
 ├── packages/microsoft365/  published `microsoft365-mcp-server` — the delegated server, on core.
-└── packages/graph/         @sapientsai/ms-graph-server (private, 0.0.0) — app-only server on somamcp+core.
-                            Takes the `microsoft-mcp-server` npm identity at Phase-5 cutover.
+└── packages/graph/         `microsoft-mcp-server` (private, 0.0.0) — app-only server on somamcp+core.
+                            Reclaimed the original `microsoft-mcp-server` name in #53 (was
+                            @sapientsai/ms-graph-server). Docker-deployed (ghcr), not npm-published.
 ```
 
 **Tests:** core 27 + graph 65 + microsoft365 120 = **212**, all green. `pnpm validate` runs all packages.
@@ -43,16 +47,27 @@ microsoft365-mcp-server/                (repo root = private workspace)
 - ✅ somamcp 1.1.0 adoption (#52): `/upload` is now a somamcp `protected` `addRoute`;
   deleted `authorizeCaller`/`mountUploadRoute`/`extractAuthHeader`; `getRequestHeader` +
   new `authorizesWithApiKey` gate (`src/auth/api-key-gate.ts`) that resolves upload tickets.
+- ✅ App-only server **renamed** (#53): `@sapientsai/ms-graph-server` → **`microsoft-mcp-server`**
+  (reclaimed the original name; package + bin + Docker image `ghcr.io/sapientsai/microsoft-mcp-server` +
+  internal server name). Both package READMEs + root now carry a delegated-vs-app-only "which server?"
+  table. Stays `private`/0.0.0 — Docker/ghcr is the deploy path, no npm publish.
+- ✅ Local MCP fixes: `.mcp.json` path → `packages/microsoft365/dist` (#618f144); `MS365_ORG_MODE`
+  defaulted on (#413cdc2) — see gotchas.
 
 ## REMAINING WORK (priority order)
 
-1. **Give `packages/graph` an npm identity + publish wiring at cutover** (currently private/0.0.0).
-   Docker image + publish workflow already landed (#50).
-2. **Phase 5 cutover/archive:** deploy `packages/graph` in place of `ms-mcp-central`, verify parity
-   against the running deployment, then **archive** `sapientsai/microsoft-mcp-server` (don't delete).
+1. **Phase 5 cutover:** stand up the `microsoft-mcp-server` (app-only) ghcr image on its target host and
+   register it as the connector; verify parity against whatever it replaces. The image builds & publishes
+   from this repo already (`docker-graph.yml`); what's missing is the running deployment + connector wiring
+   (external to this repo — can't verify from here). npm publish NOT needed (Docker is the deploy path).
+2. **Archived-repo notice (separate repo):** `sapientsai/microsoft-mcp-server` is already archived, but its
+   notice still calls `packages/microsoft365` "the successor." Reword so the app-only lineage points at
+   `packages/graph` (now the `microsoft-mcp-server` name-holder). Needs unarchive to edit.
 3. **Deploy-side (parked, user action on `ms365.civala.ai`):** set `MS365_JWT_SIGNING_KEY` +
    `MS365_TOKEN_ENCRYPTION_KEY` (independent secrets) to activate the #34 key-separation; one-time
    re-auth window. Enforce fail-fast once set.
+4. **Housekeeping:** the old `ghcr.io/sapientsai/ms-graph-server` image is orphaned after #53 — delete from
+   ghcr package settings whenever.
 
 ## DECIDED (no action)
 
