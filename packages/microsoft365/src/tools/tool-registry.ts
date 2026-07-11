@@ -114,6 +114,7 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "get_planner_task", domain: "planner", readOnly: true, orgOnly: true },
   { name: "create_planner_task", domain: "planner", readOnly: false, orgOnly: true },
   { name: "update_planner_task", domain: "planner", readOnly: false, orgOnly: true },
+  { name: "update_planner_task_details", domain: "planner", readOnly: false, orgOnly: true },
   // OneNote
   { name: "list_onenote_notebooks", domain: "onenote", readOnly: true, orgOnly: false },
   { name: "list_onenote_sections", domain: "onenote", readOnly: true, orgOnly: false },

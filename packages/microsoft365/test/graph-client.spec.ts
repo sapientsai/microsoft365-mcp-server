@@ -54,4 +54,30 @@ describe("graph-client AuthStrategy injection", () => {
     initializeGraphClient(auth)
     expect(getGraphClient().isNone()).toBe(false)
   })
+
+  it("graphQuery forwards caller-supplied headers (e.g. If-Match) onto the request", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("t")) }
+    stubFetch({ ok: true })
+
+    const client = initializeGraphClient(auth)
+    await client.graphQuery("PATCH", "/planner/tasks/abc/details", { description: "x" }, undefined, {
+      "If-Match": 'W/"etag123"',
+    })
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect((init.headers as Record<string, string>)["If-Match"]).toBe('W/"etag123"')
+  })
+
+  it("updatePlannerTaskDetails sends the details path with the If-Match ETag", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("t")) }
+    stubFetch({ ok: true })
+
+    const client = initializeGraphClient(auth)
+    await client.updatePlannerTaskDetails("abc", { description: "hi" }, 'W/"e"')
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect(url).toContain("/planner/tasks/abc/details")
+    expect(init.method).toBe("PATCH")
+    expect((init.headers as Record<string, string>)["If-Match"]).toBe('W/"e"')
+  })
 })
