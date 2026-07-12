@@ -30,7 +30,7 @@ microsoft365-mcp-server/                (repo root = private workspace)
                             @sapientsai/ms-graph-server). Docker-deployed (ghcr), not npm-published.
 ```
 
-**Tests:** core 27 + graph 65 + microsoft365 133 = **225**, all green. `pnpm validate` runs all packages.
+**Tests:** core 27 + graph 65 + microsoft365 134 = **226**, all green. `pnpm validate` runs all packages.
 (microsoft365 grew through the Planner battery below — see the v1.0.26–29 bullet.)
 
 ## Phase progress
@@ -80,6 +80,12 @@ microsoft365-mcp-server/                (repo root = private workspace)
     missing-key is a silent 204 no-op (the footgun).
   - **v1.0.29** — `update_planner_task` now **auto-fetches the task ETag** (optional override for strict
     concurrency), consistent with the details tool; retries once on 412 only when it fetched the ETag.
+  - **v1.0.30** — `update_planner_task` returned a garbage card ("Untitled / ID: undefined") because a
+    Planner task PATCH is a 204 with no body and the empty response was formatted; now a plain summary
+    ("Task updated (percentComplete=100, …)"). Both planner update tools now put the **HTTP status in the
+    error** ("(HTTP 412)") so 400 vs 412 is distinguishable without string-matching. **Task-level ETag is
+    strict** (stale-but-valid → 412), unlike the loose details object — so the task retry-on-412 genuinely
+    fires. All confirmed live through the local tools (clean 204 message, HTTP-400 on bad ETag, buckets).
   - Live-verified this session: assignment-map + due date on create, task-level PATCH (`percentComplete=100`
     closes the task, `priority`), bucket list/create/delete, reference edit/delete + the missing-key no-op.
   - **Concurrency finding:** Planner's If-Match on task **details** is loose (a stale-but-valid ETag was
