@@ -11,6 +11,7 @@ import { type Either, Left, Right } from "functype/either"
 import type {
   GraphApiError,
   GraphApiVersion,
+  GraphBucket,
   GraphChannel,
   GraphChannelMessage,
   GraphChat,
@@ -286,6 +287,12 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listGroupPlans = (groupId: string) =>
     request<ODataResponse<GraphPlan>>("GET", `/groups/${groupId}/planner/plans`)
 
+  const listPlannerBuckets = (planId: string) =>
+    request<ODataResponse<GraphBucket>>("GET", `/planner/plans/${planId}/buckets`)
+
+  const createPlannerBucket = (bucket: Record<string, unknown>) =>
+    request<GraphBucket>("POST", "/planner/buckets", { body: bucket })
+
   const listPlannerTasks = (planId: string) =>
     request<ODataResponse<GraphPlannerTask>>("GET", `/planner/plans/${planId}/tasks`)
 
@@ -483,6 +490,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     listPlans,
     listMyGroups,
     listGroupPlans,
+    listPlannerBuckets,
+    createPlannerBucket,
     listPlannerTasks,
     getPlannerTask,
     createPlannerTask,

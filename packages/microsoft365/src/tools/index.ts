@@ -49,8 +49,10 @@ export {
   updateOnenotePageContent,
 } from "./onenote-tools"
 export {
+  createPlannerBucket,
   createPlannerTask,
   getPlannerTask,
+  listPlannerBuckets,
   listPlannerTasks,
   listPlans,
   updatePlannerTask,

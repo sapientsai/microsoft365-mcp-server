@@ -110,6 +110,8 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "list_group_members", domain: "groups", readOnly: true, orgOnly: true },
   // Planner
   { name: "list_plans", domain: "planner", readOnly: true, orgOnly: true },
+  { name: "list_planner_buckets", domain: "planner", readOnly: true, orgOnly: true },
+  { name: "create_planner_bucket", domain: "planner", readOnly: false, orgOnly: true },
   { name: "list_planner_tasks", domain: "planner", readOnly: true, orgOnly: true },
   { name: "get_planner_task", domain: "planner", readOnly: true, orgOnly: true },
   { name: "create_planner_task", domain: "planner", readOnly: false, orgOnly: true },

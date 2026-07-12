@@ -1,6 +1,7 @@
 import { Option } from "functype"
 
 import type {
+  GraphBucket,
   GraphChannel,
   GraphChannelMessage,
   GraphChat,
@@ -380,6 +381,11 @@ export const formatPlanSummary = (plan: GraphPlan): string => `- **${plan.title 
 
 export const formatPlanList = (plans: ReadonlyArray<GraphPlan>): string =>
   plans.length === 0 ? "No plans found." : `# Plans\n\n${plans.map(formatPlanSummary).join("\n")}`
+
+export const formatBucketList = (buckets: ReadonlyArray<GraphBucket>): string =>
+  buckets.length === 0
+    ? "No buckets found."
+    : `# Buckets\n\n${buckets.map((b) => `- **${b.name ?? "Unnamed"}** (ID: ${b.id})`).join("\n")}`
 
 export const formatPlannerTaskSummary = (task: GraphPlannerTask): string => {
   const due = Option(task.dueDateTime)

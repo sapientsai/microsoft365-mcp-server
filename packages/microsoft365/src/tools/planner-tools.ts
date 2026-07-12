@@ -6,7 +6,7 @@ import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphGroup, GraphPlan, GraphPlannerTask, ODataResponse } from "../types"
-import { formatPlanList, formatPlannerTaskDetail, formatPlannerTaskList } from "../utils/formatters"
+import { formatBucketList, formatPlanList, formatPlannerTaskDetail, formatPlannerTaskList } from "../utils/formatters"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -45,6 +45,31 @@ export const listPlans = async (): Promise<Either<UserError, string>> => {
   )
   const deduped = [...new Map(plans.map((p) => [p.id, p])).values()]
   return Right(formatPlanList(deduped))
+}
+
+// Buckets are the columns a plan's tasks sort into. create_planner_task takes a bucket_id but had no
+// source for one; these expose the list/create so a valid id can be supplied.
+export const listPlannerBuckets = async (params: { plan_id: string }): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.listPlannerBuckets(params.plan_id)
+  return result
+    .mapLeft((error) => new UserError(`Failed to list buckets: ${error.message}`))
+    .map((response) => formatBucketList(response.value))
+}
+
+export const createPlannerBucket = async (params: {
+  plan_id: string
+  name: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const result = await client.createPlannerBucket({ name: params.name, planId: params.plan_id, orderHint: " !" })
+  return result
+    .mapLeft((error) => new UserError(`Failed to create bucket: ${error.message}`))
+    .map((b) => `Bucket created.\n\n- **${b.name ?? params.name}** (ID: ${b.id})`)
 }
 
 export const listPlannerTasks = async (params: {
@@ -138,68 +163,144 @@ export const updatePlannerTask = async (params: {
 const encodeRefKey = (url: string): string =>
   url.replace(/%/g, "%25").replace(/\./g, "%2E").replace(/:/g, "%3A").replace(/@/g, "%40").replace(/#/g, "%23")
 
-// Task description / checklist / references live on a separate task-details object that requires its
-// own If-Match ETag. This reads that ETag, PATCHes the details, and retries once on a 412 (a
-// concurrent edit invalidating the ETag between the read and the write).
+// The current details object as far as we address it: checklist keyed by GUID, references keyed by the
+// encoded external URL.
+type DetailsSnapshot = {
+  readonly "@odata.etag": string
+  readonly checklist?: Record<string, { title?: string; isChecked?: boolean }>
+  readonly references?: Record<string, { alias?: string; type?: string }>
+}
+
+const checklistItem = (title: string, isChecked: boolean) => ({
+  "@odata.type": "#microsoft.graph.plannerChecklistItem",
+  title,
+  isChecked,
+})
+const referenceItem = (alias: string, type: string) => ({
+  "@odata.type": "#microsoft.graph.plannerExternalReference",
+  alias,
+  type,
+})
+
+// Task description / checklist / references live on a separate task-details object with its own If-Match
+// ETag. checklist and references are open-typed maps: a key present in the PATCH adds/replaces it, a key
+// set to null deletes it, an absent key is untouched. This reads the current details (for the ETag and
+// to merge/validate edits), builds ONE PATCH covering adds + updates + removes, and retries once on 412.
+// Updates are read-modify-write (omitted fields keep their current value) so a partial edit can't blank
+// the rest of an item. Removing/updating a key Graph doesn't have is a silent no-op there, so those are
+// reported as "skipped" rather than falsely succeeding.
 export const updatePlannerTaskDetails = async (params: {
   task_id: string
   description?: string
   preview_type?: "automatic" | "noPreview" | "checklist" | "description" | "reference"
   add_checklist?: ReadonlyArray<{ title: string; isChecked?: boolean }>
+  update_checklist?: ReadonlyArray<{ id: string; title?: string; isChecked?: boolean }>
+  remove_checklist?: ReadonlyArray<string>
   add_references?: ReadonlyArray<{ url: string; alias?: string }>
+  update_references?: ReadonlyArray<{ url: string; alias?: string }>
+  remove_references?: ReadonlyArray<string>
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  // Build the etag-independent payload once. checklist / references are open-typed maps: including a
-  // key ADDS/updates it (new items are added, not replaced). Removing an item is a follow-up PATCH of
-  // its key to null — out of scope here.
-  const details: Record<string, unknown> = {}
-  if (params.description !== undefined) details.description = params.description
-  if (params.preview_type) details.previewType = params.preview_type
-  if (params.add_checklist) {
-    details.checklist = Object.fromEntries(
-      params.add_checklist.map((c) => [
-        randomUUID(),
-        { "@odata.type": "#microsoft.graph.plannerChecklistItem", title: c.title, isChecked: c.isChecked ?? false },
-      ]),
+  const buildPatch = (
+    current: DetailsSnapshot,
+  ): { details: Record<string, unknown>; skipped: ReadonlyArray<string> } => {
+    const skipped: string[] = []
+    const details: Record<string, unknown> = {}
+    if (params.description !== undefined) details.description = params.description
+    if (params.preview_type) details.previewType = params.preview_type
+
+    const existingChecklist = current.checklist ?? {}
+    const checklist: Record<string, unknown> = {}
+    const clAdds = params.add_checklist ?? []
+    clAdds.forEach((c) => {
+      checklist[randomUUID()] = checklistItem(c.title, c.isChecked ?? false)
+    })
+    const clUpdates = params.update_checklist ?? []
+    clUpdates.forEach((u) => {
+      const cur = existingChecklist[u.id]
+      if (!cur) {
+        skipped.push(`checklist item ${u.id}`)
+        return
+      }
+      checklist[u.id] = checklistItem(u.title ?? cur.title ?? "", u.isChecked ?? cur.isChecked ?? false)
+    })
+    const clRemoves = params.remove_checklist ?? []
+    clRemoves.forEach((id) => {
+      if (!existingChecklist[id]) {
+        skipped.push(`checklist item ${id}`)
+        return
+      }
+      checklist[id] = null
+    })
+    if (Object.keys(checklist).length > 0) details.checklist = checklist
+
+    const existingRefs = current.references ?? {}
+    const references: Record<string, unknown> = {}
+    const refAdds = params.add_references ?? []
+    refAdds.forEach((r) => {
+      references[encodeRefKey(r.url)] = referenceItem(r.alias ?? r.url, "Other")
+    })
+    const refUpdates = params.update_references ?? []
+    refUpdates.forEach((r) => {
+      const key = encodeRefKey(r.url)
+      const cur = existingRefs[key]
+      if (!cur) {
+        skipped.push(`reference ${r.url}`)
+        return
+      }
+      references[key] = referenceItem(r.alias ?? cur.alias ?? r.url, cur.type ?? "Other")
+    })
+    const refRemoves = params.remove_references ?? []
+    refRemoves.forEach((url) => {
+      const key = encodeRefKey(url)
+      if (!existingRefs[key]) {
+        skipped.push(`reference ${url}`)
+        return
+      }
+      references[key] = null
+    })
+    if (Object.keys(references).length > 0) details.references = references
+
+    return { details, skipped }
+  }
+
+  // One attempt: read current details (ETag + existing keys), build the merged PATCH, write it. Planner
+  // requires a concrete If-Match (wildcard "*" isn't honored). retriable is true only for a 412.
+  const runOnce = async (): Promise<Either<{ retriable: boolean; error: UserError }, string>> => {
+    const currentResult = await client.getPlannerTaskDetails(params.task_id)
+    if (currentResult.isLeft()) {
+      const { message } = currentResult.value as { message: string }
+      return Left({ retriable: false, error: new UserError(`Failed to read task details: ${message}`) })
+    }
+    const current = currentResult.value as unknown as DetailsSnapshot
+    const { details, skipped } = buildPatch(current)
+
+    const patchResult = await client.updatePlannerTaskDetails(params.task_id, details, current["@odata.etag"])
+    return patchResult.fold<Either<{ retriable: boolean; error: UserError }, string>>(
+      (error) => {
+        const e = error as { status?: number; message: string }
+        const wrapped = new UserError(`Failed to update task details: ${e.message}`)
+        return Left({ retriable: e.status === 412, error: wrapped })
+      },
+      () =>
+        Right(
+          skipped.length > 0
+            ? `Task details updated. Skipped (not found): ${skipped.join(", ")}.`
+            : "Task details updated.",
+        ),
     )
   }
-  if (params.add_references) {
-    details.references = Object.fromEntries(
-      params.add_references.map((r) => [
-        encodeRefKey(r.url),
-        { "@odata.type": "#microsoft.graph.plannerExternalReference", alias: r.alias ?? r.url, type: "Other" },
-      ]),
-    )
-  }
 
-  // Planner requires a concrete If-Match on the details object (wildcard "*" is not honored), so each
-  // attempt reads the current ETag immediately before PATCHing.
-  const readEtag = async (): Promise<Either<UserError, string>> => {
-    const current = await client.getPlannerTaskDetails(params.task_id)
-    return current.fold<Either<UserError, string>>(
-      (error) => Left(new UserError(`Failed to read task details: ${error.message}`)),
-      (value) => Right(value["@odata.etag"]),
-    )
-  }
-  const patch = (etag: string) => client.updatePlannerTaskDetails(params.task_id, details, etag)
+  const first = await runOnce()
+  if (first.isRight()) return Right(first.value as string)
+  const { retriable, error } = first.value as { retriable: boolean; error: UserError }
+  if (!retriable) return Left(error)
 
-  const firstEtag = await readEtag()
-  if (firstEtag.isLeft()) return firstEtag
-  const firstResult = await patch(firstEtag.value as string)
-  if (firstResult.isRight()) return Right("Task details updated.")
-
-  // A concurrent edit invalidated the ETag between our read and PATCH (HTTP 412). Re-read once and
-  // retry so an unattended loop doesn't lose a write to a benign race; surface any other error as-is.
-  const firstError = firstResult.value as { status?: number; message: string }
-  if (firstError.status !== 412) {
-    return Left(new UserError(`Failed to update task details: ${firstError.message}`))
-  }
-
-  const retryEtag = await readEtag()
-  if (retryEtag.isLeft()) return retryEtag
-  return (await patch(retryEtag.value as string))
-    .mapLeft((error) => new UserError(`Failed to update task details: ${error.message}`))
-    .map(() => "Task details updated.")
+  // Concurrent edit invalidated the ETag (412): re-read and retry exactly once.
+  return (await runOnce()).fold<Either<UserError, string>>(
+    (l) => Left((l as { error: UserError }).error),
+    (message) => Right(message as string),
+  )
 }

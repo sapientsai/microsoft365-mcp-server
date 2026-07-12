@@ -210,6 +210,13 @@ export type GraphPlan = {
   readonly createdDateTime?: string
 }
 
+export type GraphBucket = {
+  readonly id: string
+  readonly name?: string
+  readonly planId?: string
+  readonly orderHint?: string
+}
+
 export type GraphPlannerTask = {
   readonly id: string
   readonly title?: string

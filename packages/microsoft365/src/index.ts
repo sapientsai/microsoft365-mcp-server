@@ -31,6 +31,7 @@ import {
   createOnenoteNotebook,
   createOnenotePage,
   createOnenoteSection,
+  createPlannerBucket,
   createPlannerTask,
   createReplyAllDraft,
   createReplyDraft,
@@ -67,6 +68,7 @@ import {
   listOnenoteNotebooks,
   listOnenotePages,
   listOnenoteSections,
+  listPlannerBuckets,
   listPlannerTasks,
   listPlans,
   listSiteDrives,
@@ -973,6 +975,28 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     annotations: { readOnlyHint: true },
   },
   {
+    name: "list_planner_buckets",
+    description: "List the buckets (columns) in a Planner plan. Use a bucket ID with create_planner_task.",
+    parameters: z.object({
+      plan_id: z.string().describe("Plan ID"),
+    }),
+    execute: async (params) => unwrapResult(await listPlannerBuckets(params)),
+    domain: "planner",
+    readOnly: true,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "create_planner_bucket",
+    description: "Create a new bucket (column) in a Planner plan",
+    parameters: z.object({
+      plan_id: z.string().describe("Plan ID"),
+      name: z.string().describe("Bucket name"),
+    }),
+    execute: async (params) => unwrapResult(await createPlannerBucket(params)),
+    domain: "planner",
+    readOnly: false,
+  },
+  {
     name: "create_planner_task",
     description: "Create a new Planner task",
     parameters: z.object({
@@ -1004,8 +1028,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "update_planner_task_details",
     description:
-      "Update a Planner task's details: description, checklist items, and references (links). " +
-      "The details ETag is fetched automatically. Checklist and reference entries are ADDED, not replaced.",
+      "Update a Planner task's details: description, checklist items, and references (links). The ETag " +
+      "is fetched automatically. Add, update, or remove entries — updates merge (omitted fields keep " +
+      "their current value); update/remove of a missing item is reported as skipped, not a silent no-op. " +
+      "Checklist items are addressed by their GUID (from get_planner_task); references by their URL.",
     parameters: z.object({
       task_id: z.string().describe("Task ID"),
       description: z.string().optional().describe("Task description / notes"),
@@ -1017,10 +1043,20 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .array(z.object({ title: z.string(), isChecked: z.boolean().optional() }))
         .optional()
         .describe("Checklist items to add"),
+      update_checklist: z
+        .array(z.object({ id: z.string(), title: z.string().optional(), isChecked: z.boolean().optional() }))
+        .optional()
+        .describe("Checklist items to edit, addressed by GUID (e.g. toggle isChecked)"),
+      remove_checklist: z.array(z.string()).optional().describe("Checklist item GUIDs to remove"),
       add_references: z
         .array(z.object({ url: z.string(), alias: z.string().optional() }))
         .optional()
         .describe("Reference links to add"),
+      update_references: z
+        .array(z.object({ url: z.string(), alias: z.string().optional() }))
+        .optional()
+        .describe("Reference links to edit, addressed by URL (e.g. rename the alias)"),
+      remove_references: z.array(z.string()).optional().describe("Reference URLs to remove"),
     }),
     execute: async (params) => unwrapResult(await updatePlannerTaskDetails(params)),
     domain: "planner",

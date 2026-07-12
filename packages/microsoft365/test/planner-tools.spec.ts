@@ -3,7 +3,12 @@ import { Right } from "functype/either"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { initializeGraphClient } from "../src/client/graph-client"
-import { listPlans, updatePlannerTaskDetails } from "../src/tools/planner-tools"
+import {
+  createPlannerBucket,
+  listPlannerBuckets,
+  listPlans,
+  updatePlannerTaskDetails,
+} from "../src/tools/planner-tools"
 
 // The task-details object carries its own ETag; a concurrent edit between our read and PATCH yields a
 // 412, which updatePlannerTaskDetails absorbs by re-reading the ETag and retrying exactly once.
@@ -132,5 +137,100 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
 
     expect(result.isRight()).toBe(true)
     expect(result.value as string).toContain("G1 Plan")
+  })
+
+  // Details edit/remove: read-modify-write merge + skip-not-found (Graph's null-on-missing-key is a
+  // silent no-op, so the tool reports it rather than pretending it worked).
+  const detailsSnapshot = {
+    "@odata.etag": 'W/"1"',
+    checklist: {
+      g1: { "@odata.type": "#microsoft.graph.plannerChecklistItem", title: "Alpha", isChecked: false },
+    },
+    references: {
+      "https%3A//x%2Ecom": { "@odata.type": "#microsoft.graph.plannerExternalReference", alias: "X", type: "Other" },
+    },
+  }
+
+  const capturePatch = (bodyRef: { value: unknown }) =>
+    vi.fn((_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PATCH") {
+        bodyRef.value = JSON.parse(String(init?.body))
+        return Promise.resolve(response({}, true, 204))
+      }
+      return Promise.resolve(response(detailsSnapshot))
+    })
+
+  it("update_checklist merges — an omitted field keeps its current value", async () => {
+    const body: { value: unknown } = { value: null }
+    vi.stubGlobal("fetch", capturePatch(body))
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTaskDetails({ task_id: "t", update_checklist: [{ id: "g1", isChecked: true }] })
+
+    expect(result.isRight()).toBe(true)
+    const item = (body.value as { checklist: Record<string, { title: string; isChecked: boolean }> }).checklist.g1
+    expect(item.title).toBe("Alpha") // preserved, not blanked
+    expect(item.isChecked).toBe(true) // changed
+  })
+
+  it("remove_checklist nulls the key; a missing key is reported as skipped, not silently succeeded", async () => {
+    const body: { value: unknown } = { value: null }
+    vi.stubGlobal("fetch", capturePatch(body))
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTaskDetails({ task_id: "t", remove_checklist: ["g1", "gMissing"] })
+
+    const msg = result.fold(
+      () => "",
+      (v) => v,
+    )
+    const checklist = (body.value as { checklist: Record<string, unknown> }).checklist
+    expect(checklist.g1).toBeNull()
+    expect("gMissing" in checklist).toBe(false)
+    expect(msg).toContain("Skipped (not found)")
+    expect(msg).toContain("gMissing")
+  })
+
+  it("list_planner_buckets formats a plan's buckets", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          response({
+            value: [
+              { id: "b1", name: "To Do" },
+              { id: "b2", name: "Done" },
+            ],
+          }),
+        ),
+      ),
+    )
+
+    initializeGraphClient(auth)
+    const out = (await listPlannerBuckets({ plan_id: "p" })).fold(
+      () => "",
+      (v) => v,
+    )
+    expect(out).toContain("To Do")
+    expect(out).toContain("b2")
+  })
+
+  it("create_planner_bucket posts the name and planId", async () => {
+    const body: { value: unknown } = { value: null }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") body.value = JSON.parse(String(init?.body))
+        return Promise.resolve(response({ id: "bNew", name: "Backlog" }))
+      }),
+    )
+
+    initializeGraphClient(auth)
+    const result = await createPlannerBucket({ plan_id: "p", name: "Backlog" })
+
+    expect(result.isRight()).toBe(true)
+    const posted = body.value as { name: string; planId: string }
+    expect(posted.name).toBe("Backlog")
+    expect(posted.planId).toBe("p")
   })
 })
