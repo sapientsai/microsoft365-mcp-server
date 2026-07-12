@@ -56,4 +56,30 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
     // GET → PATCH(403), no retry
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  // Regression: encodeURIComponent escaped the slashes too (// → %2F%2F), so Planner rejected the key
+  // with "The Authority/Host could not be parsed". The key must keep slashes intact and escape only
+  // the property-name-illegal chars. Verified live against Graph 2026-07-12.
+  it("encodes reference keys with slashes intact, escaping only : and .", async () => {
+    let patchBody: unknown
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PATCH") {
+        patchBody = JSON.parse(String(init?.body))
+        return Promise.resolve(response({}, true, 204))
+      }
+      return Promise.resolve(detailsRead)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTaskDetails({
+      task_id: "abc",
+      add_references: [{ url: "https://docs.github.com/en/rest" }],
+    })
+
+    expect(result.isRight()).toBe(true)
+    const keys = Object.keys((patchBody as { references: Record<string, unknown> }).references)
+    expect(keys).toEqual(["https%3A//docs%2Egithub%2Ecom/en/rest"])
+    expect(keys[0]).not.toContain("%2F") // slashes must NOT be encoded
+  })
 })

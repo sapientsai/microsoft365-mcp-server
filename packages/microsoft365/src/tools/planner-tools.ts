@@ -112,9 +112,15 @@ export const updatePlannerTask = async (params: {
     .map((t) => `Task updated.\n\n${formatPlannerTaskDetail(t)}`)
 }
 
-// Planner reference keys are the external URL used verbatim as an OData open-type property name.
-// encodeURIComponent leaves "." untouched, but "." is illegal in a property name, so encode it too.
-const encodeRefKey = (url: string): string => encodeURIComponent(url).replace(/\./g, "%2E")
+// Planner reference keys are the external URL used as an OData open-type property name. Only the
+// characters illegal in a property name get escaped; "/" and the rest of the URL stay intact so
+// Planner still parses it as a URI (matches Microsoft's documented key shape, e.g.
+// http%3A//developer%2Emicrosoft%2Ecom). encodeURIComponent is WRONG here — it escapes the slashes
+// too, and Planner then rejects the key ("The Authority/Host could not be parsed"). Escape "%" first
+// so we don't double-encode. Query-string chars (?, &, =) aren't in Planner's forbidden set — left
+// as-is. Verified live against Graph 2026-07-12.
+const encodeRefKey = (url: string): string =>
+  url.replace(/%/g, "%25").replace(/\./g, "%2E").replace(/:/g, "%3A").replace(/@/g, "%40").replace(/#/g, "%23")
 
 // Task description / checklist / references live on a separate task-details object that requires its
 // own If-Match ETag. This reads that ETag, PATCHes the details, and retries once on a 412 (a
