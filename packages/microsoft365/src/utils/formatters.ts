@@ -25,13 +25,13 @@ import type {
 
 // Mail
 export const formatMessageSummary = (msg: GraphMessage): string => {
-  const from = Option(msg.from?.emailAddress?.name).fold(
-    () => msg.from?.emailAddress?.address ?? "Unknown",
+  const from = Option(msg.from?.emailAddress.name).fold(
+    () => msg.from?.emailAddress.address ?? "Unknown",
     (v) => v,
   )
   const read = msg.isRead ? "" : " [Unread]"
   const attachments = msg.hasAttachments ? " [Attachments]" : ""
-  return `- **${msg.subject ?? "(No Subject)"}** from ${from} (${msg.receivedDateTime ?? ""})${read}${attachments} (ID: ${msg.id ?? ""})`
+  return `- **${msg.subject ?? "(No Subject)"}** from ${from} (${msg.receivedDateTime ?? ""})${read}${attachments} (ID: ${msg.id})`
 }
 
 export const formatMessageList = (messages: ReadonlyArray<GraphMessage>): string =>
@@ -62,7 +62,7 @@ export const formatMessageDetail = (msg: GraphMessage): string => {
   return `# ${msg.subject ?? "(No Subject)"}
 
 ## Details
-- ID: ${msg.id ?? ""}
+- ID: ${msg.id}
 - From: ${from}
 - To: ${to}
 - Date: ${msg.receivedDateTime ?? ""}
@@ -87,7 +87,7 @@ export const formatEventSummary = (event: GraphEvent): string => {
       (v) => v,
     )
   const cancelled = event.isCancelled ? " [Cancelled]" : ""
-  return `- **${event.subject ?? "(No Subject)"}** (${start})${location}${cancelled} (ID: ${event.id ?? ""})`
+  return `- **${event.subject ?? "(No Subject)"}** (${start})${location}${cancelled} (ID: ${event.id})`
 }
 
 export const formatEventList = (events: ReadonlyArray<GraphEvent>): string =>
@@ -134,7 +134,7 @@ export const formatEventDetail = (event: GraphEvent): string => {
   return `# ${event.subject ?? "(No Subject)"}
 
 ## Details
-- ID: ${event.id ?? ""}
+- ID: ${event.id}
 - Start: ${event.start?.dateTime ?? ""} (${event.start?.timeZone ?? ""})
 - End: ${event.end?.dateTime ?? ""} (${event.end?.timeZone ?? ""})
 - Location: ${event.location?.displayName ?? "None"}
@@ -211,7 +211,7 @@ export const formatContactSummary = (contact: GraphContact): string => {
       () => "",
       (v) => v,
     )
-  return `- **${contact.displayName ?? "Unknown"}**${email}${company} (ID: ${contact.id ?? ""})`
+  return `- **${contact.displayName ?? "Unknown"}**${email}${company} (ID: ${contact.id})`
 }
 
 export const formatContactList = (contacts: ReadonlyArray<GraphContact>): string =>
@@ -239,7 +239,7 @@ export const formatContactDetail = (contact: GraphContact): string => {
   return `# ${contact.displayName ?? "Unknown"}
 
 ## Details
-- ID: ${contact.id ?? ""}
+- ID: ${contact.id}
 - First Name: ${contact.givenName ?? ""}
 - Last Name: ${contact.surname ?? ""}
 - Company: ${contact.companyName ?? ""}
@@ -394,8 +394,11 @@ export const formatPlannerTaskSummary = (task: GraphPlannerTask): string => {
       () => "",
       (v) => v,
     )
-  const pct = task.percentComplete !== undefined ? ` [${task.percentComplete}%]` : ""
-  return `- **${task.title ?? "Untitled"}**${pct}${due} (ID: ${task.id ?? ""})`
+  const pct = Option(task.percentComplete).fold(
+    () => "",
+    (p) => ` [${p}%]`,
+  )
+  return `- **${task.title ?? "Untitled"}**${pct}${due} (ID: ${task.id})`
 }
 
 export const formatPlannerTaskList = (tasks: ReadonlyArray<GraphPlannerTask>): string =>
@@ -416,20 +419,20 @@ export const formatPlannerTaskDetail = (task: GraphPlannerTask): string =>
 // OneNote
 export const formatNotebookSummary = (nb: GraphNotebook): string => {
   const def = nb.isDefault ? " [Default]" : ""
-  return `- **${nb.displayName ?? "Untitled"}**${def} (ID: ${nb.id ?? ""})`
+  return `- **${nb.displayName ?? "Untitled"}**${def} (ID: ${nb.id})`
 }
 
 export const formatNotebookList = (notebooks: ReadonlyArray<GraphNotebook>): string =>
   notebooks.length === 0 ? "No notebooks found." : `# Notebooks\n\n${notebooks.map(formatNotebookSummary).join("\n")}`
 
 export const formatSectionSummary = (section: GraphSection): string =>
-  `- **${section.displayName ?? "Untitled"}** (ID: ${section.id ?? ""})`
+  `- **${section.displayName ?? "Untitled"}** (ID: ${section.id})`
 
 export const formatSectionList = (sections: ReadonlyArray<GraphSection>): string =>
   sections.length === 0 ? "No sections found." : `# Sections\n\n${sections.map(formatSectionSummary).join("\n")}`
 
 export const formatPageSummary = (page: GraphPage): string =>
-  `- **${page.title ?? "Untitled"}** (${page.lastModifiedDateTime ?? ""}) (ID: ${page.id ?? ""})`
+  `- **${page.title ?? "Untitled"}** (${page.lastModifiedDateTime ?? ""}) (ID: ${page.id})`
 
 export const formatPageList = (pages: ReadonlyArray<GraphPage>): string =>
   pages.length === 0 ? "No pages found." : `# Pages\n\n${pages.map(formatPageSummary).join("\n")}`
@@ -442,7 +445,7 @@ export const formatTodoListSummary = (list: GraphTodoList): string => {
       () => "",
       (v) => v,
     )
-  return `- **${list.displayName ?? "Untitled"}**${wellKnown} (ID: ${list.id ?? ""})`
+  return `- **${list.displayName ?? "Untitled"}**${wellKnown} (ID: ${list.id})`
 }
 
 export const formatTodoListList = (lists: ReadonlyArray<GraphTodoList>): string =>
@@ -456,7 +459,7 @@ export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
       () => "",
       (v) => v,
     )
-  return `- **${task.title ?? "Untitled"}** [${status}]${due} (ID: ${task.id ?? ""})`
+  return `- **${task.title ?? "Untitled"}** [${status}]${due} (ID: ${task.id})`
 }
 
 export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
@@ -471,7 +474,7 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   return `# ${task.title ?? "Untitled"}
 
 ## Details
-- ID: ${task.id ?? ""}
+- ID: ${task.id}
 - Status: ${task.status ?? "notStarted"}
 - Importance: ${task.importance ?? "normal"}
 - Due: ${task.dueDateTime?.dateTime ?? "N/A"}
