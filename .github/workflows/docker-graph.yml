@@ -1,8 +1,9 @@
 name: Docker Build & Push (graph)
 
 on:
+  # Tag-only on push: release tags build + publish the versioned/latest images.
+  # Plain main commits run Node.js CI (node.js.yml) — no rolling :main image is built.
   push:
-    branches: ["main"]
     tags: ["v*"]
   pull_request:
     branches: ["main"]
