@@ -30,7 +30,8 @@ microsoft365-mcp-server/                (repo root = private workspace)
                             @sapientsai/ms-graph-server). Docker-deployed (ghcr), not npm-published.
 ```
 
-**Tests:** core 27 + graph 65 + microsoft365 120 = **212**, all green. `pnpm validate` runs all packages.
+**Tests:** core 27 + graph 65 + microsoft365 124 = **216**, all green. `pnpm validate` runs all packages.
+(microsoft365 +4 from #54: header-passthrough + details path/If-Match in graph-client.spec, 412 retry in planner-tools.spec.)
 
 ## Phase progress
 
@@ -53,12 +54,24 @@ microsoft365-mcp-server/                (repo root = private workspace)
   table. Stays `private`/0.0.0 — Docker/ghcr is the deploy path, no npm publish.
 - ✅ Local MCP fixes: `.mcp.json` path → `packages/microsoft365/dist` (#618f144); `MS365_ORG_MODE`
   defaulted on (#413cdc2) — see gotchas.
+- ✅ Planner **task-details writes + If-Match** (#54, merged `dc17372`): `graph_query` now forwards
+  optional `headers` (unblocks If-Match/Prefer/ConsistencyLevel via the escape hatch — the core request
+  already forwarded headers; only the wrapper leaked them). New `update_planner_task_details` tool
+  (description/checklist/references on the separate task-details object, auto-reads its ETag, additive
+  checklist/refs, reference-key `.`-encoding, **retries once on 412**). `orgOnly: true`. Closes the gap
+  Jason hit ("If-Match header must be specified"). Delegated server only — rides the microsoft365 image.
+- ✅ **Both ghcr images now publish from this repo.** `microsoft-mcp-server` (app-only) was blocked since
+  the #53 rename — the ghcr package stayed bound to the archived repo, so this repo's `GITHUB_TOKEN` got
+  `permission_denied: write_package`. Fixed by granting this repo Write in *Package settings → Manage
+  Actions access* (see gotchas). First successful app-only push: `sha-dc17372,main` (2026-07-12), on top
+  of the pre-existing 195 versions (lineage preserved).
 
 ## REMAINING WORK (priority order)
 
 1. **Phase 5 cutover:** stand up the `microsoft-mcp-server` (app-only) ghcr image on its target host and
-   register it as the connector; verify parity against whatever it replaces. The image builds & publishes
-   from this repo already (`docker-graph.yml`); what's missing is the running deployment + connector wiring
+   register it as the connector; verify parity against whatever it replaces. **Image side now unblocked** —
+   `docker-graph.yml` builds AND pushes `ghcr.io/sapientsai/microsoft-mcp-server` (first push `sha-dc17372`,
+   2026-07-12, after the Actions-access fix). What's left is the running deployment + connector wiring
    (external to this repo — can't verify from here). npm publish NOT needed (Docker is the deploy path).
 2. **Archived-repo notice (separate repo):** `sapientsai/microsoft-mcp-server` is already archived, but its
    notice still calls `packages/microsoft365` "the successor." Reword so the app-only lineage points at
@@ -107,6 +120,19 @@ microsoft365-mcp-server/                (repo root = private workspace)
     that's why `send_chat_message` (self-chat via magic id **`48:notes`**) wasn't registered. The npm package's
     own default stays `false` (opt-in); override with `MS365_ORG_MODE=false`. After any env change, **reconnect
     the MCP** (restart) — env only applies at server start.
+- **GHCR reclaimed-name gotcha** (bit us after the #53 rename): ghcr container package names are **org-unique**,
+  not per-repo. `ghcr.io/sapientsai/microsoft-mcp-server` already existed (195 versions) and stayed **linked to
+  the archived `sapientsai/microsoft-mcp-server` repo**, so THIS repo's Actions `GITHUB_TOKEN` got
+  `denied: permission_denied: write_package` — the build succeeded, only the push failed. Workflow perms
+  (`packages: write`) were already correct; the token just wasn't authorized for that package. **Fix (UI-only,
+  no REST/`gh` API):** Org → Packages → `microsoft-mcp-server` → *Package settings → Manage Actions access → Add
+  repository* `sapientsai/microsoft365-mcp-server` = **Write** (done 2026-07-12). History preserved; new pushes
+  land on top. `download_file`/tags untouched.
+- **QEMU arm64 Docker flakiness:** both `docker.yml` + `docker-graph.yml` build multi-arch (`linux/amd64,arm64`)
+  and the arm64 leg runs under QEMU emulation, which **intermittently hangs or core-dumps** (`qemu: uncaught
+  target signal 4 (Illegal instruction)`), usually in the `pnpm ... deploy` / install step. It's transient — a
+  plain **re-run clears it** (`gh run rerun <id>`). Seen on both the PR build and the post-merge `main` builds
+  for `dc17372`. Longer-term fix if it keeps recurring: native arm64 runners instead of QEMU.
 
 ## somamcp improvement spec (separate repo `~/IdeaProjects/somamcp`)
 
