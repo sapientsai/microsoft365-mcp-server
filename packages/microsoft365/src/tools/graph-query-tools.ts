@@ -22,7 +22,7 @@ export const graphQuery = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   const body = params.body ? (JSON.parse(params.body) as Record<string, unknown>) : undefined
-  const version = (params.version as GraphApiVersion) ?? undefined
+  const version = params.version as GraphApiVersion | undefined
 
   const result = await client.graphQuery(params.method, params.path, body, version, params.headers)
   return result

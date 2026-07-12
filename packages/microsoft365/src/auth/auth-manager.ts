@@ -21,7 +21,7 @@ const authStateRef = Ref<Option<MutableAuthState>>(None())
 const parseJwtScopes = (token: string): ReadonlyArray<string> => {
   try {
     const decoded = jwt.decode(token)
-    if (!decoded || typeof decoded !== "object") return []
+    if (decoded === null || typeof decoded !== "object") return []
 
     if (typeof decoded.scp === "string") {
       return decoded.scp.split(" ").filter((s: string) => s.length > 0)
