@@ -236,6 +236,34 @@ server {
 }
 ```
 
+## Production Checklist
+
+Environment variables to review before going live with an `oauth-proxy` deployment. Set required values; the "harden" group avoids key reuse and data loss on restart (see [Security Considerations](#security-considerations) for the why).
+
+**Required**
+
+- [ ] `MS365_AUTH_MODE=oauth-proxy`
+- [ ] `MS365_CLIENT_ID` — Azure app client ID
+- [ ] `MS365_CLIENT_SECRET` — Azure app client secret (secrets manager, never in git)
+- [ ] `MS365_TENANT_ID` — `common`, or a specific tenant ID to restrict to one org
+- [ ] `MS365_OAUTH_BASE_URL` — public HTTPS base URL (its `/oauth/callback` must be a registered redirect URI)
+
+**Harden (production — otherwise startup logs `[Auth][WARN]` and reuses the client secret)**
+
+- [ ] `MS365_JWT_SIGNING_KEY` — dedicated JWT signing secret. Generate: `openssl rand -base64 32`
+- [ ] `MS365_TOKEN_ENCRYPTION_KEY` — dedicated token-encryption secret, **different** from the signing key. Generate a second `openssl rand -base64 32`
+- [ ] `TOKEN_STORAGE_PATH` — persistent, private directory for encrypted tokens (the default `/tmp/ms365-tokens` is wiped on redeploy → users re-auth every restart)
+
+> ⚠️ **One-time re-auth:** first setting `MS365_JWT_SIGNING_KEY` / `MS365_TOKEN_ENCRYPTION_KEY` (or changing them later) invalidates existing sessions and any tokens already persisted under the old key, so every user re-authenticates once. Do it in a low-traffic window, then keep both values **stable** — treat them like long-lived secrets, not rotating ones.
+
+**Scope & behavior (optional)**
+
+- [ ] `MS365_ORG_MODE` — `true` enables Teams/Chats/Groups/Planner; `false` for personal-only
+- [ ] `MS365_READ_ONLY=true` — demos / untrusted environments (list/get/search only)
+- [ ] `MS365_PRESETS` — e.g. `personal` to scope the tool surface
+- [ ] `PORT` (default `8080`) and `TRANSPORT_TYPE=httpStream`
+- [ ] `FASTMCP_HOST` / `HOST` — bind address; only expose `0.0.0.0` behind the HTTPS reverse proxy
+
 ## Security Considerations
 
 - **Client secret**: Store in environment variables or a secrets manager (Azure Key Vault, etc.). Never commit to git.
