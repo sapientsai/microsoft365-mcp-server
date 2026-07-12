@@ -30,8 +30,8 @@ microsoft365-mcp-server/                (repo root = private workspace)
                             @sapientsai/ms-graph-server). Docker-deployed (ghcr), not npm-published.
 ```
 
-**Tests:** core 27 + graph 65 + microsoft365 124 = **216**, all green. `pnpm validate` runs all packages.
-(microsoft365 +4 from #54: header-passthrough + details path/If-Match in graph-client.spec, 412 retry in planner-tools.spec.)
+**Tests:** core 27 + graph 65 + microsoft365 133 = **225**, all green. `pnpm validate` runs all packages.
+(microsoft365 grew through the Planner battery below — see the v1.0.26–29 bullet.)
 
 ## Phase progress
 
@@ -65,6 +65,35 @@ microsoft365-mcp-server/                (repo root = private workspace)
   `permission_denied: write_package`. Fixed by granting this repo Write in *Package settings → Manage
   Actions access* (see gotchas). First successful app-only push: `sha-dc17372,main` (2026-07-12), on top
   of the pre-existing 195 versions (lineage preserved).
+- ✅ **Planner tooling battery (v1.0.26 → v1.0.29)**, driven by live connector testing (delegated server):
+  - **v1.0.26** — `encodeRefKey` fix: reference keys were `encodeURIComponent`'d, escaping the slashes
+    (`//`→`%2F%2F`) so Planner rejected them ("The Authority/Host could not be parsed"). Now escapes only
+    the property-name-illegal chars (`%` first, then `. : @ #`), slashes intact. **Query strings (`? & =`)
+    verified fine as-is** — SharePoint URLs work.
+  - **v1.0.27** — `list_plans` was silently empty: `/me/planner/plans` only returns plans the user was
+    explicitly added to. Now **fans out over `/me/memberOf` groups** + `/groups/{id}/planner/plans`, merged
+    and deduped; one bad group can't blank the board. Needs `Group.Read.All` (in scope).
+  - **v1.0.28** — **bucket tooling** (`list_planner_buckets`, `create_planner_bucket` — `create_planner_task`'s
+    `bucket_id` finally has a source) + `update_planner_task_details` gains **update/remove** for checklist
+    (by GUID) and references (by URL): updates are read-modify-write (omitted fields preserved); removes null
+    the key; **update/remove of a missing key is reported "Skipped (not found)"** because Graph's null-on-
+    missing-key is a silent 204 no-op (the footgun).
+  - **v1.0.29** — `update_planner_task` now **auto-fetches the task ETag** (optional override for strict
+    concurrency), consistent with the details tool; retries once on 412 only when it fetched the ETag.
+  - Live-verified this session: assignment-map + due date on create, task-level PATCH (`percentComplete=100`
+    closes the task, `priority`), bucket list/create/delete, reference edit/delete + the missing-key no-op.
+  - **Concurrency finding:** Planner's If-Match on task **details** is loose (a stale-but-valid ETag was
+    accepted; only a malformed one 400s). The retry-on-412 is correct but **defensive-only** — the real risk
+    for an unattended loop is silent last-write-wins clobber, not 412 storms.
+  - **Still open:** `create_planner_task` bucket/assignment params exist but the connector must be redeployed
+    for skills to use the new tools, and republishing resets the client's trusted-tools set (**re-grant after
+    each connector redeploy** — that's the "No approval received" symptom, not a bug).
+- ✅ **CI dedup** (`85899e3`): both Docker workflows were `push.branches:[main] + tags:[v*]`, so a release
+  (commit+tag) built each image twice and every main commit rebuilt images. Now **tag-only on push** (+ PR
+  validation); `node.js.yml` still runs on main. Release went 6 runs → 4. QEMU arm64 flakiness note added.
+- ✅ **`DEPLOYMENT.md` production checklist** (`8a60a5c`): required / harden (`MS365_JWT_SIGNING_KEY`,
+  `MS365_TOKEN_ENCRYPTION_KEY`, `TOKEN_STORAGE_PATH`) / scope env groups — answers the startup `[Auth][WARN]`
+  key-reuse fallback. Generic, no deployment-specific refs.
 
 ## REMAINING WORK (priority order)
 
@@ -79,7 +108,12 @@ microsoft365-mcp-server/                (repo root = private workspace)
 3. **Deploy-side (parked, user action on `ms365.civala.ai`):** set `MS365_JWT_SIGNING_KEY` +
    `MS365_TOKEN_ENCRYPTION_KEY` (independent secrets) to activate the #34 key-separation; one-time
    re-auth window. Enforce fail-fast once set.
-4. **Housekeeping:** the old `ghcr.io/sapientsai/ms-graph-server` image is orphaned after #53 — delete from
+4. **Redeploy delegated connector to `v1.0.29`** (`ms365.civala.ai`): picks up the whole Planner battery
+   (list_plans fan-out, buckets, edit/remove, auto-ETag). After redeploy, **re-grant the client's trusted-
+   tools set** — republishing resets it (two new tools: `list_planner_buckets`, `create_planner_bucket`).
+5. **Token-refresh soak test (agentic-jobs / DBOS side, external):** the durable-loop goal crosses OAuth
+   refresh boundaries; that's where to soak-test before trusting an unattended run — not a Planner smoke test.
+6. **Housekeeping:** the old `ghcr.io/sapientsai/ms-graph-server` image is orphaned after #53 — delete from
    ghcr package settings whenever.
 
 ## DECIDED (no action)
