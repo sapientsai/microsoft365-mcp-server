@@ -287,4 +287,43 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
     expect(result.isLeft()).toBe(true)
     expect((result.value as { message: string }).message).toContain("(HTTP 403)")
   })
+
+  // Planner returns 409 (not 412) for a stale-ETag write on tasks. When the ETag was auto-fetched, a 409
+  // must trigger the re-read-and-retry; when the caller pinned an ETag, the 409 surfaces (their guard).
+  it("update_planner_task retries once on a 409 when the ETag was auto-fetched", async () => {
+    let patchCalls = 0
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PATCH") {
+        patchCalls += 1
+        return Promise.resolve(patchCalls === 1 ? response({ error: "conflict" }, false, 409) : response({}, true, 204))
+      }
+      return Promise.resolve(response({ "@odata.etag": 'W/"e"', id: "t" }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTask({ task_id: "t", priority: 2 })
+
+    expect(result.isRight()).toBe(true)
+    expect(patchCalls).toBe(2) // 409 on the first PATCH triggered a re-read + retry
+  })
+
+  it("update_planner_task does NOT retry a 409 when the caller pinned the ETag", async () => {
+    let patchCalls = 0
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PATCH") {
+        patchCalls += 1
+        return Promise.resolve(response({ error: "conflict" }, false, 409))
+      }
+      return Promise.resolve(response({ "@odata.etag": 'W/"e"', id: "t" }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTask({ task_id: "t", etag: 'W/"pinned"', priority: 2 })
+
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as { message: string }).message).toContain("(HTTP 409)")
+    expect(patchCalls).toBe(1) // pinned ETag → conflict surfaces, no retry
+  })
 })

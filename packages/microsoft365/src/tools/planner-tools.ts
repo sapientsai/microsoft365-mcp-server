@@ -182,9 +182,12 @@ export const updatePlannerTask = async (params: {
   const firstResult = await attempt(firstEtag.value as string)
   if (firstResult.isRight()) return Right(successMessage)
 
-  // Retry a 412 only when we fetched the ETag; if the caller pinned one, respect their concurrency guard.
+  // Retry a conflict only when WE fetched the ETag; if the caller pinned one, surface it (their guard).
+  // Planner returns 409 Conflict for a stale-ETag write on tasks (not the 412 an If-Match miss implies);
+  // match both defensively — verified live: a stale-but-valid task ETag comes back 409.
   const firstError = firstResult.value as { status?: number; message: string }
-  if (firstError.status !== 412 || params.etag) return Left(failure(firstError))
+  const isConflict = firstError.status === 409 || firstError.status === 412
+  if (!isConflict || params.etag) return Left(failure(firstError))
 
   const retryEtag = await resolveEtag()
   if (retryEtag.isLeft()) return retryEtag
@@ -208,8 +211,8 @@ const encodeRefKey = (url: string): string =>
 // encoded external URL.
 type DetailsSnapshot = {
   readonly "@odata.etag": string
-  readonly checklist?: Record<string, { title?: string; isChecked?: boolean }>
-  readonly references?: Record<string, { alias?: string; type?: string }>
+  readonly checklist?: Record<string, { title?: string; isChecked?: boolean } | undefined>
+  readonly references?: Record<string, { alias?: string; type?: string } | undefined>
 }
 
 const checklistItem = (title: string, isChecked: boolean) => ({
@@ -226,7 +229,8 @@ const referenceItem = (alias: string, type: string) => ({
 // Task description / checklist / references live on a separate task-details object with its own If-Match
 // ETag. checklist and references are open-typed maps: a key present in the PATCH adds/replaces it, a key
 // set to null deletes it, an absent key is untouched. This reads the current details (for the ETag and
-// to merge/validate edits), builds ONE PATCH covering adds + updates + removes, and retries once on 412.
+// to merge/validate edits), builds ONE PATCH covering adds + updates + removes, and retries once on a
+// conflict (Planner returns 409 for a stale ETag; 412 matched defensively).
 // Updates are read-modify-write (omitted fields keep their current value) so a partial edit can't blank
 // the rest of an item. Removing/updating a key Graph doesn't have is a silent no-op there, so those are
 // reported as "skipped" rather than falsely succeeding.
@@ -325,7 +329,7 @@ export const updatePlannerTaskDetails = async (params: {
         const wrapped = new UserError(
           `Failed to update task details${e.status ? ` (HTTP ${e.status})` : ""}: ${e.message}`,
         )
-        return Left({ retriable: e.status === 412, error: wrapped })
+        return Left({ retriable: e.status === 409 || e.status === 412, error: wrapped })
       },
       () =>
         Right(
@@ -341,7 +345,8 @@ export const updatePlannerTaskDetails = async (params: {
   const { retriable, error } = first.value as { retriable: boolean; error: UserError }
   if (!retriable) return Left(error)
 
-  // Concurrent edit invalidated the ETag (412): re-read and retry exactly once.
+  // Concurrent edit invalidated the ETag (Planner returns 409 for a stale ETag; 412 matched
+  // defensively): re-read and retry exactly once.
   return (await runOnce()).fold<Either<UserError, string>>(
     (l) => Left((l as { error: UserError }).error),
     (message) => Right(message as string),
