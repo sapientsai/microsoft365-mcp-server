@@ -179,7 +179,7 @@ export const findMeetingAvailability = async (params: {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  if (!params.participants?.length) {
+  if (!params.participants.length) {
     return Left(new UserError("participants is required (at least one attendee email)."))
   }
   if (!params.after_date_time || !params.before_date_time) {

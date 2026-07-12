@@ -49,6 +49,25 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
     expect(patchCalls).toBe(2)
   })
 
+  // Planner's actual conflict code on the details object is 409 (not 412); the retry must fire on it too.
+  it("re-reads the ETag and retries once when the first PATCH returns 409", async () => {
+    let patchCalls = 0
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PATCH") {
+        patchCalls += 1
+        return Promise.resolve(patchCalls === 1 ? response({ error: "conflict" }, false, 409) : response({}, true, 204))
+      }
+      return Promise.resolve(detailsRead)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTaskDetails({ task_id: "abc", description: "hi" })
+
+    expect(result.isRight()).toBe(true)
+    expect(patchCalls).toBe(2) // 409 on the first PATCH triggered a re-read + retry
+  })
+
   it("does not retry on a non-412 error", async () => {
     const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
       Promise.resolve((init?.method ?? "GET") === "PATCH" ? response({ error: "forbidden" }, false, 403) : detailsRead),

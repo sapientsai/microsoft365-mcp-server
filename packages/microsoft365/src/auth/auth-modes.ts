@@ -13,7 +13,6 @@ import { GRAPH_DEFAULT_SCOPE } from "./scopes"
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 
-const DEFAULT_TENANT_ID = "common"
 const DEFAULT_REDIRECT_URI = "http://localhost:3000"
 
 const tryCredential = (fn: () => TokenCredential, label: string): Either<AuthError, TokenCredential> =>
@@ -47,8 +46,7 @@ export const createCredential = (config: AuthConfig): Either<AuthError, TokenCre
 const createInteractiveCredential = (
   config: Extract<AuthConfig, { mode: "interactive" }>,
 ): Either<AuthError, TokenCredential> => {
-  const tenantId = config.tenantId ?? DEFAULT_TENANT_ID
-  const { clientId } = config
+  const { tenantId, clientId } = config
 
   if (!clientId) {
     return Left<AuthError, TokenCredential>({ type: "config", message: "Interactive mode requires MS365_CLIENT_ID" })

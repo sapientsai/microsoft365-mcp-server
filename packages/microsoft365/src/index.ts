@@ -158,17 +158,17 @@ const setupAuth = async () => {
   const config = resolveAuthConfig()
   const result = await initializeAuth(config)
 
-  if (result.isLeft()) {
-    const error = result.value as { message: string }
-    if (config.mode === "client-token" && !config.accessToken) {
-      console.error("[Setup] Client token mode: use set_access_token tool to provide a token")
-    } else {
-      console.error(`[Error] Authentication failed: ${error.message}`)
-      process.exit(1)
-    }
-  } else {
-    console.error(`[Setup] Authentication initialized (${config.mode} mode)`)
-  }
+  result.fold(
+    (error) => {
+      if (config.mode === "client-token" && !config.accessToken) {
+        console.error("[Setup] Client token mode: use set_access_token tool to provide a token")
+      } else {
+        console.error(`[Error] Authentication failed: ${(error as { message: string }).message}`)
+        process.exit(1)
+      }
+    },
+    () => console.error(`[Setup] Authentication initialized (${config.mode} mode)`),
+  )
 
   initializeGraphClient({ getAccessToken })
   console.error("[Setup] Graph client initialized")

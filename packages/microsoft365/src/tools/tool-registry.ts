@@ -154,43 +154,22 @@ const DRAFT_BYPASS_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 export const filterTools = (config: ToolFilterConfig): Set<string> => {
-  const allowed = new Set<string>()
+  // Native Set<string> is the returned contract (callers use .has()); the accumulation is functional.
+  const allowedDomains =
+    config.presets && config.presets.length > 0
+      ? new Set<ToolDomain>([...config.presets.flatMap((preset) => PRESETS[preset] ?? []), "auth"])
+      : undefined
+  const enabledRegex = config.enabledPattern ? new RegExp(config.enabledPattern, "i") : undefined
 
-  const allowedDomains = new Set<ToolDomain>()
-  if (config.presets && config.presets.length > 0) {
-    for (const preset of config.presets) {
-      const domains = PRESETS[preset]
-      if (domains) {
-        for (const d of domains) allowedDomains.add(d)
-      }
-    }
-    // Always include auth tools
-    allowedDomains.add("auth")
+  const included = (meta: ToolMeta): boolean => {
+    if (allowedDomains && !allowedDomains.has(meta.domain)) return false // preset filter
+    if (config.readOnly && !meta.readOnly) return false // read-only filter: skip write tools
+    if (meta.orgOnly && !config.orgMode) return false // org-mode filter
+    if (enabledRegex && !enabledRegex.test(meta.name)) return false // regex filter
+    if (meta.transportOnly && config.transport && meta.transportOnly !== config.transport) return false // transport
+    if (config.requireDraft && DRAFT_BYPASS_TOOLS.has(meta.name)) return false // require-draft filter
+    return true
   }
 
-  const enabledRegex: RegExp | undefined = config.enabledPattern ? new RegExp(config.enabledPattern, "i") : undefined
-
-  for (const meta of TOOL_METADATA) {
-    // Preset filter: skip if presets are set and domain not included
-    if (allowedDomains.size > 0 && !allowedDomains.has(meta.domain)) continue
-
-    // Read-only filter: skip write tools
-    if (config.readOnly && !meta.readOnly) continue
-
-    // Org mode filter: skip org-only tools unless org mode is enabled
-    if (meta.orgOnly && !config.orgMode) continue
-
-    // Regex filter: skip if doesn't match pattern
-    if (enabledRegex && !enabledRegex.test(meta.name)) continue
-
-    // Transport filter: skip if tool is restricted to a different transport
-    if (meta.transportOnly && config.transport && meta.transportOnly !== config.transport) continue
-
-    // Require-draft filter: skip mail tools that bypass the create_draft/send_draft flow
-    if (config.requireDraft && DRAFT_BYPASS_TOOLS.has(meta.name)) continue
-
-    allowed.add(meta.name)
-  }
-
-  return allowed
+  return new Set(TOOL_METADATA.filter(included).map((meta) => meta.name))
 }
