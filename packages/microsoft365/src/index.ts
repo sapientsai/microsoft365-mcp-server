@@ -92,6 +92,7 @@ import {
   updateEvent,
   updateOnenotePageContent,
   updatePlannerTask,
+  updatePlannerTaskDetails,
   updateTodoTask,
   uploadFile,
   uploadFileFromPath,
@@ -1002,6 +1003,31 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     domain: "planner",
     readOnly: false,
   },
+  {
+    name: "update_planner_task_details",
+    description:
+      "Update a Planner task's details: description, checklist items, and references (links). " +
+      "The details ETag is fetched automatically. Checklist and reference entries are ADDED, not replaced.",
+    parameters: z.object({
+      task_id: z.string().describe("Task ID"),
+      description: z.string().optional().describe("Task description / notes"),
+      preview_type: z
+        .enum(["automatic", "noPreview", "checklist", "description", "reference"])
+        .optional()
+        .describe("What shows on the task card face"),
+      add_checklist: z
+        .array(z.object({ title: z.string(), isChecked: z.boolean().optional() }))
+        .optional()
+        .describe("Checklist items to add"),
+      add_references: z
+        .array(z.object({ url: z.string(), alias: z.string().optional() }))
+        .optional()
+        .describe("Reference links to add"),
+    }),
+    execute: async (params) => unwrapResult(await updatePlannerTaskDetails(params)),
+    domain: "planner",
+    readOnly: false,
+  },
 
   // === OneNote Tools ===
   {
@@ -1186,6 +1212,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       path: z.string().describe("Graph API path (e.g., /me/memberOf)"),
       body: z.string().optional().describe("JSON request body as a string"),
       version: z.string().optional().describe("API version: v1.0 or beta (default: v1.0)"),
+      headers: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe('Extra request headers, e.g. { "If-Match": "<etag>" } for concurrency-controlled writes'),
     }),
     execute: async (params) => unwrapResult(await graphQuery(params)),
     domain: "query",

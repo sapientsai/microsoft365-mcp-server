@@ -291,6 +291,17 @@ const createGraphClient = (auth: AuthStrategy) => {
       headers: { "If-Match": etag },
     })
 
+  // Task details (description / checklist / references) is a separate object with its own ETag,
+  // so its writes need a distinct If-Match from the parent task's.
+  const getPlannerTaskDetails = (id: string) =>
+    request<{ "@odata.etag": string } & Record<string, unknown>>("GET", `/planner/tasks/${id}/details`)
+
+  const updatePlannerTaskDetails = (id: string, details: Record<string, unknown>, etag: string) =>
+    request<Record<string, unknown>>("PATCH", `/planner/tasks/${id}/details`, {
+      body: details,
+      headers: { "If-Match": etag },
+    })
+
   // OneNote
   const listOnenoteNotebooks = () => request<ODataResponse<GraphNotebook>>("GET", "/me/onenote/notebooks")
 
@@ -387,13 +398,15 @@ const createGraphClient = (auth: AuthStrategy) => {
     }
   }
 
-  // Generic escape hatch
+  // Generic escape hatch. Optional headers unlock header-gated ops (If-Match for Planner
+  // task-details writes, Prefer, ConsistencyLevel, ...) that the typed tools don't cover.
   const graphQuery = <T = unknown>(
     method: string,
     path: string,
     body?: Record<string, unknown>,
     version?: GraphApiVersion,
-  ) => request<T>(method, path, { body, version })
+    headers?: Record<string, string>,
+  ) => request<T>(method, path, { body, version, headers })
 
   return Object.freeze({
     // Core
@@ -463,6 +476,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     getPlannerTask,
     createPlannerTask,
     updatePlannerTask,
+    getPlannerTaskDetails,
+    updatePlannerTaskDetails,
     // OneNote
     listOnenoteNotebooks,
     listOnenoteSections,

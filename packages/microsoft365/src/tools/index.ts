@@ -48,7 +48,14 @@ export {
   listOnenoteSections,
   updateOnenotePageContent,
 } from "./onenote-tools"
-export { createPlannerTask, getPlannerTask, listPlannerTasks, listPlans, updatePlannerTask } from "./planner-tools"
+export {
+  createPlannerTask,
+  getPlannerTask,
+  listPlannerTasks,
+  listPlans,
+  updatePlannerTask,
+  updatePlannerTaskDetails,
+} from "./planner-tools"
 export { getSite, listSiteDrives, listSiteItems, listSites, searchSiteFiles } from "./sharepoint-tools"
 export { listChannelMessages, listChannels, listTeams, sendChannelMessage } from "./teams-tools"
 export { createTodoTask, listTodoLists, listTodoTasks, updateTodoTask } from "./todo-tools"

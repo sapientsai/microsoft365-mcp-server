@@ -16,6 +16,7 @@ export const graphQuery = async (params: {
   path: string
   body?: string
   version?: string
+  headers?: Record<string, string>
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -23,7 +24,7 @@ export const graphQuery = async (params: {
   const body = params.body ? (JSON.parse(params.body) as Record<string, unknown>) : undefined
   const version = (params.version as GraphApiVersion) ?? undefined
 
-  const result = await client.graphQuery(params.method, params.path, body, version)
+  const result = await client.graphQuery(params.method, params.path, body, version, params.headers)
   return result
     .mapLeft((error) => new UserError(`Graph query failed: ${error.message}`))
     .map((data) => JSON.stringify(data, null, 2))

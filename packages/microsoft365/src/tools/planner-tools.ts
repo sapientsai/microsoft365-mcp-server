@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto"
+
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
-import { Left } from "functype/either"
+import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphPlan, GraphPlannerTask, ODataResponse } from "../types"
@@ -108,4 +110,74 @@ export const updatePlannerTask = async (params: {
   return result
     .mapLeft((error) => new UserError(`Failed to update task: ${error.message}`))
     .map((t) => `Task updated.\n\n${formatPlannerTaskDetail(t)}`)
+}
+
+// Planner reference keys are the external URL used verbatim as an OData open-type property name.
+// encodeURIComponent leaves "." untouched, but "." is illegal in a property name, so encode it too.
+const encodeRefKey = (url: string): string => encodeURIComponent(url).replace(/\./g, "%2E")
+
+// Task description / checklist / references live on a separate task-details object that requires its
+// own If-Match ETag. This reads that ETag, PATCHes the details, and retries once on a 412 (a
+// concurrent edit invalidating the ETag between the read and the write).
+export const updatePlannerTaskDetails = async (params: {
+  task_id: string
+  description?: string
+  preview_type?: "automatic" | "noPreview" | "checklist" | "description" | "reference"
+  add_checklist?: ReadonlyArray<{ title: string; isChecked?: boolean }>
+  add_references?: ReadonlyArray<{ url: string; alias?: string }>
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  // Build the etag-independent payload once. checklist / references are open-typed maps: including a
+  // key ADDS/updates it (new items are added, not replaced). Removing an item is a follow-up PATCH of
+  // its key to null — out of scope here.
+  const details: Record<string, unknown> = {}
+  if (params.description !== undefined) details.description = params.description
+  if (params.preview_type) details.previewType = params.preview_type
+  if (params.add_checklist) {
+    details.checklist = Object.fromEntries(
+      params.add_checklist.map((c) => [
+        randomUUID(),
+        { "@odata.type": "#microsoft.graph.plannerChecklistItem", title: c.title, isChecked: c.isChecked ?? false },
+      ]),
+    )
+  }
+  if (params.add_references) {
+    details.references = Object.fromEntries(
+      params.add_references.map((r) => [
+        encodeRefKey(r.url),
+        { "@odata.type": "#microsoft.graph.plannerExternalReference", alias: r.alias ?? r.url, type: "Other" },
+      ]),
+    )
+  }
+
+  // Planner requires a concrete If-Match on the details object (wildcard "*" is not honored), so each
+  // attempt reads the current ETag immediately before PATCHing.
+  const readEtag = async (): Promise<Either<UserError, string>> => {
+    const current = await client.getPlannerTaskDetails(params.task_id)
+    return current.fold<Either<UserError, string>>(
+      (error) => Left(new UserError(`Failed to read task details: ${error.message}`)),
+      (value) => Right(value["@odata.etag"]),
+    )
+  }
+  const patch = (etag: string) => client.updatePlannerTaskDetails(params.task_id, details, etag)
+
+  const firstEtag = await readEtag()
+  if (firstEtag.isLeft()) return firstEtag
+  const firstResult = await patch(firstEtag.value as string)
+  if (firstResult.isRight()) return Right("Task details updated.")
+
+  // A concurrent edit invalidated the ETag between our read and PATCH (HTTP 412). Re-read once and
+  // retry so an unattended loop doesn't lose a write to a benign race; surface any other error as-is.
+  const firstError = firstResult.value as { status?: number; message: string }
+  if (firstError.status !== 412) {
+    return Left(new UserError(`Failed to update task details: ${firstError.message}`))
+  }
+
+  const retryEtag = await readEtag()
+  if (retryEtag.isLeft()) return retryEtag
+  return (await patch(retryEtag.value as string))
+    .mapLeft((error) => new UserError(`Failed to update task details: ${error.message}`))
+    .map(() => "Task details updated.")
 }
