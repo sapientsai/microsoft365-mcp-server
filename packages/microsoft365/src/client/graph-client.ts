@@ -277,6 +277,15 @@ const createGraphClient = (auth: AuthStrategy) => {
   // Planner
   const listPlans = () => request<ODataResponse<GraphPlan>>("GET", "/me/planner/plans")
 
+  // The user's group memberships (groups only, filtered from the memberOf directory objects) and a
+  // group's plans — used to fan out plan discovery, since /me/planner/plans omits group-owned plans
+  // the user wasn't explicitly added to.
+  const listMyGroups = () =>
+    request<ODataResponse<GraphGroup>>("GET", "/me/memberOf/microsoft.graph.group?$select=id,displayName")
+
+  const listGroupPlans = (groupId: string) =>
+    request<ODataResponse<GraphPlan>>("GET", `/groups/${groupId}/planner/plans`)
+
   const listPlannerTasks = (planId: string) =>
     request<ODataResponse<GraphPlannerTask>>("GET", `/planner/plans/${planId}/tasks`)
 
@@ -472,6 +481,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     listGroupMembers,
     // Planner
     listPlans,
+    listMyGroups,
+    listGroupPlans,
     listPlannerTasks,
     getPlannerTask,
     createPlannerTask,

@@ -3,7 +3,7 @@ import { Right } from "functype/either"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { initializeGraphClient } from "../src/client/graph-client"
-import { updatePlannerTaskDetails } from "../src/tools/planner-tools"
+import { listPlans, updatePlannerTaskDetails } from "../src/tools/planner-tools"
 
 // The task-details object carries its own ETag; a concurrent edit between our read and PATCH yields a
 // 412, which updatePlannerTaskDetails absorbs by re-reading the ETag and retrying exactly once.
@@ -81,5 +81,56 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
     const keys = Object.keys((patchBody as { references: Record<string, unknown> }).references)
     expect(keys).toEqual(["https%3A//docs%2Egithub%2Ecom/en/rest"])
     expect(keys[0]).not.toContain("%2F") // slashes must NOT be encoded
+  })
+
+  // list_plans must fan out over group memberships — /me/planner/plans alone omits group-owned plans
+  // the user wasn't explicitly added to, silently showing an empty board.
+  it("aggregates plans across the user's groups and dedupes by id", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/me/memberOf")) return Promise.resolve(response({ value: [{ id: "g1" }, { id: "g2" }] }))
+      if (url.includes("/me/planner/plans")) return Promise.resolve(response({ value: [{ id: "p1", title: "Mine" }] }))
+      if (url.includes("/groups/g1/planner/plans"))
+        return Promise.resolve(
+          response({
+            value: [
+              { id: "p1", title: "Mine" },
+              { id: "p2", title: "G1 Plan" },
+            ],
+          }),
+        )
+      if (url.includes("/groups/g2/planner/plans"))
+        return Promise.resolve(response({ value: [{ id: "p3", title: "G2 Plan" }] }))
+      return Promise.resolve(response({ value: [] }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const out = (await listPlans()).fold(
+      () => "",
+      (v) => v,
+    )
+
+    expect(out).toContain("G1 Plan")
+    expect(out).toContain("G2 Plan")
+    expect(out.match(/Mine/g)?.length).toBe(1) // p1 seen in /me AND g1 → deduped to one
+  })
+
+  it("skips a failing group instead of blanking the whole board", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/me/memberOf")) return Promise.resolve(response({ value: [{ id: "g1" }, { id: "gBad" }] }))
+      if (url.includes("/me/planner/plans")) return Promise.resolve(response({ value: [] }))
+      if (url.includes("/groups/g1/planner/plans"))
+        return Promise.resolve(response({ value: [{ id: "p2", title: "G1 Plan" }] }))
+      if (url.includes("/groups/gBad/planner/plans"))
+        return Promise.resolve(response({ error: "forbidden" }, false, 403))
+      return Promise.resolve(response({ value: [] }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await listPlans()
+
+    expect(result.isRight()).toBe(true)
+    expect(result.value as string).toContain("G1 Plan")
   })
 })

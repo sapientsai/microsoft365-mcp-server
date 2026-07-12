@@ -5,7 +5,7 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { GraphPlan, GraphPlannerTask, ODataResponse } from "../types"
+import type { GraphGroup, GraphPlan, GraphPlannerTask, ODataResponse } from "../types"
 import { formatPlanList, formatPlannerTaskDetail, formatPlannerTaskList } from "../utils/formatters"
 
 const requireClient = () => {
@@ -14,21 +14,37 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-export const listPlans = async (params?: { fetch_all_pages?: boolean }): Promise<Either<UserError, string>> => {
+// /me/planner/plans only returns plans the user was explicitly added to; group-owned plans reachable
+// via membership are omitted — a skill calling this would silently see an empty board. So fan out over
+// the user's groups and merge with /me. Per-source failures (a group without Planner, a transient 4xx)
+// are skipped rather than fatal; only an all-sources failure surfaces an error, so one bad group can't
+// blank the whole board.
+export const listPlans = async (): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  if (params?.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphPlan>("/me/planner/plans")
-    return result
-      .mapLeft((error) => new UserError(`Failed to list plans: ${error.message}`))
-      .map((items) => formatPlanList(items))
+  const groupsResult = await client.listMyGroups()
+  const groups = groupsResult.fold<ReadonlyArray<GraphGroup>>(
+    () => [],
+    (r) => r.value,
+  )
+
+  const sources = await Promise.all([client.listPlans(), ...groups.map((g) => client.listGroupPlans(g.id))])
+
+  if (!sources.some((r) => r.isRight())) {
+    const failed = [groupsResult, ...sources].find((r) => r.isLeft())
+    const message = failed ? (failed.value as { message: string }).message : "unknown error"
+    return Left(new UserError(`Failed to list plans: ${message}`))
   }
 
-  const result = await client.listPlans()
-  return result
-    .mapLeft((error) => new UserError(`Failed to list plans: ${error.message}`))
-    .map((response) => formatPlanList((response as ODataResponse<never>).value))
+  const plans = sources.flatMap((r) =>
+    r.fold<ReadonlyArray<GraphPlan>>(
+      () => [],
+      (resp) => resp.value,
+    ),
+  )
+  const deduped = [...new Map(plans.map((p) => [p.id, p])).values()]
+  return Right(formatPlanList(deduped))
 }
 
 export const listPlannerTasks = async (params: {

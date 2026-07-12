@@ -942,11 +942,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Planner Tools ===
   {
     name: "list_plans",
-    description: "List Planner plans",
-    parameters: z.object({
-      fetch_all_pages: FETCH_ALL_PAGES_PARAM,
-    }),
-    execute: async (params) => unwrapResult(await listPlans(params)),
+    description: "List all Planner plans visible to you, aggregated across your group memberships",
+    parameters: z.object({}),
+    execute: async () => unwrapResult(await listPlans()),
     domain: "planner",
     readOnly: true,
     annotations: { readOnlyHint: true },
