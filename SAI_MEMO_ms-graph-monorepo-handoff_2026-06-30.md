@@ -30,7 +30,7 @@ microsoft365-mcp-server/                (repo root = private workspace)
                             @sapientsai/ms-graph-server). Docker-deployed (ghcr), not npm-published.
 ```
 
-**Tests:** core 27 + graph 65 + microsoft365 134 = **226**, all green. `pnpm validate` runs all packages.
+**Tests:** core 27 + graph 65 + microsoft365 136 = **228**, all green. `pnpm validate` runs all packages.
 (microsoft365 grew through the Planner battery below — see the v1.0.26–29 bullet.)
 
 ## Phase progress
@@ -86,11 +86,19 @@ microsoft365-mcp-server/                (repo root = private workspace)
     error** ("(HTTP 412)") so 400 vs 412 is distinguishable without string-matching. **Task-level ETag is
     strict** (stale-but-valid → 412), unlike the loose details object — so the task retry-on-412 genuinely
     fires. All confirmed live through the local tools (clean 204 message, HTTP-400 on bad ETag, buckets).
-  - Live-verified this session: assignment-map + due date on create, task-level PATCH (`percentComplete=100`
-    closes the task, `priority`), bucket list/create/delete, reference edit/delete + the missing-key no-op.
-  - **Concurrency finding:** Planner's If-Match on task **details** is loose (a stale-but-valid ETag was
-    accepted; only a malformed one 400s). The retry-on-412 is correct but **defensive-only** — the real risk
-    for an unattended loop is silent last-write-wins clobber, not 412 storms.
+  - **v1.0.31** — **retry keyed on the wrong status → it was dead code.** Planner returns **409 Conflict**
+    for a stale-ETag write on **tasks** (not the 412 an If-Match miss implies), so both update tools'
+    `status === 412` retry never fired. Now matches **409 + 412** defensively. `update_planner_task` still
+    retries only when it auto-fetched the ETag; a caller-pinned ETag surfaces the 409 (their guard). Also
+    typed `DetailsSnapshot`'s maps `| undefined` so the missing-key guards are honestly typed (78 → 72 lint
+    warnings). Confirmed live by the connector test: `(HTTP 409)` in the error string.
+  - Live-verified across the session: assignment-map + due date on create, task-level PATCH
+    (`percentComplete=100` closes the task, `priority`), bucket list/create/delete, all four checklist/
+    reference edit+remove ops, missing-key "Skipped (not found)", clean 204 message, `(HTTP 4xx/409)` errors.
+  - **Concurrency finding (corrected):** task PATCH is **strict** — a stale-but-valid ETag → **409** (not
+    412; the earlier "412" was an assumption the surfaced status corrected). The task **details** object is
+    **loose** — it accepted a stale ETag (204). So the task retry genuinely fires on 409; the details retry
+    is more defensive. A retry loop should key on **409/412**, never string-match the message.
   - **Still open:** `create_planner_task` bucket/assignment params exist but the connector must be redeployed
     for skills to use the new tools, and republishing resets the client's trusted-tools set (**re-grant after
     each connector redeploy** — that's the "No approval received" symptom, not a bug).
