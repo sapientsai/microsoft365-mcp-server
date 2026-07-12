@@ -29,7 +29,7 @@ export const describeFetchError = (error: unknown): { message: string; code?: st
 const parseGraphError = async (response: Response): Promise<string> => {
   try {
     const body = (await response.json()) as { error?: { message?: string } }
-    if (body?.error?.message) return body.error.message
+    if (body.error?.message) return body.error.message
   } catch {
     // fall through
   }
