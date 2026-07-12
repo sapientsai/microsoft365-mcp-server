@@ -161,24 +161,37 @@ export const updatePlannerTask = async (params: {
   }
   const attempt = (etag: string) => client.updatePlannerTask(params.task_id, updates, etag)
 
+  // Planner's task PATCH returns 204 with no body, so there's nothing to format — summarize the
+  // requested changes instead of rendering an empty task (which read as "Untitled / ID: undefined").
+  const summary = [
+    params.title !== undefined ? `title="${params.title}"` : undefined,
+    params.percent_complete !== undefined ? `percentComplete=${params.percent_complete}` : undefined,
+    params.due_date !== undefined ? `due=${params.due_date}` : undefined,
+    params.priority !== undefined ? `priority=${params.priority}` : undefined,
+  ]
+    .filter((s): s is string => s !== undefined)
+    .join(", ")
+  const successMessage = summary ? `Task updated (${summary}).` : "Task updated."
+  // Surface the HTTP status so callers can distinguish a 412 conflict from a 400/permission error
+  // without string-matching the message.
+  const failure = (e: { status?: number; message: string }) =>
+    new UserError(`Failed to update task${e.status ? ` (HTTP ${e.status})` : ""}: ${e.message}`)
+
   const firstEtag = await resolveEtag()
   if (firstEtag.isLeft()) return firstEtag
   const firstResult = await attempt(firstEtag.value as string)
-  if (firstResult.isRight()) {
-    return Right(`Task updated.\n\n${formatPlannerTaskDetail(firstResult.value as GraphPlannerTask)}`)
-  }
+  if (firstResult.isRight()) return Right(successMessage)
 
   // Retry a 412 only when we fetched the ETag; if the caller pinned one, respect their concurrency guard.
   const firstError = firstResult.value as { status?: number; message: string }
-  if (firstError.status !== 412 || params.etag) {
-    return Left(new UserError(`Failed to update task: ${firstError.message}`))
-  }
+  if (firstError.status !== 412 || params.etag) return Left(failure(firstError))
 
   const retryEtag = await resolveEtag()
   if (retryEtag.isLeft()) return retryEtag
-  return (await attempt(retryEtag.value as string))
-    .mapLeft((error) => new UserError(`Failed to update task: ${error.message}`))
-    .map((t) => `Task updated.\n\n${formatPlannerTaskDetail(t)}`)
+  return (await attempt(retryEtag.value as string)).fold<Either<UserError, string>>(
+    (error) => Left(failure(error as { status?: number; message: string })),
+    () => Right(successMessage),
+  )
 }
 
 // Planner reference keys are the external URL used as an OData open-type property name. Only the
@@ -309,7 +322,9 @@ export const updatePlannerTaskDetails = async (params: {
     return patchResult.fold<Either<{ retriable: boolean; error: UserError }, string>>(
       (error) => {
         const e = error as { status?: number; message: string }
-        const wrapped = new UserError(`Failed to update task details: ${e.message}`)
+        const wrapped = new UserError(
+          `Failed to update task details${e.status ? ` (HTTP ${e.status})` : ""}: ${e.message}`,
+        )
         return Left({ retriable: e.status === 412, error: wrapped })
       },
       () =>

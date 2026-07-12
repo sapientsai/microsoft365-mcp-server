@@ -254,6 +254,10 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
     expect(result.isRight()).toBe(true)
     expect(calls.map((c) => c.method)).toEqual(["GET", "PATCH"])
     expect(calls[1]?.ifMatch).toBe('W/"taskE"')
+    // Planner's PATCH returns 204 (no body) — the message summarizes the change, not an empty "Untitled" card.
+    const msg = result.value as string
+    expect(msg).toContain("percentComplete=100")
+    expect(msg).not.toMatch(/Untitled|undefined/)
   })
 
   it("update_planner_task uses a provided ETag without fetching", async () => {
@@ -269,5 +273,18 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
 
     expect(result.isRight()).toBe(true)
     expect(methods).toEqual(["PATCH"]) // no GET — the caller's ETag is used directly
+    expect(result.value as string).toContain('title="X"')
+  })
+
+  it("update_planner_task surfaces the HTTP status in the error (400 vs 412 distinguishable)", async () => {
+    // A pinned ETag that Graph rejects with 403; the status must appear so callers don't string-match.
+    const fetchMock = vi.fn(() => Promise.resolve(response({ error: "forbidden" }, false, 403)))
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTask({ task_id: "t", etag: 'W/"pinned"', priority: 1 })
+
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as { message: string }).message).toContain("(HTTP 403)")
   })
 })
