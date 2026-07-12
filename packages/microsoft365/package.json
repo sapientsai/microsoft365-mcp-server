@@ -67,18 +67,18 @@
   "dependencies": {
     "@azure/identity": "^4.13.1",
     "dotenv": "^17.4.2",
-    "fastmcp": "^4.3.2",
+    "fastmcp": "^4.4.0",
     "functype": "1.4.4",
-    "functype-log": "^1.5.0",
+    "functype-log": "^1.6.2",
     "jsonwebtoken": "^9.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^24.13.2",
+    "@types/node": "^24.13.3",
     "ts-builds": "^3.2.1",
-    "tsdown": "^0.22.3"
+    "tsdown": "^0.22.4"
   },
   "engines": {
     "node": ">=22"
