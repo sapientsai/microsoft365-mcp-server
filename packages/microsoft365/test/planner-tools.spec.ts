@@ -7,6 +7,7 @@ import {
   createPlannerBucket,
   listPlannerBuckets,
   listPlans,
+  updatePlannerTask,
   updatePlannerTaskDetails,
 } from "../src/tools/planner-tools"
 
@@ -232,5 +233,41 @@ describe("updatePlannerTaskDetails If-Match retry", () => {
     const posted = body.value as { name: string; planId: string }
     expect(posted.name).toBe("Backlog")
     expect(posted.planId).toBe("p")
+  })
+
+  // Item 6: update_planner_task auto-fetches the task ETag when the caller omits it (consistent with
+  // update_planner_task_details), but honors a pinned ETag for strict optimistic concurrency.
+  it("update_planner_task auto-fetches the ETag when none is provided", async () => {
+    const calls: Array<{ method: string; ifMatch?: string }> = []
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET"
+      const ifMatch = (init?.headers as Record<string, string> | undefined)?.["If-Match"]
+      calls.push({ method, ifMatch })
+      if (method === "GET") return Promise.resolve(response({ "@odata.etag": 'W/"taskE"', id: "t" }))
+      return Promise.resolve(response({}, true, 204))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTask({ task_id: "t", percent_complete: 100 })
+
+    expect(result.isRight()).toBe(true)
+    expect(calls.map((c) => c.method)).toEqual(["GET", "PATCH"])
+    expect(calls[1]?.ifMatch).toBe('W/"taskE"')
+  })
+
+  it("update_planner_task uses a provided ETag without fetching", async () => {
+    const methods: string[] = []
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      methods.push(init?.method ?? "GET")
+      return Promise.resolve(response({}, true, 204))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    initializeGraphClient(auth)
+    const result = await updatePlannerTask({ task_id: "t", etag: 'W/"pinned"', title: "X" })
+
+    expect(result.isRight()).toBe(true)
+    expect(methods).toEqual(["PATCH"]) // no GET — the caller's ETag is used directly
   })
 })

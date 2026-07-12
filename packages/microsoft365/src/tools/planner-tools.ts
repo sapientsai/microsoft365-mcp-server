@@ -130,9 +130,13 @@ export const createPlannerTask = async (params: {
     .map((t) => `Task created.\n\n${formatPlannerTaskDetail(t)}`)
 }
 
+// The task-level ETag is separate from the details ETag. `etag` is optional: pass one to enforce
+// optimistic concurrency (a 412 then means someone else edited first — surfaced, not retried); omit it
+// and the current ETag is fetched for you, retrying once on a 412 — consistent with
+// update_planner_task_details, which always auto-fetches.
 export const updatePlannerTask = async (params: {
   task_id: string
-  etag: string
+  etag?: string
   title?: string
   percent_complete?: number
   due_date?: string
@@ -147,8 +151,32 @@ export const updatePlannerTask = async (params: {
   if (params.due_date) updates.dueDateTime = params.due_date
   if (params.priority !== undefined) updates.priority = params.priority
 
-  const result = await client.updatePlannerTask(params.task_id, updates, params.etag)
-  return result
+  const resolveEtag = async (): Promise<Either<UserError, string>> => {
+    if (params.etag) return Right(params.etag)
+    const task = await client.getPlannerTask(params.task_id)
+    return task.fold<Either<UserError, string>>(
+      (error) => Left(new UserError(`Failed to read task: ${error.message}`)),
+      (value) => Right((value as unknown as { "@odata.etag": string })["@odata.etag"]),
+    )
+  }
+  const attempt = (etag: string) => client.updatePlannerTask(params.task_id, updates, etag)
+
+  const firstEtag = await resolveEtag()
+  if (firstEtag.isLeft()) return firstEtag
+  const firstResult = await attempt(firstEtag.value as string)
+  if (firstResult.isRight()) {
+    return Right(`Task updated.\n\n${formatPlannerTaskDetail(firstResult.value as GraphPlannerTask)}`)
+  }
+
+  // Retry a 412 only when we fetched the ETag; if the caller pinned one, respect their concurrency guard.
+  const firstError = firstResult.value as { status?: number; message: string }
+  if (firstError.status !== 412 || params.etag) {
+    return Left(new UserError(`Failed to update task: ${firstError.message}`))
+  }
+
+  const retryEtag = await resolveEtag()
+  if (retryEtag.isLeft()) return retryEtag
+  return (await attempt(retryEtag.value as string))
     .mapLeft((error) => new UserError(`Failed to update task: ${error.message}`))
     .map((t) => `Task updated.\n\n${formatPlannerTaskDetail(t)}`)
 }

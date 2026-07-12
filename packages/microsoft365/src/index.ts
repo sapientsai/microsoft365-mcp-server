@@ -1012,12 +1012,14 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "update_planner_task",
-    description: "Update a Planner task",
+    description:
+      "Update a Planner task (title, percent_complete — 100 closes it — due date, priority). The ETag " +
+      "is auto-fetched if omitted; pass one only to enforce optimistic concurrency.",
     parameters: z.object({
       task_id: z.string().describe("Task ID"),
-      etag: z.string().describe("Task ETag for concurrency control"),
+      etag: z.string().optional().describe("Task ETag — omit to auto-fetch; pass to enforce concurrency"),
       title: z.string().optional().describe("New title"),
-      percent_complete: z.number().optional().describe("Completion percentage (0-100)"),
+      percent_complete: z.number().optional().describe("Completion percentage (0-100; 100 marks complete)"),
       due_date: z.string().optional().describe("New due date (ISO format)"),
       priority: z.number().optional().describe("Priority (0-10)"),
     }),
