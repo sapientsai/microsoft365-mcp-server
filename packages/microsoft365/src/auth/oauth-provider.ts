@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs"
 
 import { AzureProvider, DiskStore } from "fastmcp/auth"
 
-import { DEFAULT_INTERACTIVE_SCOPES } from "./scopes"
+import { resolveInteractiveScopes } from "./scopes"
 
 export type OAuthProxyConfig = {
   readonly baseUrl: string
@@ -79,7 +79,7 @@ export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider
     clientId: config.clientId,
     clientSecret: config.clientSecret,
     tenantId: config.tenantId ?? "common",
-    scopes: [...(config.scopes ?? DEFAULT_INTERACTIVE_SCOPES)],
+    scopes: [...(config.scopes ?? resolveInteractiveScopes())],
     jwtSigningKey: resolveSigningKey(config.clientSecret),
     tokenStorage: createTokenStorage(),
     encryptionKey: resolveEncryptionKey(config.clientSecret),

@@ -167,6 +167,22 @@ export type GraphChannel = {
   readonly membershipType?: string
 }
 
+export type GraphCallTranscript = {
+  readonly id: string
+  readonly meetingId?: string
+  readonly callId?: string
+  readonly createdDateTime?: string
+  readonly endDateTime?: string
+  readonly contentCorrelationId?: string
+  readonly transcriptContentUrl?: string
+  readonly meetingOrganizer?: {
+    readonly user?: {
+      readonly id?: string
+      readonly displayName?: string
+    }
+  }
+}
+
 export type GraphChannelMessage = {
   readonly id: string
   readonly body?: { readonly contentType?: string; readonly content?: string }

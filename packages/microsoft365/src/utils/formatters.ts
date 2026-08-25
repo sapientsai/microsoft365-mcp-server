@@ -2,6 +2,7 @@ import { Option } from "functype"
 
 import type {
   GraphBucket,
+  GraphCallTranscript,
   GraphChannel,
   GraphChannelMessage,
   GraphChat,
@@ -307,6 +308,23 @@ export const formatChannelSummary = (channel: GraphChannel): string =>
 
 export const formatChannelList = (channels: ReadonlyArray<GraphChannel>): string =>
   channels.length === 0 ? "No channels found." : `# Channels\n\n${channels.map(formatChannelSummary).join("\n")}`
+
+export const formatTranscriptSummary = (transcript: GraphCallTranscript): string => {
+  const organizer = transcript.meetingOrganizer?.user?.displayName ?? transcript.meetingOrganizer?.user?.id
+  const when = transcript.createdDateTime ?? "unknown date"
+  const organizerNote = organizer ? `, organizer: ${organizer}` : ""
+  return `- **${when}**${organizerNote}\n  - transcript_id: \`${transcript.id}\`${
+    transcript.meetingId ? `\n  - meeting_id: \`${transcript.meetingId}\`` : ""
+  }`
+}
+
+// The ids are what get_meeting_transcript needs next, so they are printed verbatim rather than
+// summarized — a truncated transcript id is useless to the caller.
+export const formatTranscriptList = (transcripts: ReadonlyArray<GraphCallTranscript>): string =>
+  transcripts.length === 0
+    ? "No transcripts found for this meeting. Transcription must have been on during the meeting, and " +
+      "the transcript can take a few minutes to appear after it ends."
+    : `# Meeting transcripts (${transcripts.length})\n\n${transcripts.map(formatTranscriptSummary).join("\n")}`
 
 export const formatChannelMessageSummary = (msg: GraphChannelMessage): string => {
   const from = Option(msg.from?.user?.displayName).fold(

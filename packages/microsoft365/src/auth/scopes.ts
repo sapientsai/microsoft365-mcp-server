@@ -52,6 +52,19 @@ export const GRAPH_SCOPES = {
 
   // To Do
   // Uses Tasks.Read / Tasks.ReadWrite (same as Planner)
+
+  // Online meetings and transcripts.
+  //
+  // Deliberately absent from DEFAULT_INTERACTIVE_SCOPES. Both require tenant admin consent, and a
+  // non-admin user cannot consent past them — adding either to the defaults would break sign-in for
+  // every existing deployment whose tenant has not granted it. Opt in per deployment with
+  // MS365_EXTRA_SCOPES (see resolveExtraScopes below).
+  //
+  // Two distinct permissions, because the transcript tools make two distinct calls:
+  //   ONLINE_MEETINGS_READ                 resolves a meeting (needed only for join_web_url lookup)
+  //   ONLINE_MEETING_TRANSCRIPT_READ_ALL   lists transcripts and reads their content
+  ONLINE_MEETINGS_READ: "OnlineMeetings.Read",
+  ONLINE_MEETING_TRANSCRIPT_READ_ALL: "OnlineMeetingTranscript.Read.All",
 } as const
 
 // OIDC / OAuth2 scopes (not Graph permissions).
@@ -83,6 +96,41 @@ export const DEFAULT_INTERACTIVE_SCOPES: ReadonlyArray<string> = [
   GRAPH_SCOPES.CHANNEL_MESSAGE_READ_ALL,
   GRAPH_SCOPES.SITES_READ_ALL,
   GRAPH_SCOPES.SITES_READWRITE_ALL,
+]
+
+/**
+ * Additional scopes requested on top of DEFAULT_INTERACTIVE_SCOPES, from MS365_EXTRA_SCOPES
+ * (comma-separated). Exists so an operator can turn on an admin-consent permission — meeting
+ * transcripts being the motivating case — without a code change and a release.
+ *
+ * Only the OAuth proxy path reads this. The credential-based modes request
+ * `https://graph.microsoft.com/.default`, which means "whatever this app registration has already
+ * been consented", so their scope set is governed by the Azure app registration rather than by the
+ * server. There is nothing to wire on that path.
+ *
+ * Entries already in the defaults are dropped: Azure AD tolerates duplicates, but a duplicated
+ * scope list is noise in the consent screen and in get_auth_status output.
+ */
+export const resolveExtraScopes = (raw: string | undefined = process.env.MS365_EXTRA_SCOPES): ReadonlyArray<string> => {
+  if (!raw) return []
+
+  const defaults = new Set<string>(DEFAULT_INTERACTIVE_SCOPES)
+  const seen = new Set<string>()
+
+  return raw
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter((scope) => {
+      if (scope.length === 0 || defaults.has(scope) || seen.has(scope)) return false
+      seen.add(scope)
+      return true
+    })
+}
+
+/** The full scope set to request in OAuth proxy mode: the defaults plus any MS365_EXTRA_SCOPES. */
+export const resolveInteractiveScopes = (raw?: string): ReadonlyArray<string> => [
+  ...DEFAULT_INTERACTIVE_SCOPES,
+  ...resolveExtraScopes(raw),
 ]
 
 // GRAPH_API_BASE is owned by @sapientsai/ms-graph-core; re-exported here for back-compat.

@@ -36,6 +36,7 @@ export {
   sendReply,
   sendReplyAll,
 } from "./mail-tools"
+export { getMeetingTranscript, listMeetingTranscripts } from "./meetings-tools"
 export {
   copyOnenotePage,
   createOnenoteNotebook,

@@ -198,7 +198,7 @@ Named bundles of tool domains:
 | Preset          | Domains                                        |
 | --------------- | ---------------------------------------------- |
 | `personal`      | mail, calendar, contacts, todo, files, onenote |
-| `collaboration` | chats, teams, planner, groups                  |
+| `collaboration` | chats, teams, meetings, planner, groups        |
 | `productivity`  | mail, calendar, todo                           |
 | `all`           | everything                                     |
 
@@ -215,11 +215,11 @@ If not set, all tools are registered.
 ```bash
 MS365_ENABLED_TOOLS="mail|calendar"   # regex pattern — only matching tools registered
 MS365_READ_ONLY=true                  # hide all write tools (send, create, update, delete)
-MS365_ORG_MODE=true                   # enable org-only tools (teams, chats, groups, planner, list_users)
+MS365_ORG_MODE=true                   # enable org-only tools (teams, chats, meetings, groups, planner, list_users)
 MS365_REQUIRE_DRAFT=true              # hide all send_* mail tools; force the create_*_draft + send_draft flow
 ```
 
-Org mode is required for Teams, Chats, Groups, Planner, and user listing. Without it, these tools are hidden to prevent 403 errors on personal accounts.
+Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listing. Without it, these tools are hidden to prevent 403 errors on personal accounts.
 
 ## Available Tools
 
@@ -305,6 +305,15 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 | `list_channel_messages` | List recent channel messages |
 | `send_channel_message`  | Send a message to a channel  |
 
+### Meeting Transcripts (2 tools, org mode)
+
+Requires opt-in scopes that are **not** requested by default — see [Meeting transcripts](#meeting-transcripts).
+
+| Tool                       | Description                                      |
+| -------------------------- | ------------------------------------------------ |
+| `list_meeting_transcripts` | List a Teams meeting's transcripts and their IDs |
+| `get_meeting_transcript`   | Get one transcript's text                        |
+
 ### Users & Groups (6 tools, org mode except get_me)
 
 | Tool                 | Description                      |
@@ -389,6 +398,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `PORT`                    | HTTP server port                                                                        | `3000`              |
 | `HOST`                    | HTTP server host                                                                        | `127.0.0.1`         |
 | `MS365_PRESETS`           | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`      | -- (all tools)      |
+| `MS365_EXTRA_SCOPES`      | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)              | --                  |
 | `MS365_MAX_EXTRACT_BYTES` | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.      | -- (per-format)     |
 | `MS365_ENABLED_TOOLS`     | Regex pattern to filter tools                                                           | --                  |
 | `MS365_READ_ONLY`         | Hide write tools                                                                        | `false`             |
@@ -505,3 +515,80 @@ Known limits:
    truncation marker. This is unrelated to the input caps above — do not tune them as one number.
 4. **Discovery is split.** `search_files` is rooted at your own OneDrive and `search_site_files`
    takes a `site_id`. Neither is a tenant-wide search.
+
+## Meeting transcripts
+
+`list_meeting_transcripts` and `get_meeting_transcript` read the transcript of a Teams meeting, so
+"turn this meeting into action items" works against a recorded review.
+
+These are the only tools here that need a permission the server does not request by default, because
+that permission needs a tenant administrator.
+
+### 1. Grant the permission
+
+The delegated permissions are:
+
+| Scope                              | Needed for                                                                       | Consent |
+| ---------------------------------- | -------------------------------------------------------------------------------- | ------- |
+| `OnlineMeetingTranscript.Read.All` | listing transcripts and reading their content                                    | Admin   |
+| `OnlineMeetings.Read`              | resolving a meeting from a `join_web_url` (skip if you always pass `meeting_id`) | Admin   |
+
+Both are admin-consent scopes on the Graph service principal. A non-admin user cannot consent past
+them, which is why they are **excluded from the default scope set** — adding them there would break
+sign-in for every deployment whose tenant has not granted them.
+
+Grant them on the app registration under **API permissions → Microsoft Graph → Delegated
+permissions**, then **Grant admin consent**.
+
+If tenant-wide consent is more than you want, a per-user grant works too: create the OAuth2
+permission grant with `consentType: "Principal"` and a `principalId`, and only that user's tokens
+carry the scope. This is the narrower option when one team needs transcripts and the rest of the
+tenant does not.
+
+The delegated path needs no Teams application access policy. (App-only access does — it additionally
+requires `New-CsApplicationAccessPolicy` / `Grant-CsApplicationAccessPolicy` and reaches every
+meeting in the tenant. This server uses the delegated path, which stays bounded by what the
+signed-in user can already see.)
+
+### 2. Ask the server to request it
+
+```bash
+MS365_EXTRA_SCOPES="OnlineMeetingTranscript.Read.All,OnlineMeetings.Read"
+```
+
+Scopes listed here are appended to the default set, so a granted permission reaches the issued
+access token without a code change or a release. Users must sign in again afterwards — an
+already-issued token does not gain a scope retroactively.
+
+This applies to **OAuth proxy mode**. The credential-based modes request
+`https://graph.microsoft.com/.default`, meaning "everything this app registration has been consented
+to", so there the app registration alone decides and `MS365_EXTRA_SCOPES` is not consulted.
+
+### Using the tools
+
+```
+list_meeting_transcripts(meeting_id: "MSo1N2Y5...")            # transcript IDs
+get_meeting_transcript(meeting_id: "MSo1N2Y5...", transcript_id: "MSMjMCMj...")
+```
+
+`join_web_url` works in place of `meeting_id` — take it from a calendar event's
+`onlineMeeting.joinUrl` — at the cost of one extra lookup and the `OnlineMeetings.Read` grant.
+
+Worth knowing:
+
+1. **Attendees, not just organizers.** Anyone on the meeting's calendar invite can read the
+   transcript with their own token.
+2. **The meeting needs a calendar event.** Meetings created through the create-onlineMeeting API
+   without one are unsupported, and live events are excluded entirely. Expired meetings drop off the
+   API too.
+3. **Speaker attribution degrades rather than fails.** A tenant setting can disable speaker-attributed
+   transcripts; asking for the attributed format then returns `403 SpeakerAttributionNotAllowed`. The
+   tool retries automatically for the unattributed format and notes in its output that the names are
+   missing. Pass `include_speaker_names: false` to skip the attributed attempt entirely.
+4. **A separate tenant setting can block transcripts outright.** `GraphAccessToTranscriptsDisabled`
+   has no request-side workaround — a Teams admin has to re-enable Graph API access to transcripts
+   (`Set-CsTeamsMeetingConfiguration`). The tool says so rather than retrying.
+5. **Output is bounded** by `max_chars` (50,000 default) with a truncation marker, like
+   `read_document`.
+6. **No metering.** These Teams APIs stopped being metered on August 25, 2025; no billing
+   configuration is required.

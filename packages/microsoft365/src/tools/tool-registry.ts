@@ -6,6 +6,7 @@ export type ToolDomain =
   | "files"
   | "chats"
   | "teams"
+  | "meetings"
   | "users"
   | "groups"
   | "planner"
@@ -26,7 +27,7 @@ export type ToolMeta = {
 
 export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {
   personal: ["mail", "calendar", "contacts", "todo", "files", "onenote"],
-  collaboration: ["chats", "teams", "planner", "groups"],
+  collaboration: ["chats", "teams", "meetings", "planner", "groups"],
   productivity: ["mail", "calendar", "todo"],
   rag: ["rag", "files", "query"],
   all: [
@@ -37,6 +38,7 @@ export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {
     "files",
     "chats",
     "teams",
+    "meetings",
     "users",
     "groups",
     "planner",
@@ -103,6 +105,10 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "list_channels", domain: "teams", readOnly: true, orgOnly: true },
   { name: "list_channel_messages", domain: "teams", readOnly: true, orgOnly: true },
   { name: "send_channel_message", domain: "teams", readOnly: false, orgOnly: true },
+  // Meetings (transcripts). Needs admin-consent scopes that are NOT in the defaults — see
+  // MS365_EXTRA_SCOPES in the README. Both tools are reachable but will 403 without the grant.
+  { name: "list_meeting_transcripts", domain: "meetings", readOnly: true, orgOnly: true },
+  { name: "get_meeting_transcript", domain: "meetings", readOnly: true, orgOnly: true },
   // Users
   { name: "get_me", domain: "users", readOnly: true, orgOnly: false },
   { name: "list_users", domain: "users", readOnly: true, orgOnly: true },

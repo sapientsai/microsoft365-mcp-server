@@ -12,8 +12,13 @@ describe("tool-registry", () => {
       expect(PRESETS.personal).toEqual(["mail", "calendar", "contacts", "todo", "files", "onenote"])
     })
 
-    it("collaboration preset should include chats, teams, planner, groups", () => {
-      expect(PRESETS.collaboration).toEqual(["chats", "teams", "planner", "groups"])
+    it("collaboration preset should include chats, teams, meetings, planner, groups", () => {
+      expect(PRESETS.collaboration).toEqual(["chats", "teams", "meetings", "planner", "groups"])
+    })
+
+    it("all preset should list every domain, so a new domain is never silently excluded", () => {
+      const domains = new Set(TOOL_METADATA.map((m) => m.domain))
+      for (const domain of domains) expect(PRESETS.all).toContain(domain)
     })
   })
 

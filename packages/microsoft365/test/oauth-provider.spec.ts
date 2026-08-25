@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { resolveEncryptionKey, resolveSigningKey, resolveTokenStoragePath } from "../src/auth/oauth-provider"
+import { DEFAULT_INTERACTIVE_SCOPES, resolveInteractiveScopes } from "../src/auth/scopes"
 
-const KEYS = ["MS365_JWT_SIGNING_KEY", "MS365_TOKEN_ENCRYPTION_KEY", "TOKEN_STORAGE_PATH"] as const
+const KEYS = [
+  "MS365_JWT_SIGNING_KEY",
+  "MS365_TOKEN_ENCRYPTION_KEY",
+  "TOKEN_STORAGE_PATH",
+  "MS365_EXTRA_SCOPES",
+] as const
 
 describe("oauth-provider key separation", () => {
   beforeEach(() => {
@@ -45,6 +51,21 @@ describe("oauth-provider key separation", () => {
     })
     it("defaults when unset", () => {
       expect(resolveTokenStoragePath()).toBe("/tmp/ms365-tokens")
+    })
+  })
+
+  // The scope set the provider requests is what ends up in the issued access token. Before this,
+  // createAzureAuthProvider's only call site never passed `scopes`, so DEFAULT_INTERACTIVE_SCOPES
+  // was effectively hardcoded and no admin grant could reach the token without a release.
+  describe("MS365_EXTRA_SCOPES", () => {
+    it("is read from the environment, not just from an argument", () => {
+      process.env.MS365_EXTRA_SCOPES = "OnlineMeetingTranscript.Read.All"
+
+      expect(resolveInteractiveScopes()).toContain("OnlineMeetingTranscript.Read.All")
+    })
+
+    it("leaves the requested set untouched when unset", () => {
+      expect(resolveInteractiveScopes()).toEqual([...DEFAULT_INTERACTIVE_SCOPES])
     })
   })
 })
