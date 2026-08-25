@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   DEFAULT_INTERACTIVE_SCOPES,
@@ -8,6 +8,15 @@ import {
 } from "../src/auth/scopes"
 
 describe("scopes", () => {
+  // resolveExtraScopes defaults to reading process.env, so a developer with MS365_EXTRA_SCOPES
+  // exported would otherwise fail the "unset" cases against their own shell.
+  const saved = process.env.MS365_EXTRA_SCOPES
+  beforeEach(() => delete process.env.MS365_EXTRA_SCOPES)
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MS365_EXTRA_SCOPES
+    else process.env.MS365_EXTRA_SCOPES = saved
+  })
+
   describe("GRAPH_SCOPES", () => {
     it("should define Mail.ReadWrite scope", () => {
       expect(GRAPH_SCOPES.MAIL_READWRITE).toBe("Mail.ReadWrite")
