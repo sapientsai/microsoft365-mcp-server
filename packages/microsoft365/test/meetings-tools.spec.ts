@@ -41,14 +41,19 @@ const forbidden = (innerCode: string, message = "Forbidden.") => ({
 const acceptHeaderOf = (spy: ReturnType<typeof vi.fn>, call: number): string =>
   (spy.mock.calls[call]?.[1] as { headers: Record<string, string> }).headers.Accept
 
+const savedAuthMode = process.env.MS365_AUTH_MODE
+
 beforeEach(() => {
   vi.clearAllMocks()
+  delete process.env.MS365_AUTH_MODE
   vi.mocked(getGraphClient).mockReturnValue(Some(mockClient) as never)
   vi.mocked(getAccessToken).mockResolvedValue(Right("token-abc") as never)
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  if (savedAuthMode === undefined) delete process.env.MS365_AUTH_MODE
+  else process.env.MS365_AUTH_MODE = savedAuthMode
 })
 
 describe("meetingByJoinUrlPath", () => {
@@ -150,12 +155,25 @@ describe("listMeetingTranscripts", () => {
   })
 
   it("surfaces a Graph error", async () => {
+    mockClient.graphQuery.mockResolvedValue(Left({ type: "api", message: "Boom", status: 500 }))
+
+    const result = await listMeetingTranscripts({ meeting_id: MEETING_ID })
+
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Boom")
+    // Not a permissions problem, so no scope advice.
+    expect((result.value as Error).message).not.toContain("app registration")
+    expect((result.value as Error).message).not.toContain("MS365_EXTRA_SCOPES")
+  })
+
+  it("adds scope guidance to a 403", async () => {
     mockClient.graphQuery.mockResolvedValue(Left({ type: "forbidden", message: "Access denied", status: 403 }))
 
     const result = await listMeetingTranscripts({ meeting_id: MEETING_ID })
 
     expect(result.isLeft()).toBe(true)
     expect((result.value as Error).message).toContain("Access denied")
+    expect((result.value as Error).message).toContain("OnlineMeetingTranscript.Read.All")
   })
 })
 
@@ -225,14 +243,40 @@ describe("getMeetingTranscript", () => {
     expect((result.value as Error).message).toContain("Teams Admin Center")
   })
 
-  it("points at MS365_EXTRA_SCOPES on a plain 403", async () => {
-    stubFetch([{ ok: false, status: 403, body: JSON.stringify({ error: { message: "Insufficient privileges." } }) }])
+  // Found by pointing these tools at a live tenant: the message used to name MS365_EXTRA_SCOPES
+  // unconditionally, which is a dead end in every mode but oauth-proxy — those request `.default`
+  // and take their scopes from the app registration, so the variable is never read.
+  describe("scope guidance on a plain 403", () => {
+    const plain403 = () =>
+      stubFetch([{ ok: false, status: 403, body: JSON.stringify({ error: { message: "Insufficient privileges." } }) }])
 
-    const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID })
+    it("names MS365_EXTRA_SCOPES in oauth-proxy mode", async () => {
+      process.env.MS365_AUTH_MODE = "oauth-proxy"
+      plain403()
 
-    expect(result.isLeft()).toBe(true)
-    expect((result.value as Error).message).toContain("MS365_EXTRA_SCOPES")
-    expect((result.value as Error).message).toContain("Insufficient privileges.")
+      const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID })
+
+      expect((result.value as Error).message).toContain("MS365_EXTRA_SCOPES")
+      expect((result.value as Error).message).toContain("Insufficient privileges.")
+    })
+
+    it.each(["interactive", "client-secret", "certificate", undefined])(
+      "points at the app registration in %s mode, not the env var",
+      async (mode) => {
+        if (mode === undefined) delete process.env.MS365_AUTH_MODE
+        else process.env.MS365_AUTH_MODE = mode
+        plain403()
+
+        const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID })
+        const message = (result.value as Error).message
+
+        expect(message).toContain("app registration")
+        expect(message).toContain("OnlineMeetingTranscript.Read.All")
+        expect(message).toContain("Principal")
+        // Naming the variable here is the bug: it is never read in this mode.
+        expect(message).not.toContain("Add OnlineMeetingTranscript.Read.All to MS365_EXTRA_SCOPES")
+      },
+    )
   })
 
   it("surfaces a non-403 failure with its status", async () => {

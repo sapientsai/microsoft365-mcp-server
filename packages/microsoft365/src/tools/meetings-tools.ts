@@ -33,6 +33,24 @@ const SPEAKER_ATTRIBUTION_DISABLED = "SpeakerAttributionNotAllowed"
 // distinct so an operator is told to go change a tenant setting instead of chasing a scope grant.
 const GRAPH_TRANSCRIPT_ACCESS_DISABLED = "GraphAccessToTranscriptsDisabled"
 
+const TRANSCRIPT_SCOPE = "OnlineMeetingTranscript.Read.All"
+
+/**
+ * How to actually obtain the transcript permission, which differs by auth mode.
+ *
+ * MS365_EXTRA_SCOPES is read only in oauth-proxy mode. Every other mode requests
+ * `https://graph.microsoft.com/.default` and takes its scope set from the Azure app registration,
+ * so naming the env var there sends an operator down a dead end — pointing at a variable that is
+ * never consulted, while the real fix is a permission on the app registration.
+ */
+const scopeGuidance = (): string =>
+  (process.env.MS365_AUTH_MODE ?? "interactive") === "oauth-proxy"
+    ? `Add ${TRANSCRIPT_SCOPE} to MS365_EXTRA_SCOPES, have a tenant admin consent to it, then sign in again.`
+    : `This deployment requests \`.default\`, so its scopes come from the Azure app registration and ` +
+      `MS365_EXTRA_SCOPES is not consulted. Add ${TRANSCRIPT_SCOPE} as a delegated permission on the ` +
+      `app registration and consent to it — tenant-wide, or for one user with an oauth2PermissionGrant ` +
+      `using consentType "Principal" — then sign in again.`
+
 type MeetingRef = {
   readonly meeting_id?: string
   readonly join_web_url?: string
@@ -105,12 +123,16 @@ export const listMeetingTranscripts = async (params: MeetingRef): Promise<Either
   )
 
   return result
-    .mapLeft((error) => transcriptError(error as { message: string; graphErrorCode?: string }))
+    .mapLeft((error) => transcriptError(error as { message: string; status?: number }))
     .map((response) => formatTranscriptList((response as ODataResponse<GraphCallTranscript>).value))
 }
 
-const transcriptError = (error: { message: string; graphErrorCode?: string }): UserError =>
-  new UserError(`Failed to list transcripts: ${error.message}`)
+const transcriptError = (error: { message: string; status?: number }): UserError =>
+  new UserError(
+    error.status === 403
+      ? `Failed to list transcripts: ${error.message}\n\n${scopeGuidance()}`
+      : `Failed to list transcripts: ${error.message}`,
+  )
 
 type ContentAttempt = {
   readonly ok: boolean
@@ -156,11 +178,7 @@ const contentHttpError = (attempt: ContentAttempt): UserError => {
   })()
 
   if (attempt.status === 403) {
-    return new UserError(
-      `Failed to get transcript (403): ${message}\n\n` +
-        "If this deployment has never been granted OnlineMeetingTranscript.Read.All, add it to " +
-        "MS365_EXTRA_SCOPES and have a tenant admin consent, then sign in again.",
-    )
+    return new UserError(`Failed to get transcript (403): ${message}\n\n${scopeGuidance()}`)
   }
 
   return new UserError(`Failed to get transcript (${attempt.status}): ${message}`)
