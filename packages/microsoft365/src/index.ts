@@ -1425,7 +1425,6 @@ const buildInstructions = (allowedTools: Set<string>): string => {
     chats: "Chats: List Teams chats and messages; send chat messages",
     teams: "Teams: List teams, channels, and messages; send channel messages",
     meetings: "Meetings: List Teams meeting transcripts and read their text",
-    rag: "Documents: Extract readable text from PDF/DOCX/XLSX files in OneDrive or SharePoint",
     users: "Users: View profiles and list users",
     groups: "Groups: List groups and group members",
     planner: "Planner: List plans and tasks; create and update tasks",
