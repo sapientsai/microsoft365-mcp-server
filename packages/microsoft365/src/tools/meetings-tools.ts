@@ -35,6 +35,14 @@ const GRAPH_TRANSCRIPT_ACCESS_DISABLED = "GraphAccessToTranscriptsDisabled"
 
 const TRANSCRIPT_SCOPE = "OnlineMeetingTranscript.Read.All"
 
+// Nothing about the request can get past this one, so it must never carry scope advice: the caller
+// may well hold the scope already, and telling them to go get it sends them after a permission that
+// would change nothing.
+const TENANT_ACCESS_DISABLED =
+  "This tenant has Graph API access to transcripts turned off, so no transcript can be read through " +
+  "this server regardless of permissions — the scope you hold is not the problem. A Teams " +
+  "administrator re-enables it in the Teams Admin Center (Set-CsTeamsMeetingConfiguration)."
+
 /**
  * How to actually obtain the transcript permission, which differs by auth mode.
  *
@@ -123,16 +131,20 @@ export const listMeetingTranscripts = async (params: MeetingRef): Promise<Either
   )
 
   return result
-    .mapLeft((error) => transcriptError(error as { message: string; status?: number }))
+    .mapLeft((error) => transcriptError(error as { message: string; status?: number; graphInnerErrorCode?: string }))
     .map((response) => formatTranscriptList((response as ODataResponse<GraphCallTranscript>).value))
 }
 
-const transcriptError = (error: { message: string; status?: number }): UserError =>
-  new UserError(
-    error.status === 403
-      ? `Failed to list transcripts: ${error.message}\n\n${scopeGuidance()}`
-      : `Failed to list transcripts: ${error.message}`,
-  )
+const transcriptError = (error: { message: string; status?: number; graphInnerErrorCode?: string }): UserError => {
+  if (error.status !== 403) return new UserError(`Failed to list transcripts: ${error.message}`)
+
+  // Both 403s here answer with outer code "Forbidden"; only the inner code separates "you lack the
+  // scope" from "the tenant switched the feature off". Appending scope advice to the latter is
+  // actively misleading — it was, until a live tenant with the switch off produced exactly that.
+  if (error.graphInnerErrorCode === GRAPH_TRANSCRIPT_ACCESS_DISABLED) return new UserError(TENANT_ACCESS_DISABLED)
+
+  return new UserError(`Failed to list transcripts: ${error.message}\n\n${scopeGuidance()}`)
+}
 
 type ContentAttempt = {
   readonly ok: boolean
@@ -162,11 +174,7 @@ const fetchTranscriptContent = async (url: string, accept: string, token: string
 
 const contentHttpError = (attempt: ContentAttempt): UserError => {
   if (attempt.status === 403 && attempt.innerErrorCode === GRAPH_TRANSCRIPT_ACCESS_DISABLED) {
-    return new UserError(
-      "This tenant has Graph API access to transcripts turned off, so no transcript can be read " +
-        "through this server regardless of permissions. A Teams administrator changes it in the " +
-        "Teams Admin Center (Set-CsTeamsMeetingConfiguration).",
-    )
+    return new UserError(TENANT_ACCESS_DISABLED)
   }
 
   const message = ((): string => {

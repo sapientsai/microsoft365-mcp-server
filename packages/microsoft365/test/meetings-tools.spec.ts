@@ -166,8 +166,34 @@ describe("listMeetingTranscripts", () => {
     expect((result.value as Error).message).not.toContain("MS365_EXTRA_SCOPES")
   })
 
+  // Regression: a live tenant with Graph transcript access switched off produced a 403 that this
+  // path answered with "go grant the scope" — advice for a permission the caller already held, and
+  // which would not have helped. The two 403s share outer code "Forbidden"; only the inner code
+  // tells them apart, which is why GraphApiError carries graphInnerErrorCode.
+  it("does not blame scopes when the tenant disabled transcript access", async () => {
+    mockClient.graphQuery.mockResolvedValue(
+      Left({
+        type: "forbidden",
+        message: "Graph API access to transcripts is disabled for this tenant.",
+        status: 403,
+        graphErrorCode: "Forbidden",
+        graphInnerErrorCode: "GraphAccessToTranscriptsDisabled",
+      }),
+    )
+
+    const result = await listMeetingTranscripts({ meeting_id: MEETING_ID })
+    const message = (result.value as Error).message
+
+    expect(result.isLeft()).toBe(true)
+    expect(message).toContain("Teams Admin Center")
+    expect(message).not.toContain("app registration")
+    expect(message).not.toContain("MS365_EXTRA_SCOPES")
+  })
+
   it("adds scope guidance to a 403", async () => {
-    mockClient.graphQuery.mockResolvedValue(Left({ type: "forbidden", message: "Access denied", status: 403 }))
+    mockClient.graphQuery.mockResolvedValue(
+      Left({ type: "forbidden", message: "Access denied", status: 403, graphInnerErrorCode: "AccessDenied" }),
+    )
 
     const result = await listMeetingTranscripts({ meeting_id: MEETING_ID })
 

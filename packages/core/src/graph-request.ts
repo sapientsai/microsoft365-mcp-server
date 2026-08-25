@@ -30,12 +30,17 @@ export type GraphRequest = {
 export const mapHttpError = async <T>(response: Response): Promise<Either<GraphApiError, T>> => {
   const fallbackMessage = `Microsoft Graph API error: ${response.status} ${response.statusText}`
 
-  const { message, graphErrorCode } = await (async (): Promise<{ message: string; graphErrorCode?: string }> => {
+  const { message, graphErrorCode, graphInnerErrorCode } = await (async (): Promise<{
+    message: string
+    graphErrorCode?: string
+    graphInnerErrorCode?: string
+  }> => {
     try {
       const errorBody = await response.json()
       return {
         message: (errorBody?.error?.message as string | undefined) ?? fallbackMessage,
         graphErrorCode: errorBody?.error?.code as string | undefined,
+        graphInnerErrorCode: errorBody?.error?.innerError?.code as string | undefined,
       }
     } catch {
       return { message: fallbackMessage }
@@ -46,21 +51,28 @@ export const mapHttpError = async <T>(response: Response): Promise<Either<GraphA
 
   switch (response.status) {
     case 401:
-      return Left<GraphApiError, T>({ type: "auth", message, status: 401, graphErrorCode })
+      return Left<GraphApiError, T>({ type: "auth", message, status: 401, graphErrorCode, graphInnerErrorCode })
     case 403:
-      return Left<GraphApiError, T>({ type: "forbidden", message, status: 403, graphErrorCode })
+      return Left<GraphApiError, T>({ type: "forbidden", message, status: 403, graphErrorCode, graphInnerErrorCode })
     case 404:
-      return Left<GraphApiError, T>({ type: "not_found", message, status: 404, graphErrorCode })
+      return Left<GraphApiError, T>({ type: "not_found", message, status: 404, graphErrorCode, graphInnerErrorCode })
     case 429:
       return Left<GraphApiError, T>({
         type: "throttle",
         message,
         status: 429,
         graphErrorCode,
+        graphInnerErrorCode,
         retryAfter: retryAfter ? parseInt(retryAfter, 10) : undefined,
       })
     default:
-      return Left<GraphApiError, T>({ type: "api", message, status: response.status, graphErrorCode })
+      return Left<GraphApiError, T>({
+        type: "api",
+        message,
+        status: response.status,
+        graphErrorCode,
+        graphInnerErrorCode,
+      })
   }
 }
 

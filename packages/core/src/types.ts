@@ -6,6 +6,13 @@ export type GraphApiError = {
   readonly message: string
   readonly status?: number
   readonly graphErrorCode?: string
+  /**
+   * `error.innerError.code`. Some Graph endpoints return one outer code for several distinct
+   * conditions — the transcript endpoints answer both "you lack the scope" and "the tenant disabled
+   * this feature" with code "Forbidden" — and only the inner code separates them. Callers that need
+   * to react differently, rather than just report, cannot do it from `graphErrorCode` alone.
+   */
+  readonly graphInnerErrorCode?: string
   readonly retryAfter?: number
 }
 
