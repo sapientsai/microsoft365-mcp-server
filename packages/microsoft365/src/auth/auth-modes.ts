@@ -43,6 +43,62 @@ export const createCredential = (config: AuthConfig): Either<AuthError, TokenCre
   }
 }
 
+const createDeviceCodeCredential = (tenantId: string | undefined, clientId: string): TokenCredential =>
+  new DeviceCodeCredential({
+    tenantId,
+    clientId,
+    userPromptCallback: (info) => {
+      console.error(`\nAuthentication Required:`)
+      console.error(`Please visit: ${info.verificationUri}`)
+      console.error(`And enter code: ${info.userCode}\n`)
+    },
+  }) as TokenCredential
+
+// InteractiveBrowserCredential launches the browser lazily, inside getToken() — so a
+// launch failure surfaces there, never from the constructor. Wrap it so that failure
+// falls back to device code instead of aborting authentication.
+//
+// The common macOS case: the underlying `open` call fails when the default browser is
+// already running and refuses a second instance (Arc reports "Arc is already open.
+// Only one instance of Arc can be opened at a time."), leaving the user unable to
+// authenticate without quitting their browser first.
+export const withDeviceCodeFallback = (
+  browser: TokenCredential,
+  tenantId: string | undefined,
+  clientId: string,
+  makeFallback: (t: string | undefined, c: string) => TokenCredential = createDeviceCodeCredential,
+): TokenCredential => ({
+  getToken: async (scopes, options) => {
+    try {
+      return await browser.getToken(scopes, options)
+    } catch (error) {
+      if (!isBrowserLaunchFailure(error)) throw error
+      console.error(`\nCould not open a browser (${String(error)}).`)
+      console.error(`Falling back to device code authentication.`)
+      return makeFallback(tenantId, clientId).getToken(scopes, options)
+    }
+  },
+})
+
+// Only fall back for failures to *launch* the browser. A declined consent, a bad
+// client ID, or a network error must surface as itself — retrying those under device
+// code would just hide the real problem behind a second prompt.
+const BROWSER_LAUNCH_FAILURE_PATTERNS: ReadonlyArray<string> = [
+  "already open",
+  "only one instance",
+  "unable to open",
+  "failed to open",
+  "could not open",
+  "no such file or directory",
+  "spawn",
+  "enoent",
+]
+
+export const isBrowserLaunchFailure = (error: unknown): boolean => {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  return BROWSER_LAUNCH_FAILURE_PATTERNS.some((pattern) => message.includes(pattern))
+}
+
 const createInteractiveCredential = (
   config: Extract<AuthConfig, { mode: "interactive" }>,
 ): Either<AuthError, TokenCredential> => {
@@ -52,25 +108,19 @@ const createInteractiveCredential = (
     return Left<AuthError, TokenCredential>({ type: "config", message: "Interactive mode requires MS365_CLIENT_ID" })
   }
 
+  // Opt out of the browser entirely: headless hosts, SSH sessions, or a machine whose
+  // default browser cannot be launched on demand.
+  if (config.useDeviceCode) {
+    return tryCredential(() => createDeviceCodeCredential(tenantId, clientId), "device code")
+  }
+
   return tryCredential(() => {
-    try {
-      return new InteractiveBrowserCredential({
-        tenantId,
-        clientId,
-        redirectUri: config.redirectUri ?? DEFAULT_REDIRECT_URI,
-      }) as TokenCredential
-    } catch {
-      // Fallback to device code flow for headless environments
-      return new DeviceCodeCredential({
-        tenantId,
-        clientId,
-        userPromptCallback: (info) => {
-          console.error(`\nAuthentication Required:`)
-          console.error(`Please visit: ${info.verificationUri}`)
-          console.error(`And enter code: ${info.userCode}\n`)
-        },
-      }) as TokenCredential
-    }
+    const browser = new InteractiveBrowserCredential({
+      tenantId,
+      clientId,
+      redirectUri: config.redirectUri ?? DEFAULT_REDIRECT_URI,
+    }) as TokenCredential
+    return withDeviceCodeFallback(browser, tenantId, clientId)
   }, "interactive")
 }
 

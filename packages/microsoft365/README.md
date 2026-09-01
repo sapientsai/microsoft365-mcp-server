@@ -68,6 +68,16 @@ MS365_CLIENT_ID=your-client-id
 MS365_TENANT_ID=common          # "common" for multi-tenant
 ```
 
+If the browser cannot be launched, authentication falls back to device code
+automatically and prints a URL and code to stderr. This covers headless hosts and
+macOS browsers that refuse a second instance while already running (Arc, for
+example, reports "Arc is already open. Only one instance of Arc can be opened at a
+time."). To skip the browser attempt entirely:
+
+```bash
+MS365_USE_DEVICE_CODE=true
+```
+
 ### Client Secret
 
 For service accounts and automation.
@@ -392,6 +402,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_CERT_PATH`         | Certificate path (for `certificate` mode)                                               | --                  |
 | `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                         | --                  |
 | `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                          | --                  |
+| `MS365_USE_DEVICE_CODE`   | Skip the browser in `interactive` mode and use device code                              | `false`             |
 | `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                           | --                  |
 | `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                     | `v1.0`              |
 | `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                      | `stdio`             |

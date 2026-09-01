@@ -153,6 +153,7 @@ const resolveAuthConfig = (): AuthConfig => {
         tenantId,
         clientId,
         redirectUri: process.env.MS365_REDIRECT_URI,
+        useDeviceCode: process.env.MS365_USE_DEVICE_CODE === "true",
       }
   }
 }
