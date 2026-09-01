@@ -13,7 +13,9 @@ import {
   createDraft,
   createForwardDraft,
   createReplyAllDraft,
+  batchMoveMessages,
   createReplyDraft,
+  getMessage,
   listMailFolders,
   moveMessage,
   listAttachments,
@@ -34,6 +36,7 @@ const mockClient = {
   createReplyDraft: vi.fn(),
   createReplyAllDraft: vi.fn(),
   createForwardDraft: vi.fn(),
+  getMessage: vi.fn(),
   listMailFolders: vi.fn(),
   moveMessage: vi.fn(),
   requestPaginated: vi.fn(),
@@ -565,6 +568,76 @@ describe("mail-tools", () => {
       const result = await listAttachments({ message_id: "bad" })
       expect(result.isLeft()).toBe(true)
       expect((result.value as Error).message).toContain("Failed to list attachments")
+    })
+  })
+
+  describe("getMessage body_format", () => {
+    it("should request no Prefer header by default", async () => {
+      mockClient.getMessage.mockResolvedValue(Right({ id: "m1", subject: "Hi" }))
+      await getMessage({ message_id: "m1" })
+      expect(mockClient.getMessage).toHaveBeenCalledWith("m1", undefined)
+    })
+
+    // Marketing mail is mostly CSS; asking Graph for text is a large context saving.
+    it("should pass the requested body format through", async () => {
+      mockClient.getMessage.mockResolvedValue(Right({ id: "m1", subject: "Hi" }))
+      await getMessage({ message_id: "m1", body_format: "text" })
+      expect(mockClient.getMessage).toHaveBeenCalledWith("m1", "text")
+    })
+  })
+
+  describe("batchMoveMessages", () => {
+    it("should resolve the destination once, not per message", async () => {
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f1", displayName: "Receipts" }] }))
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "new", subject: "s" }))
+      const result = await batchMoveMessages({ message_ids: ["a", "b", "c"], destination: "Receipts" })
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.listMailFolders).toHaveBeenCalledTimes(1)
+      expect(mockClient.moveMessage).toHaveBeenCalledTimes(3)
+      expect(result.value).toContain("Moved 3/3")
+    })
+
+    // A silent partial success is the worst outcome: the caller believes the inbox is
+    // filed when some of it is not.
+    it("should report partial failure per message", async () => {
+      const { Left: L } = await import("functype/either")
+      mockClient.moveMessage
+        .mockResolvedValueOnce(Right({ id: "n1", subject: "ok" }))
+        .mockResolvedValueOnce(L({ message: "ErrorItemNotFound" }))
+      const result = await batchMoveMessages({ message_ids: ["a", "bad"], destination: "archive" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("Moved 1/2")
+      expect(result.value).toContain("FAILED bad")
+      expect(result.value).toContain("ErrorItemNotFound")
+    })
+
+    // Sequencing is the reason this is a reduce and not Promise.all: a 429 partway
+    // through a parallel batch would leave the caller unsure what landed.
+    it("should move sequentially, not in parallel", async () => {
+      const inFlight = { current: 0, max: 0 }
+      mockClient.moveMessage.mockImplementation(async () => {
+        inFlight.current += 1
+        inFlight.max = Math.max(inFlight.max, inFlight.current)
+        await new Promise((r) => setTimeout(r, 1))
+        inFlight.current -= 1
+        return Right({ id: "n", subject: "s" })
+      })
+      await batchMoveMessages({ message_ids: ["a", "b", "c"], destination: "archive" })
+      expect(inFlight.max).toBe(1)
+    })
+
+    it("should reject an empty list", async () => {
+      const result = await batchMoveMessages({ message_ids: [], destination: "archive" })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.moveMessage).not.toHaveBeenCalled()
+    })
+
+    it("should refuse an oversized batch rather than half-file it", async () => {
+      const ids = Array.from({ length: 51 }, (_, i) => `id-${i}`)
+      const result = await batchMoveMessages({ message_ids: ids, destination: "archive" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("at most 50")
+      expect(mockClient.moveMessage).not.toHaveBeenCalled()
     })
   })
 })

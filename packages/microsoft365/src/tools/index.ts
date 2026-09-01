@@ -23,6 +23,7 @@ export {
 export { graphQuery } from "./graph-query-tools"
 export { getGroup, listGroupMembers, listGroups } from "./groups-tools"
 export {
+  batchMoveMessages,
   createDraft,
   createForwardDraft,
   createReplyAllDraft,

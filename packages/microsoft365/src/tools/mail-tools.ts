@@ -39,11 +39,14 @@ export const listMessages = async (params: {
     .map((response) => formatMessageList((response as ODataResponse<never>).value))
 }
 
-export const getMessage = async (params: { message_id: string }): Promise<Either<UserError, string>> => {
+export const getMessage = async (params: {
+  message_id: string
+  body_format?: "text" | "html"
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.getMessage(params.message_id)
+  const result = await client.getMessage(params.message_id, params.body_format)
   return result.mapLeft((error) => new UserError(`Failed to get message: ${error.message}`)).map(formatMessageDetail)
 }
 
@@ -161,6 +164,61 @@ export const listAttachments = async (params: { message_id: string }): Promise<E
   return result
     .mapLeft((error) => new UserError(`Failed to list attachments: ${error.message}`))
     .map((response) => formatAttachmentList(params.message_id, (response as ODataResponse<GraphAttachment>).value))
+}
+
+// Graph has no bulk-move endpoint, so this is still one request per message — but it
+// resolves the destination once instead of per message, and returns a single summary
+// rather than N tool results. Filing an inbox means dozens of moves; at one call each
+// the round-trips and the echoed confirmations dominate.
+type MoveOutcome = { readonly id: string; readonly subject?: string; readonly error?: string }
+
+const BATCH_MOVE_LIMIT = 50
+
+export const batchMoveMessages = async (params: {
+  message_ids: ReadonlyArray<string>
+  destination: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.message_ids.length === 0) return Left(new UserError("At least one message ID is required."))
+  if (params.message_ids.length > BATCH_MOVE_LIMIT) {
+    return Left(
+      new UserError(
+        `Too many messages: ${params.message_ids.length}. Move at most ${BATCH_MOVE_LIMIT} at a time so a partial failure stays legible.`,
+      ),
+    )
+  }
+
+  const destination = await resolveDestination(client, params.destination)
+  if (destination.isLeft()) return destination
+  const destinationId = destination.orThrow()
+
+  // Sequential on purpose: Graph throttles per-mailbox, and a 429 midway through a
+  // parallel batch leaves the caller unsure which moves actually landed. Reducing over
+  // a promise chain keeps that ordering without an imperative loop.
+  const moveOne = async (id: string): Promise<MoveOutcome> => {
+    const result = await client.moveMessage(id, destinationId)
+    return result.fold<MoveOutcome>(
+      (error) => ({ id, error: (error as { message: string }).message }),
+      (msg) => ({ id, subject: (msg as GraphMessage).subject }),
+    )
+  }
+
+  const outcomes = await params.message_ids.reduce<Promise<ReadonlyArray<MoveOutcome>>>(
+    async (acc, id) => [...(await acc), await moveOne(id)],
+    Promise.resolve([]),
+  )
+
+  const moved = outcomes.filter((o) => !o.error)
+  const failed = outcomes.filter((o) => o.error)
+
+  // Report failures individually — a silent partial success is the worst outcome here,
+  // since the caller believes the inbox is filed when some of it is not.
+  const failureLines = failed.map((f) => `- FAILED ${f.id}: ${f.error}`).join("\n")
+  const summary = `Moved ${moved.length}/${outcomes.length} message(s) to ${params.destination}.`
+
+  return failed.length === 0 ? Right(summary) : Right(`${summary}\n\n${failed.length} failed:\n${failureLines}`)
 }
 
 export const sendMessage = async (params: {
