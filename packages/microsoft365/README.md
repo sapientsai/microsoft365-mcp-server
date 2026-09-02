@@ -68,6 +68,16 @@ MS365_CLIENT_ID=your-client-id
 MS365_TENANT_ID=common          # "common" for multi-tenant
 ```
 
+If the browser cannot be launched, authentication falls back to device code
+automatically and prints a URL and code to stderr. This covers headless hosts and
+macOS browsers that refuse a second instance while already running (Arc, for
+example, reports "Arc is already open. Only one instance of Arc can be opened at a
+time."). To skip the browser attempt entirely:
+
+```bash
+MS365_USE_DEVICE_CODE=true
+```
+
 ### Client Secret
 
 For service accounts and automation.
@@ -223,13 +233,19 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 ## Available Tools
 
-### Mail (12 tools)
+### Mail (17 tools)
 
 | Tool                     | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
 | `list_messages`          | List inbox messages with optional filtering                              |
+| `scan_messages`          | Compact header rows for triage — survey thousands of messages cheaply    |
 | `get_message`            | Get a specific message with full body                                    |
 | `search_messages`        | Search messages by query                                                 |
+| `list_attachments`       | List a message's attachments with name, content type and size            |
+| `save_attachment`        | Save an attachment to a local file and return its path                   |
+| `move_message`           | Move a message to another folder                                         |
+| `batch_move_messages`    | Move many messages in one call                                           |
+| `list_mail_folders`      | List mail folders with item and unread counts                            |
 | `send_message`           | Send a new email                                                         |
 | `send_reply`             | Reply to the sender and send now (threaded, original quoted)             |
 | `send_reply_all`         | Reply to all recipients and send now (threaded, original quoted)         |
@@ -243,6 +259,18 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 > The `create_*_draft` tools produce a properly threaded draft (same conversation, full
 > quoted history) for review, then send via `send_draft`. They remain available under
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode.
+
+> **Reading attachments.** `read_document` extracts *text*, so a scanned PDF or a
+> photographed letter comes back empty — there is no text layer to extract. Use
+> `save_attachment` for those: it writes the file locally and returns the path, leaving
+> the client to read the PDF or image with whatever it already has. That keeps
+> rasterising and OCR out of this server.
+>
+> **Cloud links are not files.** A *reference attachment* — a OneDrive, SharePoint or
+> Dropbox link someone attached instead of a file — has no bytes in the mailbox, so
+> neither tool can fetch it. Both now **report the link and its URL** rather than
+> failing or omitting it, because a hidden link is a document you do not know exists.
+> Open the URL to get the content.
 
 ### Calendar (7 tools)
 
@@ -392,6 +420,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_CERT_PATH`         | Certificate path (for `certificate` mode)                                               | --                  |
 | `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                         | --                  |
 | `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                          | --                  |
+| `MS365_USE_DEVICE_CODE`   | Skip the browser in `interactive` mode and use device code                              | `false`             |
 | `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                           | --                  |
 | `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                     | `v1.0`              |
 | `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                      | `stdio`             |
@@ -406,6 +435,29 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_REQUIRE_DRAFT`     | Hide all `send_*` mail tools; force the `create_*_draft` + `send_draft` flow            | `false`             |
 | `TOKEN_STORAGE_PATH`      | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
 | `FASTMCP_HOST`            | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
+
+### Graph resilience
+
+Every Graph call goes through a retry / timeout / circuit-breaker layer. The defaults suit
+normal use; these knobs exist for tuning a deployment without a code change.
+
+| Variable                            | Description                                                                     | Default   |
+| ----------------------------------- | ------------------------------------------------------------------------------- | --------- |
+| `MS365_GRAPH_MAX_RETRIES`           | Retries for a throttled (429) or transient (503/504/network) call                | `3`       |
+| `MS365_GRAPH_TIMEOUT_MS`            | Per-attempt fetch timeout. Sized for slow large uploads                          | `100000`  |
+| `MS365_GRAPH_BASE_BACKOFF_MS`       | Base for exponential backoff with full jitter                                    | `200`     |
+| `MS365_GRAPH_MAX_BACKOFF_MS`        | Backoff ceiling. A 429's `Retry-After` overrides it (capped at 60 s)             | `5000`    |
+| `MS365_GRAPH_CIRCUIT_THRESHOLD`     | Consecutive failures before the breaker opens                                    | `5`       |
+| `MS365_GRAPH_CIRCUIT_COOLDOWN_MS`   | How long the breaker stays open before allowing a probe                          | `30000`   |
+| `MS365_GRAPH_CIRCUIT_DISABLED`      | Disable the breaker entirely                                                     | `false`   |
+
+A 429 is retried on every method — Graph decides to throttle before it executes the
+operation, so nothing has landed server-side. A 503/504/network failure is retried only
+for idempotent methods (GET/HEAD/PUT/DELETE); retrying a POST or PATCH there could
+duplicate a side effect that already succeeded, so those surface to the caller instead.
+
+When the breaker is open, calls fail fast as a `throttle` error carrying `retryAfter`,
+rather than adding load to an upstream that is already failing.
 
 ## Claude Desktop (Local Installation)
 

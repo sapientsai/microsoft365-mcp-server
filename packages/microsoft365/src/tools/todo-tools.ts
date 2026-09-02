@@ -60,7 +60,7 @@ export const createTodoTask = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   const task: Record<string, unknown> = { title: params.title }
-  if (params.body) task.body = { contentType: "Text", content: params.body }
+  if (params.body) task.body = { contentType: "text", content: params.body }
   if (params.due_date) task.dueDateTime = { dateTime: params.due_date, timeZone: "UTC" }
   if (params.importance) task.importance = params.importance
 
@@ -87,7 +87,7 @@ export const updateTodoTask = async (params: {
   if (params.status) updates.status = params.status
   if (params.due_date) updates.dueDateTime = { dateTime: params.due_date, timeZone: "UTC" }
   if (params.importance) updates.importance = params.importance
-  if (params.body) updates.body = { contentType: "Text", content: params.body }
+  if (params.body) updates.body = { contentType: "text", content: params.body }
 
   const result = await client.updateTodoTask(params.list_id, params.task_id, updates)
   return result
