@@ -19,6 +19,8 @@ export type AuthConfig =
       readonly tenantId: string
       readonly clientId: string
       readonly redirectUri?: string
+      /** Skip the browser and go straight to device code (MS365_USE_DEVICE_CODE). */
+      readonly useDeviceCode?: boolean
     }
   | {
       readonly mode: "certificate"
@@ -77,6 +79,26 @@ export type GraphMessage = {
   readonly bodyPreview?: string
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly importance?: string
+}
+
+export type GraphMailFolder = {
+  readonly id: string
+  readonly displayName?: string
+  readonly parentFolderId?: string
+  readonly childFolderCount?: number
+  readonly unreadItemCount?: number
+  readonly totalItemCount?: number
+}
+
+export type GraphAttachment = {
+  readonly id: string
+  readonly name?: string
+  readonly contentType?: string
+  readonly size?: number
+  readonly isInline?: boolean
+  readonly lastModifiedDateTime?: string
+  /** @odata.type — distinguishes fileAttachment from itemAttachment / referenceAttachment. */
+  readonly "@odata.type"?: string
 }
 
 export type GraphEvent = {

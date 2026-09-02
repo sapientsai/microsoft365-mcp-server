@@ -1,0 +1,26 @@
+diff --git a/dist/commonjs/msal/nodeFlows/msalClient.js b/dist/commonjs/msal/nodeFlows/msalClient.js
+index 8c18ac262f039a7ff160ef51a9e63a7538e40e7f..47203f9663fdb1cae132e1b3ae15d1ba4bfb05b4 100644
+--- a/dist/commonjs/msal/nodeFlows/msalClient.js
++++ b/dist/commonjs/msal/nodeFlows/msalClient.js
+@@ -361,7 +361,7 @@ function createMsalClient(clientId, tenantId, createMsalClientOptions = {}) {
+     return {
+       openBrowser: async (url) => {
+         const open = await import("open");
+-        await open.default(url, { newInstance: true });
++        await open.default(url);
+       },
+       scopes,
+       authority: calculateRequestAuthority(options),
+diff --git a/dist/esm/msal/nodeFlows/msalClient.js b/dist/esm/msal/nodeFlows/msalClient.js
+index bd9b8db3c9dd26d7a482a9760b74fad9bd8f6d6c..213751e5d23c2689a68ac438a8db796f2a3c0af6 100644
+--- a/dist/esm/msal/nodeFlows/msalClient.js
++++ b/dist/esm/msal/nodeFlows/msalClient.js
+@@ -382,7 +382,7 @@ export function createMsalClient(clientId, tenantId, createMsalClientOptions = {
+         return {
+             openBrowser: async (url) => {
+                 const open = await import("open");
+-                await open.default(url, { newInstance: true });
++                await open.default(url);
+             },
+             scopes,
+             authority: calculateRequestAuthority(options),

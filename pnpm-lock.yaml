@@ -11,6 +11,9 @@ overrides:
   fast-uri: ^3.1.5
   mcp-proxy: ~6.6.0
 
+patchedDependencies:
+  '@azure/identity@4.13.2': e235a025a33a4addac59f774f82550ee959c884a3a5b61b7640c11f3958232a7
+
 importers:
 
   .:
@@ -95,7 +98,7 @@ importers:
     dependencies:
       '@azure/identity':
         specifier: ^4.13.2
-        version: 4.13.2(supports-color@7.2.0)
+        version: 4.13.2(patch_hash=e235a025a33a4addac59f774f82550ee959c884a3a5b61b7640c11f3958232a7)(supports-color@7.2.0)
       '@sapientsai/document-extract':
         specifier: workspace:*
         version: link:../extract
@@ -2916,7 +2919,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@azure/identity@4.13.2(supports-color@7.2.0)':
+  '@azure/identity@4.13.2(patch_hash=e235a025a33a4addac59f774f82550ee959c884a3a5b61b7640c11f3958232a7)(supports-color@7.2.0)':
     dependencies:
       '@azure/abort-controller': 2.2.0
       '@azure/core-auth': 1.11.0(supports-color@7.2.0)

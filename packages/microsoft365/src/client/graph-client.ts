@@ -11,6 +11,7 @@ import { type Either, Left, Right } from "functype/either"
 import type {
   GraphApiError,
   GraphApiVersion,
+  GraphAttachment,
   GraphBucket,
   GraphChannel,
   GraphChannelMessage,
@@ -21,6 +22,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphMailFolder,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
   GraphNotebook,
@@ -47,7 +49,34 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listMessages = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphMessage>>("GET", "/me/messages", { odataParams })
 
-  const getMessage = (id: string) => request<GraphMessage>("GET", `/me/messages/${id}`)
+  // Prefer: outlook.body-content-type="text" makes Graph convert the body server-side.
+  // Marketing mail is mostly CSS and layout tables — one newsletter measured 79,347
+  // characters as HTML — so for a caller that only needs the words this is a ~95%
+  // reduction, and better than stripping tags locally.
+  const getMessage = (id: string, bodyContentType?: "text" | "html") =>
+    request<GraphMessage>(
+      "GET",
+      `/me/messages/${id}`,
+      bodyContentType ? { headers: { Prefer: `outlook.body-content-type="${bodyContentType}"` } } : undefined,
+    )
+
+  const listMailFolders = (odataParams?: ODataParams) =>
+    request<ODataResponse<GraphMailFolder>>("GET", "/me/mailFolders", { odataParams })
+
+  // Scoped to one folder. /me/messages spans the whole mailbox, so scanning an
+  // archive without this means paging through inbox and sent mail to reach it.
+  const listFolderMessages = (folderId: string, odataParams?: ODataParams) =>
+    request<ODataResponse<GraphMessage>>("GET", `/me/mailFolders/${folderId}/messages`, { odataParams })
+
+  const moveMessage = (id: string, destinationId: string) =>
+    request<GraphMessage>("POST", `/me/messages/${id}/move`, { body: { destinationId } })
+
+  // $select omits contentBytes deliberately: fileAttachment includes the full base64 payload
+  // by default, which would drag megabytes of binary through the model for a listing.
+  const listAttachments = (messageId: string) =>
+    request<ODataResponse<GraphAttachment>>("GET", `/me/messages/${messageId}/attachments`, {
+      odataParams: { $select: ["id", "name", "contentType", "size", "isInline", "lastModifiedDateTime"] },
+    })
 
   const sendMessage = (message: Record<string, unknown>) =>
     request<Record<string, never>>("POST", "/me/sendMail", { body: message })
@@ -436,7 +465,11 @@ const createGraphClient = (auth: AuthStrategy) => {
     requestPaginated,
     // Mail
     listMessages,
+    listFolderMessages,
     getMessage,
+    listAttachments,
+    listMailFolders,
+    moveMessage,
     sendMessage,
     createDraft,
     sendDraft,
