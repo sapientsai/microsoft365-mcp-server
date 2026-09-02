@@ -1,6 +1,7 @@
 import { Option } from "functype"
 
 import type {
+  GraphAttachment,
   GraphBucket,
   GraphCallTranscript,
   GraphChannel,
@@ -11,6 +12,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphMailFolder,
   GraphMeetingTimeSuggestion,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
@@ -35,8 +37,64 @@ export const formatMessageSummary = (msg: GraphMessage): string => {
   return `- **${msg.subject ?? "(No Subject)"}** from ${from} (${msg.receivedDateTime ?? ""})${read}${attachments} (ID: ${msg.id})`
 }
 
+const formatBytes = (bytes?: number): string => {
+  if (bytes === undefined) return "unknown size"
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment"
+const ITEM_ATTACHMENT = "#microsoft.graph.itemAttachment"
+
+// A referenceAttachment is a LINK to OneDrive/SharePoint/Dropbox, not bytes in the mailbox. Printing
+// a read_document path for one promises content that endpoint cannot serve, and silently dropping it
+// is worse still: the document exists, and hiding it lets a sweep report coverage it does not have.
+// So it is listed like any other attachment, with its URL and the reason bytes are not available.
+const formatReferenceAttachment = (att: GraphAttachment): string => {
+  const kind = att.isFolder ? "folder" : "file"
+  const provider = att.providerType ? `${att.providerType}, ` : ""
+  const access = att.permission ? `, ${att.permission}` : ""
+  return [
+    `- **${att.name ?? "(unnamed)"}** — cloud ${kind} link (${provider}reference attachment${access})`,
+    att.sourceUrl ? `  URL: ${att.sourceUrl}` : `  URL: not returned by Graph for this attachment`,
+    `  No bytes in the mailbox: save_attachment and read_document cannot fetch this. Open the URL.`,
+  ].join("\n")
+}
+
+// The read_document path is included per attachment on purpose: it is the only way to get at the
+// content, and deriving it by hand is easy to get wrong (the trailing /$value is required).
+export const formatAttachmentSummary = (messageId: string, att: GraphAttachment): string => {
+  if (att["@odata.type"] === REFERENCE_ATTACHMENT) return formatReferenceAttachment(att)
+
+  const inline = att.isInline ? " [inline]" : ""
+  const type = att.contentType ?? "unknown type"
+  // An itemAttachment is an embedded Outlook item (a forwarded message, contact or event). Its bytes
+  // are reachable, but as MIME or as an expanded item rather than a document.
+  const item = att["@odata.type"] === ITEM_ATTACHMENT ? " [embedded Outlook item]" : ""
+  return [
+    `- **${att.name ?? "(unnamed)"}** (${type}, ${formatBytes(att.size)})${inline}${item}`,
+    `  read_document path: /me/messages/${messageId}/attachments/${att.id}/$value`,
+  ].join("\n")
+}
+
+export const formatAttachmentList = (messageId: string, attachments: ReadonlyArray<GraphAttachment>): string =>
+  attachments.length === 0
+    ? "No attachments found."
+    : `# Attachments\n\n${attachments.map((a) => formatAttachmentSummary(messageId, a)).join("\n")}`
+
 export const formatMessageList = (messages: ReadonlyArray<GraphMessage>): string =>
   messages.length === 0 ? "No messages found." : `# Messages\n\n${messages.map(formatMessageSummary).join("\n")}`
+
+export const formatMailFolderSummary = (folder: GraphMailFolder): string => {
+  const counts = `${folder.totalItemCount ?? 0} items, ${folder.unreadItemCount ?? 0} unread`
+  return `- **${folder.displayName ?? "(Unnamed)"}** (${counts}) (ID: ${folder.id})`
+}
+
+export const formatMailFolderList = (folders: ReadonlyArray<GraphMailFolder>): string =>
+  folders.length === 0
+    ? "No mail folders found."
+    : `# Mail Folders\n\n${folders.map(formatMailFolderSummary).join("\n")}`
 
 export const formatMessageDetail = (msg: GraphMessage): string => {
   const from = Option(msg.from?.emailAddress)
@@ -552,3 +610,69 @@ export const formatAuthStatus = (status: {
 
 ## Scopes
 ${status.scopes.length > 0 ? status.scopes.map((s) => `- ${s}`).join("\n") : "No scopes available"}`
+
+// Compact scan format. Optimised for one job: letting a caller read thousands of
+// message headers cheaply enough to decide which handful to open properly.
+//
+// Rows are pipe-delimited rather than markdown because the markdown list form spends
+// roughly a third of each row on bullets, bold markers and field labels that repeat
+// identically on every line. Measured against a real mailbox, 500 messages cost about
+// 32,000 tokens in the standard list format and about 9,600 here — the difference
+// between scanning a 15,000-message archive and giving up on it.
+//
+// The `ref` is a short session-local handle (see message-refs), not a Graph ID.
+export const formatMessageScanRow = (msg: GraphMessage, ref: number): string => {
+  const from = Option(msg.from?.emailAddress.name).fold(
+    () => msg.from?.emailAddress.address ?? "Unknown",
+    (v) => v,
+  )
+
+  // Minute precision: triage groups by day, and seconds are never the deciding factor.
+  const received = msg.receivedDateTime?.slice(0, 16) ?? ""
+
+  // Single-character flags keep the common case (no flags) to one empty column.
+  const flags = `${msg.isRead === false ? "U" : ""}${msg.hasAttachments ? "A" : ""}`
+
+  // Subjects are the one field worth spending characters on — it is what the caller
+  // actually filters against — but a runaway subject line shouldn't blow the budget.
+  const subject = (msg.subject ?? "(No Subject)").replace(/[\r\n|]+/g, " ").slice(0, 120)
+
+  return `${ref}|${received}|${from.replace(/[|]/g, " ").slice(0, 40)}|${subject}|${flags}`
+}
+
+export const formatMessageScan = (
+  messages: ReadonlyArray<GraphMessage>,
+  refs: ReadonlyArray<number>,
+  meta: {
+    readonly folder?: string
+    readonly hasMore: boolean
+    readonly nextSkip?: number
+    readonly searched?: boolean
+  },
+): string => {
+  if (messages.length === 0) return "No messages found."
+
+  const scope = meta.folder ? ` in ${meta.folder}` : ""
+  const header = [
+    `# Message scan — ${messages.length}${scope}`,
+    "",
+    "ref|received|from|subject|flags   (flags: U=unread, A=has attachments)",
+    "Pass a ref to get_message or list_attachments in place of the message ID.",
+    "",
+  ].join("\n")
+
+  const rows = messages.map((msg, i) => formatMessageScanRow(msg, refs[i]!)).join("\n")
+
+  // A truncated scan is the dangerous case: the caller sees a full-looking page and
+  // may conclude it saw everything. Say plainly that results were cut off, and how to
+  // get the rest — which differs for a search, since Graph cannot skip through one.
+  const more = !meta.hasMore
+    ? ""
+    : meta.searched
+      ? "\n\n**INCOMPLETE — more results exist beyond this page.** A search cannot be paged: " +
+        "Graph ignores skip on a search query. Narrow the search instead, e.g. add a date window " +
+        '("... AND received:2024-01-01..2024-06-30") and walk the windows to cover the range.'
+      : `\n\n**INCOMPLETE — more results exist.** Re-run with skip: ${meta.nextSkip} to continue.`
+
+  return `${header}${rows}${more}`
+}

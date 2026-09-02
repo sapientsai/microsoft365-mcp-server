@@ -23,12 +23,17 @@ export {
 export { graphQuery } from "./graph-query-tools"
 export { getGroup, listGroupMembers, listGroups } from "./groups-tools"
 export {
+  batchMoveMessages,
   createDraft,
   createForwardDraft,
   createReplyAllDraft,
   createReplyDraft,
   getMessage,
+  listAttachments,
+  listMailFolders,
   listMessages,
+  moveMessage,
+  scanMessages,
   searchMessages,
   sendDraft,
   sendForward,
@@ -60,6 +65,7 @@ export {
   updatePlannerTaskDetails,
 } from "./planner-tools"
 export { readDocument } from "./read-document-tools"
+export { saveAttachment } from "./save-attachment-tools"
 export { getSite, listSiteDrives, listSiteItems, listSites, searchSiteFiles } from "./sharepoint-tools"
 export { listChannelMessages, listChannels, listTeams, sendChannelMessage } from "./teams-tools"
 export { createTodoTask, listTodoLists, listTodoTasks, updateTodoTask } from "./todo-tools"

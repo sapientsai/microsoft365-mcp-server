@@ -57,3 +57,5 @@ publicHoistPattern:
 minimumReleaseAgeExclude:
   - somamcp@1.1.0 || 1.3.2
   - fastmcp@4.17.1
+patchedDependencies:
+  '@azure/identity@4.13.2': patches/@azure__identity@4.13.2.patch

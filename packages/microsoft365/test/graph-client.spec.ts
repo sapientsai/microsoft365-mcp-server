@@ -36,6 +36,24 @@ describe("graph-client AuthStrategy injection", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer INJECTED.TOKEN")
   })
 
+  // A referenceAttachment's sourceUrl is only returned if it is selected. Drop it from the $select
+  // and cloud links silently lose their URL against a live mailbox while every mocked test still
+  // passes — which is how these attachments came to be invisible in the first place.
+  it("selects the fields a reference attachment needs, and never contentBytes", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubFetch({ value: [] })
+
+    const client = initializeGraphClient(auth)
+    await client.listAttachments("MSG-ID")
+
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    const select = decodeURIComponent(url)
+    for (const field of ["sourceUrl", "providerType", "permission", "isFolder"]) {
+      expect(select).toContain(field)
+    }
+    expect(select).not.toContain("contentBytes")
+  })
+
   it("short-circuits to an auth error when the strategy fails (fetch never called)", async () => {
     const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Left({ type: "token", message: "no token" })) }
     const fetchSpy = vi.fn()

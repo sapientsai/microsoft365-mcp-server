@@ -169,3 +169,27 @@ describe("tool-registry", () => {
     })
   })
 })
+
+// A tool absent from TOOL_METADATA can never be exposed: filterTools derives the
+// allowed set from the registry alone, so a tool defined in index.ts but not
+// registered here is silently dropped at startup with no error. That is exactly how
+// scan_messages shipped invisible — defined, built, and filtered out.
+describe("registry covers every defined tool", () => {
+  it("registers every tool declared in index.ts", async () => {
+    const { readFileSync } = await import("node:fs")
+    const { fileURLToPath } = await import("node:url")
+    const { dirname, join } = await import("node:path")
+
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(here, "../src/index.ts"), "utf8")
+
+    // Tool definitions are object literals whose first key is `name:`.
+    const defined = [...source.matchAll(/^\s{4}name: "([a-z0-9_]+)",$/gm)].map((m) => m[1]!)
+    expect(defined.length, "found no tool definitions to check").toBeGreaterThan(20)
+
+    const registered = new Set(TOOL_METADATA.map((m) => m.name))
+    const missing = defined.filter((name) => !registered.has(name))
+
+    expect(missing, `defined in index.ts but missing from TOOL_METADATA: ${missing.join(", ")}`).toEqual([])
+  })
+})

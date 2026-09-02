@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type {
+  GraphAttachment,
   GraphEvent,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
@@ -12,6 +13,7 @@ import type {
   GraphUser,
 } from "../src/types"
 import {
+  formatAttachmentList,
   formatEventDetail,
   formatEventList,
   formatMeetingTimeSuggestions,
@@ -208,6 +210,64 @@ describe("formatters", () => {
       expect(result).toContain("# Pages")
       expect(result).toContain("Meeting Notes")
       expect(result).toContain("ID: pg-1")
+    })
+  })
+
+  describe("formatAttachmentList", () => {
+    const FILE: GraphAttachment = {
+      id: "att-1",
+      name: "invoice.pdf",
+      contentType: "application/pdf",
+      size: 2048,
+    }
+    const REFERENCE: GraphAttachment = {
+      id: "att-2",
+      name: "Tax Folder",
+      "@odata.type": "#microsoft.graph.referenceAttachment",
+      sourceUrl: "https://www.icloud.com/iclouddrive/EXAMPLE",
+      providerType: "other",
+      permission: "view",
+      isFolder: true,
+    }
+
+    it("gives a file attachment a read_document path", () => {
+      const result = formatAttachmentList("MSG", [FILE])
+      expect(result).toContain("invoice.pdf")
+      expect(result).toContain("/me/messages/MSG/attachments/att-1/$value")
+    })
+
+    // The bug this replaces: a reference attachment was given a read_document path that could never
+    // work, and save_attachment dropped it entirely, so a linked document looked like no document.
+    it("shows a reference attachment as a link, with its URL", () => {
+      const result = formatAttachmentList("MSG", [REFERENCE])
+      expect(result).toContain("Tax Folder")
+      expect(result).toContain("https://www.icloud.com/iclouddrive/EXAMPLE")
+      expect(result).toContain("cloud folder link")
+    })
+
+    it("never offers a read_document path for a reference attachment", () => {
+      const result = formatAttachmentList("MSG", [REFERENCE])
+      expect(result).not.toContain("read_document path")
+      expect(result).not.toContain("/attachments/att-2/$value")
+    })
+
+    it("says so when Graph returns no URL for a reference attachment", () => {
+      const result = formatAttachmentList("MSG", [{ ...REFERENCE, sourceUrl: undefined }])
+      expect(result).toContain("not returned by Graph")
+    })
+
+    it("lists files and links together", () => {
+      const result = formatAttachmentList("MSG", [FILE, REFERENCE])
+      expect(result).toContain("invoice.pdf")
+      expect(result).toContain("Tax Folder")
+      expect(result).toContain("/me/messages/MSG/attachments/att-1/$value")
+    })
+
+    it("flags an embedded Outlook item", () => {
+      const result = formatAttachmentList("MSG", [
+        { ...FILE, "@odata.type": "#microsoft.graph.itemAttachment", name: "Fwd: contract" },
+      ])
+      expect(result).toContain("embedded Outlook item")
     })
   })
 })
