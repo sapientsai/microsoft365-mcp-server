@@ -107,7 +107,7 @@ import {
   uploadFileFromPath,
 } from "./tools"
 import type { ToolDefinition } from "./tools/tool-definitions"
-import { filterTools, type ToolFilterConfig } from "./tools/tool-registry"
+import { DOMAIN_DESCRIPTIONS, filterTools, type ToolDomain, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
@@ -1478,29 +1478,11 @@ const buildUploadWorkflow = (allowedTools: Set<string>): string => {
 
 const buildInstructions = (allowedTools: Set<string>): string => {
   const domains = new Set(toolDefinitions.filter((t) => allowedTools.has(t.name)).map((t) => t.domain))
-  const domainDescriptions: Record<string, string> = {
-    auth: "Authentication: Check auth status and manage tokens",
-    mail: "Mail: List, read, send, reply, search, and draft email messages",
-    calendar: "Calendar: List, view, create, update, and delete events",
-    contacts: "Contacts: List, view, create, and search contacts",
-    files:
-      "Files: List, view, search, download OneDrive files; create folders; upload files (see Upload workflows below)",
-    chats: "Chats: List Teams chats and messages; send chat messages",
-    teams: "Teams: List teams, channels, and messages; send channel messages",
-    meetings: "Meetings: List Teams meeting transcripts and read their text",
-    users: "Users: View profiles and list users",
-    groups: "Groups: List groups and group members",
-    planner: "Planner: List plans and tasks; create and update tasks",
-    onenote: "OneNote: List notebooks, sections, pages; read page content",
-    todo: "To Do: List task lists and tasks; create and update tasks",
-    query: "Graph Query: Execute arbitrary Microsoft Graph API queries",
-  }
 
-  const capabilities = [...domains]
-    .map((d) => domainDescriptions[d])
-    .filter(Boolean)
-    .map((desc) => `- ${desc}`)
-    .join("\n")
+  // No filter(Boolean) here any more. DOMAIN_DESCRIPTIONS is Record<ToolDomain, string>, so every
+  // domain is guaranteed a line at compile time — filtering would only be able to hide a gap that
+  // can no longer exist, which is exactly how `rag` went unadvertised.
+  const capabilities = [...domains].map((d) => `- ${DOMAIN_DESCRIPTIONS[d as ToolDomain]}`).join("\n")
 
   const uploadSection = domains.has("files") ? buildUploadWorkflow(allowedTools) : ""
 

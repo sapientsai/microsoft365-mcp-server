@@ -25,6 +25,40 @@ export type ToolMeta = {
   readonly transportOnly?: TransportMode
 }
 
+/**
+ * One line per domain, forming the capability summary the model reads in the server's
+ * instructions.
+ *
+ * `Record<ToolDomain, string>` is the point: a domain without a description is a typecheck
+ * error, not a missing line. This map used to live in index.ts as a loose
+ * `Record<string, string>` consumed with `.filter(Boolean)`, so when the `rag` domain was added
+ * its description was simply never written — and the deployed server advertised every capability
+ * except reading documents, the one it exists for. Nothing failed and nothing warned; the line
+ * was just absent (issue #57).
+ *
+ * It lives here rather than beside the consumer because the thing that drifted was the
+ * relationship between a domain and its description. Keeping both in this file means adding a
+ * domain to the union above cannot compile until its description exists.
+ */
+export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
+  auth: "Authentication: Check auth status and manage tokens",
+  mail: "Mail: List, read, send, reply, search, and draft email messages",
+  calendar: "Calendar: List, view, create, update, and delete events",
+  contacts: "Contacts: List, view, create, and search contacts",
+  files:
+    "Files: List, view, search, download OneDrive files; create folders; upload files (see Upload workflows below)",
+  chats: "Chats: List Teams chats and messages; send chat messages",
+  teams: "Teams: List teams, channels, and messages; send channel messages",
+  meetings: "Meetings: List Teams meeting transcripts and read their text",
+  users: "Users: View profiles and list users",
+  groups: "Groups: List groups and group members",
+  planner: "Planner: List plans and tasks; create and update tasks",
+  onenote: "OneNote: List notebooks, sections, pages; read page content",
+  todo: "To Do: List task lists and tasks; create and update tasks",
+  query: "Graph Query: Execute arbitrary Microsoft Graph API queries",
+  rag: "Documents: Extract readable text from PDF, Word, Excel and text files — in OneDrive, SharePoint, or attached to a message",
+}
+
 export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {
   personal: ["mail", "calendar", "contacts", "todo", "files", "onenote"],
   collaboration: ["chats", "teams", "meetings", "planner", "groups"],
