@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { filterTools, PRESETS, TOOL_METADATA } from "../src/tools/tool-registry"
+import { DOMAIN_DESCRIPTIONS, filterTools, PRESETS, TOOL_METADATA } from "../src/tools/tool-registry"
 
 describe("tool-registry", () => {
   describe("PRESETS", () => {
@@ -166,6 +166,32 @@ describe("tool-registry", () => {
       expect(result.has("create_event")).toBe(true)
       expect(result.has("list_messages")).toBe(true)
       expect(result.has("get_message")).toBe(true)
+    })
+  })
+
+  // Issue #57. The capability summary the model reads is built from these descriptions, and the
+  // `rag` domain never had one — so the deployed server listed every capability except reading
+  // documents, which is the one it exists for. The old map was Record<string, string> consumed
+  // with .filter(Boolean), so the gap could not fail: it just produced a shorter list.
+  //
+  // Record<ToolDomain, string> now makes a missing description a typecheck error, which is the
+  // real guard. These cover what types cannot: that a description is not blank, and that every
+  // domain actually carrying tools is represented.
+  describe("domain descriptions", () => {
+    it("describes every domain that has tools registered", () => {
+      const domainsWithTools = [...new Set(TOOL_METADATA.map((t) => t.domain))]
+      const undescribed = domainsWithTools.filter((d) => (DOMAIN_DESCRIPTIONS[d] ?? "").trim().length === 0)
+      expect(
+        undescribed,
+        `These domains have tools but no usable description, so their tools are absent from the ` +
+          `server's capability summary and a model never learns they exist: ${undescribed.join(", ")}`,
+      ).toEqual([])
+    })
+
+    it("describes the rag domain, which read_document lives in", () => {
+      const ragTools = TOOL_METADATA.filter((t) => t.domain === "rag").map((t) => t.name)
+      expect(ragTools).toContain("read_document")
+      expect(DOMAIN_DESCRIPTIONS.rag.toLowerCase()).toContain("text")
     })
   })
 })
