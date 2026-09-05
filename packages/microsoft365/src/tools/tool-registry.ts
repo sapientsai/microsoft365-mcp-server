@@ -56,7 +56,7 @@ export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   onenote: "OneNote: List notebooks, sections, pages; read page content",
   todo: "To Do: List task lists and tasks; create and update tasks",
   query: "Graph Query: Execute arbitrary Microsoft Graph API queries",
-  rag: "Documents: Extract readable text from PDF, Word, Excel and text files — in OneDrive, SharePoint, or attached to a message",
+  rag: "Documents: Extract readable text from PDF, DOCX, XLSX and text files — in OneDrive, SharePoint, or attached to a message",
 }
 
 export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {

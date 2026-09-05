@@ -107,7 +107,7 @@ import {
   uploadFileFromPath,
 } from "./tools"
 import type { ToolDefinition } from "./tools/tool-definitions"
-import { DOMAIN_DESCRIPTIONS, filterTools, type ToolDomain, type ToolFilterConfig } from "./tools/tool-registry"
+import { DOMAIN_DESCRIPTIONS, filterTools, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
@@ -1479,10 +1479,11 @@ const buildUploadWorkflow = (allowedTools: Set<string>): string => {
 const buildInstructions = (allowedTools: Set<string>): string => {
   const domains = new Set(toolDefinitions.filter((t) => allowedTools.has(t.name)).map((t) => t.domain))
 
-  // No filter(Boolean) here any more. DOMAIN_DESCRIPTIONS is Record<ToolDomain, string>, so every
-  // domain is guaranteed a line at compile time — filtering would only be able to hide a gap that
-  // can no longer exist, which is exactly how `rag` went unadvertised.
-  const capabilities = [...domains].map((d) => `- ${DOMAIN_DESCRIPTIONS[d as ToolDomain]}`).join("\n")
+  // No filter(Boolean) and no cast. ToolDefinition.domain is already ToolDomain, and
+  // DOMAIN_DESCRIPTIONS is Record<ToolDomain, string>, so the index cannot miss: every domain is
+  // guaranteed a line at compile time. Filtering could only hide a gap that no longer exists,
+  // which is exactly how `rag` went unadvertised; a cast would imply a type gap that is not there.
+  const capabilities = [...domains].map((d) => `- ${DOMAIN_DESCRIPTIONS[d]}`).join("\n")
 
   const uploadSection = domains.has("files") ? buildUploadWorkflow(allowedTools) : ""
 
