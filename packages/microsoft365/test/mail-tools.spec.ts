@@ -656,8 +656,25 @@ describe("mail-tools", () => {
       const result = await batchMoveMessages({ message_ids: ["a", "b", "c", "d"], destination: "archive" })
       // Two calls attempted: the success, then the throttle. c and d are never tried.
       expect(mockClient.moveMessage).toHaveBeenCalledTimes(2)
-      expect(result.value).toContain("not attempted")
       expect(result.value).toContain("Moved 1/4")
+      // The throttled message failed; the two after it were never sent. Counting all three as
+      // failures would overstate the damage and hide that c and d are still safe to retry.
+      expect(result.value).toContain("1 failed:")
+      expect(result.value).toContain("2 not attempted:")
+      expect(result.value).toContain("NOT ATTEMPTED c")
+      expect(result.value).toContain("NOT ATTEMPTED d")
+    })
+
+    it("should name a destination that was only assumed to be a folder ID", async () => {
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f1", displayName: "Receipts" }] }))
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "n", subject: "s" }))
+      const ok = await batchMoveMessages({ message_ids: ["a"], destination: "Receipts" })
+      expect(ok.value).not.toContain("used as a folder ID")
+
+      const { Left: L } = await import("functype/either")
+      mockClient.moveMessage.mockResolvedValue(L({ type: "api", message: "not found in store" }))
+      const bad = await batchMoveMessages({ message_ids: ["a"], destination: "Reciepts" })
+      expect((bad.value as Error).message).toContain('No top-level folder is named "Reciepts"')
     })
 
     it("should report the resolved folder in the summary, not what was typed", async () => {

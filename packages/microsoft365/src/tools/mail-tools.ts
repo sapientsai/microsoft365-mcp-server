@@ -177,6 +177,10 @@ type MoveOutcome = {
   readonly error?: string
   // Graph throttles per mailbox, so a 429 on one message predicts a 429 on the next.
   readonly throttled?: boolean
+  // Never sent, because an earlier message was throttled. Distinct from a failure: nothing was
+  // attempted, so retrying it is the obvious next move and counting it as "failed" would overstate
+  // the damage.
+  readonly skipped?: boolean
 }
 
 const BATCH_MOVE_LIMIT = 50
@@ -219,20 +223,31 @@ export const batchMoveMessages = async (params: {
     // real cause under 40-odd identical failures. Say what was skipped rather than pretending it
     // was tried.
     if (done.some((o) => o.throttled))
-      return [...done, { id, error: "not attempted — the batch stopped after Graph throttled it" }]
+      return [...done, { id, error: "the batch stopped after Graph throttled it", skipped: true }]
     return [...done, await moveOne(id)]
   }, Promise.resolve([]))
 
   const moved = outcomes.filter((o) => !o.error)
-  const failed = outcomes.filter((o) => o.error)
+  const failed = outcomes.filter((o) => o.error && !o.skipped)
+  const skipped = outcomes.filter((o) => o.skipped)
 
   // Report failures individually — a silent partial success is the worst outcome here,
-  // since the caller believes the inbox is filed when some of it is not.
+  // since the caller believes the inbox is filed when some of it is not. Skipped messages are
+  // listed apart from failures: they were never sent, so they are still safe to retry, and folding
+  // them into the failure count would report more damage than actually happened.
   const failureLines = failed.map((f) => `- FAILED ${f.id}: ${f.error}`).join("\n")
+  const skippedLines = skipped.map((sk) => `- NOT ATTEMPTED ${sk.id}`).join("\n")
   const summary = `Moved ${moved.length}/${outcomes.length} message(s) to ${target.label}.`
-  const detail = `${summary}\n\n${failed.length} failed:\n${failureLines}`
+  // A destination that only Graph could judge is worth naming again here: the whole batch went to
+  // the same place, so if it was wrong, it was wrong for every message.
+  const hint = target.assumedId
+    ? `\n\nNo top-level folder is named "${params.destination}"; it was used as a folder ID.`
+    : ""
+  const detail = `${summary}${hint}${
+    failed.length > 0 ? `\n\n${failed.length} failed:\n${failureLines}` : ""
+  }${skipped.length > 0 ? `\n\n${skipped.length} not attempted:\n${skippedLines}` : ""}`
 
-  if (failed.length === 0) return Right(summary)
+  if (failed.length === 0 && skipped.length === 0) return Right(summary)
   // A batch where nothing moved is a failure, not a success carrying bad news. Returning Right
   // leaves MCP's isError unset, so the caller sees a success-shaped result with the failures buried
   // in the text — and an LLM triaging a mailbox reports it as filed when none of it was.
