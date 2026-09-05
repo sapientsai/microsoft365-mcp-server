@@ -19,6 +19,14 @@ dotenv.config({ quiet: true })
 declare const __VERSION__: string
 const VERSION = (typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev") as `${number}.${number}.${number}`
 
+// The Dockerfiles have always set GIT_HASH as a container env, and nothing read it — so a
+// running container could name its version but not its build. Two deploys of one tag are
+// indistinguishable by version alone, and "which build is actually running" is precisely the
+// question asked when a deploy looks wrong. Answering it from the image digest works but costs
+// a round trip through the registry.
+const gitHash = process.env.GIT_HASH
+const BUILD = gitHash !== undefined && gitHash.length > 0 ? ` (${gitHash.slice(0, 7)})` : ""
+
 // App-only Microsoft Graph server on the somamcp shell: auth wired through core's
 // AuthStrategy, tools for the generic Graph passthrough, $batch, read_document extraction,
 // SharePoint/AI Search, and a protected /upload relay route (POST/PUT). The httpStream
@@ -107,10 +115,10 @@ export const main = async (): Promise<void> => {
       httpStream: { port: config.port, host: config.host, endpoint: "/mcp", stateless: config.stateless },
     })
     console.error(
-      `[Server] microsoft-mcp-server v${VERSION} (app-only, ${config.stateless ? "stateless" : "stateful"}) on ${config.host}:${config.port}`,
+      `[Server] microsoft-mcp-server v${VERSION}${BUILD} (app-only, ${config.stateless ? "stateless" : "stateful"}) on ${config.host}:${config.port}`,
     )
   } else {
     await server.start({ transportType: "stdio" })
-    console.error(`[Server] microsoft-mcp-server v${VERSION} (app-only) on stdio`)
+    console.error(`[Server] microsoft-mcp-server v${VERSION}${BUILD} (app-only) on stdio`)
   }
 }
