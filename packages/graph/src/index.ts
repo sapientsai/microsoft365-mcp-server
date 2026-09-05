@@ -98,9 +98,11 @@ export const main = async (): Promise<void> => {
   if (config.transport === "httpStream") {
     await server.start({
       transportType: "httpStream",
-      httpStream: { port: config.port, host: config.host, endpoint: "/mcp" },
+      httpStream: { port: config.port, host: config.host, endpoint: "/mcp", stateless: config.stateless },
     })
-    console.error(`[Server] microsoft-mcp-server v${VERSION} (app-only) on ${config.host}:${config.port}`)
+    console.error(
+      `[Server] microsoft-mcp-server v${VERSION} (app-only, ${config.stateless ? "stateless" : "stateful"}) on ${config.host}:${config.port}`,
+    )
   } else {
     await server.start({ transportType: "stdio" })
     console.error(`[Server] microsoft-mcp-server v${VERSION} (app-only) on stdio`)

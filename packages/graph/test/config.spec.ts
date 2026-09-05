@@ -62,4 +62,25 @@ describe("resolveServerRuntimeConfig", () => {
     expect(cfg.host).toBe("0.0.0.0")
     expect(cfg.apiKey).toBe("key")
   })
+  // Stateless is the default, and deliberately so: a per-session transport dies with
+  // the container, stranding every connected client on each redeploy. Only an explicit
+  // opt-out turns it off, so a typo cannot silently reintroduce session state.
+  it("is stateless by default", () => {
+    const cfg = resolveServerRuntimeConfig({ ...base }).value as { stateless: boolean }
+    expect(cfg.stateless).toBe(true)
+  })
+
+  it("opts out only on an explicit false", () => {
+    const off = resolveServerRuntimeConfig({ ...base, MCP_STATELESS: "false" }).value as { stateless: boolean }
+    expect(off.stateless).toBe(false)
+    const mixed = resolveServerRuntimeConfig({ ...base, MCP_STATELESS: " FALSE " }).value as { stateless: boolean }
+    expect(mixed.stateless).toBe(false)
+  })
+
+  it("stays stateless for any other value, including a typo", () => {
+    for (const v of ["true", "1", "", "flase", "no"]) {
+      const cfg = resolveServerRuntimeConfig({ ...base, MCP_STATELESS: v }).value as { stateless: boolean }
+      expect(cfg.stateless, `MCP_STATELESS=${JSON.stringify(v)}`).toBe(true)
+    }
+  })
 })

@@ -1,6 +1,6 @@
 {
   "name": "microsoft365-mcp-server",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "A Model Context Protocol (MCP) server for Microsoft 365 - manage mail, calendar, contacts, files, Teams, Planner, OneNote, To Do, and more via Microsoft Graph.",
   "type": "module",
   "main": "dist/index.js",
@@ -68,7 +68,7 @@
     "@azure/identity": "^4.13.2",
     "@sapientsai/document-extract": "workspace:*",
     "dotenv": "^17.4.2",
-    "fastmcp": "^4.19.0",
+    "fastmcp": "^4.20.2",
     "functype": "^1.9.0",
     "functype-log": "^1.9.0",
     "jsonwebtoken": "^9.0.3",

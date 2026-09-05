@@ -17,6 +17,7 @@ export type ServerRuntimeConfig = {
   readonly port: number
   readonly host: string
   readonly publicBaseUrl: string
+  readonly stateless: boolean
   readonly aiSearch?: AiSearchConfig
   readonly enableDownloadFile: boolean
   readonly sharePointSearch: SharePointSearchConfig
@@ -94,6 +95,11 @@ export const resolveServerRuntimeConfig = (env: NodeJS.ProcessEnv = process.env)
       port,
       host,
       publicBaseUrl: (blankToUndefined(env.MCP_PUBLIC_BASE_URL) ?? `http://${host}:${port}`).replace(/\/$/, ""),
+      // Stateless by default: this server has no server->client features (no roots,
+      // sampling, elicitation or progress), so a per-session transport buys nothing and
+      // costs a session that dies with the container. Every redeploy otherwise strands
+      // connected clients until a human reconnects them. Opt out with MCP_STATELESS=false.
+      stateless: env.MCP_STATELESS?.trim().toLowerCase() !== "false",
       aiSearch: resolveAiSearchConfig(env),
       // Defaults ON: the eight deployed app-only containers already expose download_file, and
       // they lose it the moment they re-pull :main. Opt-out, not opt-in.

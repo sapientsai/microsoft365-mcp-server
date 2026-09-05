@@ -1602,6 +1602,18 @@ const mountUploadRoute = (server: FastMCP, oauthMode: boolean): void => {
 }
 
 // === Server Startup ===
+// Stateless by default. This server consumes no server->client features (no roots,
+// sampling, elicitation or progress anywhere in the package), and its OAuth tokens are
+// keyed by bearer + TOKEN_STORAGE_PATH rather than by MCP session, so per-session
+// transport state buys nothing and dies with the container on every redeploy.
+// Opt out with MCP_STATELESS=false.
+const statelessTransport = (): boolean => process.env.MCP_STATELESS?.trim().toLowerCase() !== "false"
+
+// The only keepalive that works stateless: with no standing server-to-client stream, an
+// in-flight tool call's own stream is the sole route, and a long silent call (a large
+// read_document) can otherwise be closed as idle by a proxy.
+const STREAM_KEEPALIVE = { enabled: true } as const
+
 const main = async () => {
   const authConfig = resolveAuthConfig()
   const oauthMode = authConfig.mode === "oauth-proxy"
@@ -1625,6 +1637,7 @@ const main = async () => {
     })
 
     const server = new FastMCP({
+      streamKeepalive: STREAM_KEEPALIVE,
       name: "microsoft365-mcp-server",
       version: VERSION,
       instructions: buildInstructions(allowedTools),
@@ -1640,13 +1653,14 @@ const main = async () => {
 
     const port = parseInt(process.env.PORT ?? "3000", 10)
     const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
-    await server.start({ transportType: "httpStream", httpStream: { port, host } })
+    await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })
     console.error(`[Server] MS 365 MCP Server v${VERSION} (OAuth proxy) running on ${host}:${port}`)
   } else {
     // Standard mode: credential-based auth
     await setupAuth()
 
     const server = new FastMCP({
+      streamKeepalive: STREAM_KEEPALIVE,
       name: "microsoft365-mcp-server",
       version: VERSION,
       instructions: buildInstructions(allowedTools),
@@ -1661,7 +1675,7 @@ const main = async () => {
       mountUploadRoute(server, false)
       const port = parseInt(process.env.PORT ?? "3000", 10)
       const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
-      await server.start({ transportType: "httpStream", httpStream: { port, host } })
+      await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })
       console.error(`[Server] MS 365 MCP Server v${VERSION} running on ${host}:${port}`)
     } else {
       await server.start({ transportType: "stdio" })
