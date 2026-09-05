@@ -18,10 +18,6 @@ allowBuilds:
 # the lockfile clean of the advisories. vitest 4.1.8 allows ^6 || ^7 || ^8; pin 7.x.
 overrides:
   vite: "^7.3.2"
-  # Pin a single functype across the workspace. somamcp pulls 1.4.4 while our packages
-  # ask for ^1.4.3; two copies of functype's structurally-recursive Either type make
-  # tsc blow the instantiation budget (TS2589). 1.4.4 satisfies every ^1.4.3 range.
-  functype: "1.4.4"
   # Clears GHSA-7p8r-x3mc-p8w7 and GHSA-v2hh-gcrm-f6hx (both high, both host confusion via
   # backslash authority delimiters). fast-uri arrives transitively as ajv -> @modelcontextprotocol
   # /sdk -> fastmcp/somamcp, and ajv 8.20.0 still asks for the vulnerable 3.1.3, so bumping the
