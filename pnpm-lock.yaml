@@ -7,7 +7,6 @@ settings:
 
 overrides:
   vite: ^7.3.2
-  functype: 1.4.4
   fast-uri: ^3.1.5
 
 importers:
@@ -21,8 +20,8 @@ importers:
   packages/core:
     dependencies:
       functype:
-        specifier: 1.4.4
-        version: 1.4.4
+        specifier: ^1.9.0
+        version: 1.9.0
     devDependencies:
       '@types/node':
         specifier: ^24.13.3
@@ -40,8 +39,8 @@ importers:
         specifier: ^4.4.0
         version: 4.4.0
       functype:
-        specifier: 1.4.4
-        version: 1.4.4
+        specifier: ^1.9.0
+        version: 1.9.0
       mammoth:
         specifier: ^1.12.2
         version: 1.12.2
@@ -71,8 +70,8 @@ importers:
         specifier: ^17.4.2
         version: 17.4.2
       functype:
-        specifier: 1.4.4
-        version: 1.4.4
+        specifier: ^1.9.0
+        version: 1.9.0
       somamcp:
         specifier: ^1.3.2
         version: 1.3.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(supports-color@7.2.0)
@@ -105,11 +104,11 @@ importers:
         specifier: ^4.19.0
         version: 4.19.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
       functype:
-        specifier: 1.4.4
-        version: 1.4.4
+        specifier: ^1.9.0
+        version: 1.9.0
       functype-log:
         specifier: ^1.9.0
-        version: 1.9.0(functype@1.4.4)
+        version: 1.9.0(functype@1.9.0)
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
@@ -1709,16 +1708,16 @@ packages:
     resolution: {integrity: sha512-7kPzsTJNMVkW4y07twevl/2M/hNxx49eLOyxbpHOZSoBhBBJ3s8lJIUDF7RqlIj+nTKRKgtJ2vzhzUMDhPj0WA==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
-      functype: 1.4.4
+      functype: '>=0.60.0'
 
   functype-os@1.9.0:
     resolution: {integrity: sha512-Y7J7vp2Xv5NwH6/MXnXCMjspCczzyGKTJyNhORM9voig6PbFuobudJQj4uW5ZIcx1Jk87zrui9JxnzTrSx9crQ==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
-      functype: 1.4.4
+      functype: '>=0.60.0'
 
-  functype@1.4.4:
-    resolution: {integrity: sha512-2sgDr5dozwpCq28tm0/nRI+LT8KXtFJ0JgyJIDjDU4L9Q1dfDKs7jYdfx3cGXL6Kxxs7sA+++1brBb9KDPC0fQ==}
+  functype@1.9.0:
+    resolution: {integrity: sha512-ZIMbSx69uVT88GVedxc/WGUJ1Mi0whoEt/LjXUe7Sr9hnOhCsyGvK0oJgY1w1nYMy2O9vRrFmnl/VzeLEVGokg==}
     hasBin: true
 
   fuse.js@7.5.0:
@@ -4382,16 +4381,16 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  functype-log@1.9.0(functype@1.4.4):
+  functype-log@1.9.0(functype@1.9.0):
     dependencies:
-      functype: 1.4.4
+      functype: 1.9.0
       loglayer: 9.4.0
 
-  functype-os@1.9.0(functype@1.4.4):
+  functype-os@1.9.0(functype@1.9.0):
     dependencies:
-      functype: 1.4.4
+      functype: 1.9.0
 
-  functype@1.4.4: {}
+  functype@1.9.0: {}
 
   fuse.js@7.5.0: {}
 
@@ -5169,8 +5168,8 @@ snapshots:
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.5.4)
       fastmcp: 4.19.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
-      functype: 1.4.4
-      functype-log: 1.9.0(functype@1.4.4)
+      functype: 1.9.0
+      functype-log: 1.9.0(functype@1.9.0)
       hono: 4.13.5
       zod: 4.5.4
     transitivePeerDependencies:
@@ -5292,8 +5291,8 @@ snapshots:
       eslint-plugin-functype: 2.109.0(eslint@10.9.1(supports-color@7.2.0))
       eslint-plugin-prettier: 5.5.6(eslint-config-prettier@10.1.8(eslint@10.9.1(supports-color@7.2.0)))(eslint@10.9.1(supports-color@7.2.0))(prettier@3.9.6)
       eslint-plugin-simple-import-sort: 14.0.0(eslint@10.9.1(supports-color@7.2.0))
-      functype: 1.4.4
-      functype-os: 1.9.0(functype@1.4.4)
+      functype: 1.9.0
+      functype-os: 1.9.0(functype@1.9.0)
       globals: 17.12.0
       prettier: 3.9.6
       ts-node: 10.9.2(@types/node@24.13.3)(typescript@6.0.3)
