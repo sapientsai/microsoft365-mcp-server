@@ -47,6 +47,27 @@ const createTokenStorage = (): DiskStore => {
   const directory = resolveTokenStoragePath()
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   chmodSync(directory, 0o700) // enforce on a pre-existing (possibly world-readable) dir too
+
+  // Say where tokens live on every boot, and where that path came from.
+  //
+  // A deployment persists tokens by mounting a volume at this directory. If it mounts against
+  // the DEFAULT rather than setting TOKEN_STORAGE_PATH, the two are coupled by coincidence and
+  // nothing records it: change the default and the mount silently stops matching, every user is
+  // logged out, and the only symptom is "requires re-authorization" with no error in any log.
+  // That is a real production deployment today, found by accident.
+  //
+  // One line at boot turns a silent future breakage into something visible in the first seconds
+  // of a deploy, and tells the operator how to make the coupling explicit.
+  const explicit = process.env.TOKEN_STORAGE_PATH !== undefined
+  console.error(`[Auth] Token store: ${directory} (from ${explicit ? "TOKEN_STORAGE_PATH" : "built-in default"})`)
+  if (!explicit) {
+    console.error(
+      "[Auth][WARN] TOKEN_STORAGE_PATH is not set. If a volume is mounted at this path to persist " +
+        "tokens across restarts, set TOKEN_STORAGE_PATH to it explicitly — otherwise the mount is " +
+        "matching a default that can change, and tokens would vanish on an upgrade with no error.",
+    )
+  }
+
   return new DiskStore({ directory })
 }
 
