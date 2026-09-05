@@ -49,8 +49,23 @@ describe("oauth-provider key separation", () => {
       process.env.TOKEN_STORAGE_PATH = "/data/tokens"
       expect(resolveTokenStoragePath()).toBe("/data/tokens")
     })
-    it("defaults when unset", () => {
-      expect(resolveTokenStoragePath()).toBe("/tmp/ms365-tokens")
+    // This default is load-bearing in production, which is not obvious from reading it.
+    //
+    // The deployed ms365 service does not set TOKEN_STORAGE_PATH. It persists tokens by mounting
+    // a named volume at /tmp/ms365-tokens — this exact string. The two are coupled by
+    // coincidence, and changing this line quietly breaks that mount: every user is logged out
+    // with "requires re-authorization" and no error appears anywhere, because nothing failed.
+    //
+    // So this is not a test of a default, it is a tripwire on a deployment contract. If the
+    // default genuinely needs to move, the volume mount has to move with it — or better, set
+    // TOKEN_STORAGE_PATH explicitly in the deployment first and make the coupling real.
+    it("defaults to the path production mounts a volume at", () => {
+      expect(
+        resolveTokenStoragePath(),
+        "A deployed service mounts its token volume at this exact path without setting " +
+          "TOKEN_STORAGE_PATH. Changing this default logs every user out silently. Move the " +
+          "deployment to an explicit TOKEN_STORAGE_PATH before changing it here.",
+      ).toBe("/tmp/ms365-tokens")
     })
   })
 

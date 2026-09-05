@@ -2,7 +2,7 @@
   "name": "microsoft-mcp-server",
   "version": "0.0.0",
   "private": true,
-  "description": "App-only (client_credentials) Microsoft Graph MCP server for headless document-RAG — the successor to the archived sapientsai/microsoft-mcp-server, rebuilt on somamcp + @sapientsai/ms-graph-core. Sibling to the delegated microsoft365-mcp-server.",
+  "description": "App-only (client_credentials) Microsoft Graph MCP server for headless document-RAG \u2014 the successor to the archived sapientsai/microsoft-mcp-server, rebuilt on somamcp + @sapientsai/ms-graph-core. Sibling to the delegated microsoft365-mcp-server.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -39,7 +39,7 @@
     "@sapientsai/ms-graph-core": "workspace:*",
     "dotenv": "^17.4.2",
     "functype": "^1.9.0",
-    "somamcp": "^1.3.2",
+    "somamcp": "^1.4.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {

@@ -227,9 +227,9 @@ export const batchMoveMessages = async (params: {
     return [...done, await moveOne(id)]
   }, Promise.resolve([]))
 
-  const moved = outcomes.filter((o) => !o.error)
-  const failed = outcomes.filter((o) => o.error && !o.skipped)
-  const skipped = outcomes.filter((o) => o.skipped)
+  const moved = outcomes.filter((o) => o.error === undefined)
+  const failed = outcomes.filter((o) => o.error !== undefined && o.skipped !== true)
+  const skipped = outcomes.filter((o) => o.skipped === true)
 
   // Report failures individually — a silent partial success is the worst outcome here,
   // since the caller believes the inbox is filed when some of it is not. Skipped messages are

@@ -73,8 +73,8 @@ importers:
         specifier: ^1.9.0
         version: 1.9.0
       somamcp:
-        specifier: ^1.3.2
-        version: 1.3.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(supports-color@7.2.0)
+        specifier: ^1.4.0
+        version: 1.4.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(supports-color@7.2.0)
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -2445,8 +2445,8 @@ packages:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
 
-  somamcp@1.3.2:
-    resolution: {integrity: sha512-mY3DylfuDBdltG3n9GQVUxBGXKTZrhs5smURuTwn3DCD+HkQmSOYBlq9l5B6cxp081ym22YthKxJ4YLO1KXVTw==}
+  somamcp@1.4.0:
+    resolution: {integrity: sha512-5p33vCLbV1Pd8eC+gLGwzrnb5mB+ynVOxw4xBKBv7brIAwDEHJ2XCkMUPNkchkXpEl18PCSulze/aGaruoxpng==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -5164,7 +5164,7 @@ snapshots:
       mrmime: 2.0.1
       totalist: 3.0.1
 
-  somamcp@1.3.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(supports-color@7.2.0):
+  somamcp@1.4.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(supports-color@7.2.0):
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.5.4)
       fastmcp: 4.20.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)

@@ -30,6 +30,12 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
     name: "microsoft-mcp-server",
     version: VERSION,
     instructions: "Minimal app-only Microsoft Graph MCP server.",
+    // read_document on a multi-MB PDF is a long call that produces no output until it finishes,
+    // which is exactly what a proxy closes as idle. This writes onto that call's own response
+    // stream, and it is the only keepalive that works once httpStream is stateless — the
+    // transport-level ping needs a standing server-to-client stream, which stateless has none of.
+    // 20s sits comfortably under the shortest idle timeout we are likely to sit behind.
+    streamKeepalive: { enabled: true, intervalMs: 20_000 },
     ...(apiKey
       ? {
           // Shared gate for the httpStream transport AND the protected /upload route.
