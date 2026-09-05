@@ -117,6 +117,14 @@ dotenv.config({ quiet: true })
 declare const __VERSION__: string
 const VERSION = (typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev") as `${number}.${number}.${number}`
 
+// The Dockerfiles have always set GIT_HASH as a container env, and nothing read it — so a
+// running container could name its version but not its build. Two deploys of one tag are
+// indistinguishable by version alone, and "which build is actually running" is precisely the
+// question asked when a deploy looks wrong. Answering it from the image digest works but costs
+// a round trip through the registry.
+const gitHash = process.env.GIT_HASH
+const BUILD = gitHash !== undefined && gitHash.length > 0 ? ` (${gitHash.slice(0, 7)})` : ""
+
 const resolveAuthConfig = (): AuthConfig => {
   const mode = process.env.MS365_AUTH_MODE ?? "interactive"
   const tenantId = process.env.MS365_TENANT_ID ?? "common"
@@ -1654,7 +1662,7 @@ const main = async () => {
     const port = parseInt(process.env.PORT ?? "3000", 10)
     const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
     await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })
-    console.error(`[Server] MS 365 MCP Server v${VERSION} (OAuth proxy) running on ${host}:${port}`)
+    console.error(`[Server] MS 365 MCP Server v${VERSION}${BUILD} (OAuth proxy) running on ${host}:${port}`)
   } else {
     // Standard mode: credential-based auth
     await setupAuth()
@@ -1676,10 +1684,10 @@ const main = async () => {
       const port = parseInt(process.env.PORT ?? "3000", 10)
       const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
       await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })
-      console.error(`[Server] MS 365 MCP Server v${VERSION} running on ${host}:${port}`)
+      console.error(`[Server] MS 365 MCP Server v${VERSION}${BUILD} running on ${host}:${port}`)
     } else {
       await server.start({ transportType: "stdio" })
-      console.error(`[Server] MS 365 MCP Server v${VERSION} running on stdio`)
+      console.error(`[Server] MS 365 MCP Server v${VERSION}${BUILD} running on stdio`)
     }
   }
 }

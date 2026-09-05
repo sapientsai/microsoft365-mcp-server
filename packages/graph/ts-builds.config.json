@@ -1,4 +1,7 @@
 {
   "srcDir": "./src",
-  "validateChain": ["format", "lint", "typecheck", "test", "build"]
+  "validateChain": ["format", "lint", "typecheck", "test", "build", "check:version"],
+  "commands": {
+    "check:version": "node scripts/check-version-baked.mjs"
+  }
 }
