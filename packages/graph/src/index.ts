@@ -1,9 +1,9 @@
 import { type AuthStrategy, createGraphRequest } from "@sapientsai/ms-graph-core"
 import dotenv from "dotenv"
-import { createServer, getRequestHeader, type SomaServerInstance } from "somamcp"
+import { createServer, type SomaServerInstance } from "somamcp"
 import { z } from "zod"
 
-import { authorizesWithApiKey } from "./auth/api-key-gate"
+import { authorizesWithApiKey, presentedApiKey } from "./auth/api-key-gate"
 import { createAppOnlyAuthStrategy } from "./auth/app-only-strategy"
 import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
 import { buildAiSearchTool } from "./tools/ai-search"
@@ -33,13 +33,14 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
     ...(apiKey
       ? {
           // Shared gate for the httpStream transport AND the protected /upload route.
-          // getRequestHeader hides the http.IncomingMessage (transport) vs Hono Request
-          // (route) shape difference. FastMCP signals an HTTP rejection by throwing a
+          // presentedApiKey hides the http.IncomingMessage (transport) vs Hono Request
+          // (route) shape difference, and accepts the key from the Authorization header
+          // or an ?api_key= query parameter — clients that can only be handed a URL have
+          // no other way to send it. FastMCP signals an HTTP rejection by throwing a
           // Response; surface a 401 on a bad/missing key. Non-async (returns a Promise) to
           // satisfy the no-floating-await rule.
           authenticate: (request: unknown): Promise<{ apiKey: string }> => {
-            const bearer = getRequestHeader(request, "authorization")?.replace(/^Bearer\s+/i, "")
-            if (!authorizesWithApiKey(bearer, apiKey)) {
+            if (!authorizesWithApiKey(presentedApiKey(request), apiKey)) {
               return Promise.reject(new Response("Unauthorized", { status: 401 }))
             }
             return Promise.resolve({ apiKey })
