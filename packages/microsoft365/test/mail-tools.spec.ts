@@ -626,6 +626,47 @@ describe("mail-tools", () => {
       expect(inFlight.max).toBe(1)
     })
 
+    // A batch where nothing moved is a failure. Returning Right leaves MCP's isError unset, so an
+    // LLM triaging a mailbox sees a success-shaped result and reports the mail as filed.
+    it("should fail the call when no message moved at all", async () => {
+      const { Left: L } = await import("functype/either")
+      mockClient.moveMessage.mockResolvedValue(L({ type: "api", message: "boom" }))
+      const result = await batchMoveMessages({ message_ids: ["a", "b"], destination: "archive" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("Moved 0/2")
+    })
+
+    it("should still succeed when some moved, since the caller needs that list", async () => {
+      const { Left: L } = await import("functype/either")
+      mockClient.moveMessage
+        .mockResolvedValueOnce(Right({ id: "n1", subject: "ok" }))
+        .mockResolvedValueOnce(L({ type: "api", message: "boom" }))
+      const result = await batchMoveMessages({ message_ids: ["a", "b"], destination: "archive" })
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("Moved 1/2")
+    })
+
+    // Graph throttles per mailbox, so message N+1 is throttled too. Continuing spends the rest of
+    // the batch on calls that cannot succeed and buries the cause under identical failures.
+    it("should stop at the first throttle instead of burning the rest of the batch", async () => {
+      const { Left: L } = await import("functype/either")
+      mockClient.moveMessage
+        .mockResolvedValueOnce(Right({ id: "n1", subject: "ok" }))
+        .mockResolvedValueOnce(L({ type: "throttle", message: "Too many requests", status: 429 }))
+      const result = await batchMoveMessages({ message_ids: ["a", "b", "c", "d"], destination: "archive" })
+      // Two calls attempted: the success, then the throttle. c and d are never tried.
+      expect(mockClient.moveMessage).toHaveBeenCalledTimes(2)
+      expect(result.value).toContain("not attempted")
+      expect(result.value).toContain("Moved 1/4")
+    })
+
+    it("should report the resolved folder in the summary, not what was typed", async () => {
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "n", subject: "s" }))
+      const result = await batchMoveMessages({ message_ids: ["a"], destination: "junk" })
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("a", "junkemail")
+      expect(result.value).toContain("to the junkemail folder")
+    })
+
     it("should reject an empty list", async () => {
       const result = await batchMoveMessages({ message_ids: [], destination: "archive" })
       expect(result.isLeft()).toBe(true)
