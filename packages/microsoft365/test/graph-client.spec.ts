@@ -36,6 +36,32 @@ describe("graph-client AuthStrategy injection", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer INJECTED.TOKEN")
   })
 
+  // The mail-tools spec mocks the client, so it only proves "text" was passed along. The header
+  // string itself is what Graph parses, and a malformed one is silently ignored — the body comes
+  // back as HTML and nothing errors. Verified against live Graph v1.0: this exact string returns
+  // body.contentType "text".
+  it("sends the Prefer header verbatim when a body format is requested", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubFetch({ id: "m1" })
+
+    const client = initializeGraphClient(auth)
+    await client.getMessage("m1", "text")
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect((init.headers as Record<string, string>).Prefer).toBe('outlook.body-content-type="text"')
+  })
+
+  it("sends no Prefer header when no body format is requested", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubFetch({ id: "m1" })
+
+    const client = initializeGraphClient(auth)
+    await client.getMessage("m1")
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    expect((init.headers as Record<string, string>).Prefer).toBeUndefined()
+  })
+
   it("short-circuits to an auth error when the strategy fails (fetch never called)", async () => {
     const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Left({ type: "token", message: "no token" })) }
     const fetchSpy = vi.fn()

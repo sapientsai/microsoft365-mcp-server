@@ -39,11 +39,14 @@ export const listMessages = async (params: {
     .map((response) => formatMessageList((response as ODataResponse<never>).value))
 }
 
-export const getMessage = async (params: { message_id: string }): Promise<Either<UserError, string>> => {
+export const getMessage = async (params: {
+  message_id: string
+  body_format?: "text" | "html"
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.getMessage(params.message_id)
+  const result = await client.getMessage(params.message_id, params.body_format)
   return result.mapLeft((error) => new UserError(`Failed to get message: ${error.message}`)).map(formatMessageDetail)
 }
 
@@ -107,15 +110,16 @@ const resolveDestination = async (
     .flatMap((response): Either<UserError, ResolvedFolder> => {
       const folders = (response as ODataResponse<GraphMailFolder>).value
       const matches = folders.filter((f) => f.displayName?.toLowerCase() === normalized)
-      const match = matches[0]
-      if (matches.length === 1 && match)
-        return Right({ id: match.id, label: `"${match.displayName}"`, assumedId: false })
       if (matches.length > 1)
         return Left(
           new UserError(
             `Multiple folders named "${destination}". Pass the folder ID instead: ${matches.map((f) => f.id).join(", ")}`,
           ),
         )
+      if (matches.length === 1) {
+        const [match] = matches
+        return Right({ id: match.id, label: `"${match.displayName}"`, assumedId: false })
+      }
       // No name matched — assume the caller passed a real folder ID and let Graph judge. Note that
       // listMailFolders only sees top-level folders, so a subfolder never matches by name and
       // always lands here; passing its ID is the supported route.
@@ -161,6 +165,94 @@ export const listAttachments = async (params: { message_id: string }): Promise<E
   return result
     .mapLeft((error) => new UserError(`Failed to list attachments: ${error.message}`))
     .map((response) => formatAttachmentList(params.message_id, (response as ODataResponse<GraphAttachment>).value))
+}
+
+// Graph has no bulk-move endpoint, so this is still one request per message — but it
+// resolves the destination once instead of per message, and returns a single summary
+// rather than N tool results. Filing an inbox means dozens of moves; at one call each
+// the round-trips and the echoed confirmations dominate.
+type MoveOutcome = {
+  readonly id: string
+  readonly subject?: string
+  readonly error?: string
+  // Graph throttles per mailbox, so a 429 on one message predicts a 429 on the next.
+  readonly throttled?: boolean
+  // Never sent, because an earlier message was throttled. Distinct from a failure: nothing was
+  // attempted, so retrying it is the obvious next move and counting it as "failed" would overstate
+  // the damage.
+  readonly skipped?: boolean
+}
+
+const BATCH_MOVE_LIMIT = 50
+
+export const batchMoveMessages = async (params: {
+  message_ids: ReadonlyArray<string>
+  destination: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.message_ids.length === 0) return Left(new UserError("At least one message ID is required."))
+  if (params.message_ids.length > BATCH_MOVE_LIMIT) {
+    return Left(
+      new UserError(
+        `Too many messages: ${params.message_ids.length}. Move at most ${BATCH_MOVE_LIMIT} at a time so a partial failure stays legible.`,
+      ),
+    )
+  }
+
+  const destination = await resolveDestination(client, params.destination)
+  if (destination.isLeft()) return Left(destination.value as UserError)
+  const target = destination.orThrow()
+
+  // Sequential on purpose: Graph throttles per-mailbox, and a 429 midway through a
+  // parallel batch leaves the caller unsure which moves actually landed. Reducing over
+  // a promise chain keeps that ordering without an imperative loop.
+  const moveOne = async (id: string): Promise<MoveOutcome> => {
+    const result = await client.moveMessage(id, target.id)
+    return result.fold<MoveOutcome>(
+      (error) => ({ id, error: error.message, throttled: error.type === "throttle" }),
+      (msg) => ({ id, subject: msg.subject }),
+    )
+  }
+
+  const outcomes = await params.message_ids.reduce<Promise<ReadonlyArray<MoveOutcome>>>(async (acc, id) => {
+    const done = await acc
+    // Stop at the first throttle. Graph throttles per mailbox, so message N+1 is throttled too:
+    // carrying on spends the rest of the batch on calls that cannot succeed and buries the one
+    // real cause under 40-odd identical failures. Say what was skipped rather than pretending it
+    // was tried.
+    if (done.some((o) => o.throttled))
+      return [...done, { id, error: "the batch stopped after Graph throttled it", skipped: true }]
+    return [...done, await moveOne(id)]
+  }, Promise.resolve([]))
+
+  const moved = outcomes.filter((o) => !o.error)
+  const failed = outcomes.filter((o) => o.error && !o.skipped)
+  const skipped = outcomes.filter((o) => o.skipped)
+
+  // Report failures individually — a silent partial success is the worst outcome here,
+  // since the caller believes the inbox is filed when some of it is not. Skipped messages are
+  // listed apart from failures: they were never sent, so they are still safe to retry, and folding
+  // them into the failure count would report more damage than actually happened.
+  const failureLines = failed.map((f) => `- FAILED ${f.id}: ${f.error}`).join("\n")
+  const skippedLines = skipped.map((sk) => `- NOT ATTEMPTED ${sk.id}`).join("\n")
+  const summary = `Moved ${moved.length}/${outcomes.length} message(s) to ${target.label}.`
+  // A destination that only Graph could judge is worth naming again here: the whole batch went to
+  // the same place, so if it was wrong, it was wrong for every message.
+  const hint = target.assumedId
+    ? `\n\nNo top-level folder is named "${params.destination}"; it was used as a folder ID.`
+    : ""
+  const detail = `${summary}${hint}${
+    failed.length > 0 ? `\n\n${failed.length} failed:\n${failureLines}` : ""
+  }${skipped.length > 0 ? `\n\n${skipped.length} not attempted:\n${skippedLines}` : ""}`
+
+  if (failed.length === 0 && skipped.length === 0) return Right(summary)
+  // A batch where nothing moved is a failure, not a success carrying bad news. Returning Right
+  // leaves MCP's isError unset, so the caller sees a success-shaped result with the failures buried
+  // in the text — and an LLM triaging a mailbox reports it as filed when none of it was.
+  // A partial success stays Right: some messages really did move, and the caller needs that list.
+  return moved.length === 0 ? Left(new UserError(detail)) : Right(detail)
 }
 
 export const sendMessage = async (params: {

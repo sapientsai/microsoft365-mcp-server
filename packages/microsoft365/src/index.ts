@@ -22,6 +22,7 @@ import { GRAPH_API_BASE } from "./auth/scopes"
 import { withToken } from "./auth/token-context"
 import { initializeGraphClient } from "./client/graph-client"
 import {
+  batchMoveMessages,
   copyOnenotePage,
   createContact,
   createDraft,
@@ -260,9 +261,14 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "get_message",
-    description: "Get a specific email message with full body content",
+    description:
+      "Get a specific email message with full body content. Pass body_format:'text' for marketing or newsletter mail — Graph converts server-side, avoiding tens of thousands of characters of HTML and CSS.",
     parameters: z.object({
       message_id: z.string().describe("The message ID"),
+      body_format: z
+        .enum(["text", "html"])
+        .optional()
+        .describe("Body format to request. 'text' strips HTML/CSS server-side. Default: the message's own format"),
     }),
     execute: async (params) => unwrapResult(await getMessage(params)),
     domain: "mail",
@@ -304,6 +310,21 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe("Destination folder: well-known name (e.g. archive), display name, or folder ID"),
     }),
     execute: async (params) => unwrapResult(await moveMessage(params)),
+    domain: "mail",
+    readOnly: false,
+    annotations: { destructiveHint: true },
+  },
+  {
+    name: "batch_move_messages",
+    description:
+      "Move several messages to the same folder in one call. Resolves the destination once and returns a single summary instead of one result per message. Reports any failures individually.",
+    parameters: z.object({
+      message_ids: z.array(z.string()).describe("Message IDs to move (max 50)"),
+      destination: z
+        .string()
+        .describe("Destination folder: well-known name (e.g. archive), display name, or folder ID"),
+    }),
+    execute: async (params) => unwrapResult(await batchMoveMessages(params)),
     domain: "mail",
     readOnly: false,
     annotations: { destructiveHint: true },

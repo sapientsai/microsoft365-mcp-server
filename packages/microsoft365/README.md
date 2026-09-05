@@ -223,7 +223,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 ## Available Tools
 
-### Mail (15 tools)
+### Mail (16 tools)
 
 | Tool                     | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
@@ -242,6 +242,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `list_attachments`       | List a message's attachments, with a read_document path for file ones    |
 | `list_mail_folders`      | List top-level mail folders with item, unread and subfolder counts       |
 | `move_message`           | Move a message to a well-known folder, a folder name, or a folder ID     |
+| `batch_move_messages`    | Move up to 50 messages to one folder in a single call                    |
 
 > The `create_*_draft` tools produce a properly threaded draft (same conversation, full
 > quoted history) for review, then send via `send_draft`. They remain available under
