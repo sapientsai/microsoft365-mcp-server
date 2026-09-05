@@ -79,6 +79,15 @@ export type GraphMessage = {
   readonly importance?: string
 }
 
+export type GraphMailFolder = {
+  readonly id: string
+  readonly displayName?: string
+  readonly parentFolderId?: string
+  readonly childFolderCount?: number
+  readonly unreadItemCount?: number
+  readonly totalItemCount?: number
+}
+
 export type GraphAttachment = {
   readonly id: string
   readonly name?: string

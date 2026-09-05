@@ -14,6 +14,8 @@ import {
   createForwardDraft,
   createReplyAllDraft,
   createReplyDraft,
+  listMailFolders,
+  moveMessage,
   listAttachments,
   sendDraft,
   sendForward,
@@ -32,6 +34,9 @@ const mockClient = {
   createReplyDraft: vi.fn(),
   createReplyAllDraft: vi.fn(),
   createForwardDraft: vi.fn(),
+  listMailFolders: vi.fn(),
+  moveMessage: vi.fn(),
+  requestPaginated: vi.fn(),
   listAttachments: vi.fn(),
 }
 
@@ -314,6 +319,156 @@ describe("mail-tools", () => {
       expect(mockClient.createForwardDraft).not.toHaveBeenCalled()
     })
   })
+
+  describe("listMailFolders", () => {
+    it("should list folders with their counts", async () => {
+      mockClient.listMailFolders.mockResolvedValue(
+        Right({ value: [{ id: "f1", displayName: "Archive", totalItemCount: 12, unreadItemCount: 3 }] }),
+      )
+      const result = await listMailFolders()
+      expect(result.isRight()).toBe(true)
+      expect(result.value).toContain("Archive")
+      expect(result.value).toContain("12 items, 3 unread")
+      expect(mockClient.listMailFolders).toHaveBeenCalledWith({ $top: 100 })
+    })
+
+    // Verified against live Graph: /me/mailFolders returns immediate children of the root only.
+    // A real Inbox reported childFolderCount 2 while neither subfolder appeared in the response.
+    // Without the count printed, those folders are invisible and unreachable by name.
+    it("should surface subfolders that the listing cannot show", async () => {
+      mockClient.listMailFolders.mockResolvedValue(
+        Right({ value: [{ id: "f1", displayName: "Inbox", totalItemCount: 40, childFolderCount: 2 }] }),
+      )
+      const result = await listMailFolders()
+      expect(result.value).toContain("2 subfolders")
+      expect(result.value).toContain("Top-level folders only")
+    })
+
+    it("should not mention subfolders for a folder that has none", async () => {
+      mockClient.listMailFolders.mockResolvedValue(
+        Right({ value: [{ id: "f2", displayName: "Archive", totalItemCount: 5, childFolderCount: 0 }] }),
+      )
+      const result = await listMailFolders()
+      expect(result.value).not.toContain("subfolders)")
+    })
+
+    it("should page through all folders when asked", async () => {
+      mockClient.requestPaginated.mockResolvedValue(Right([{ id: "f1", displayName: "Archive" }]))
+      const result = await listMailFolders({ fetch_all_pages: true })
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.requestPaginated).toHaveBeenCalledWith("/me/mailFolders")
+      expect(mockClient.listMailFolders).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("moveMessage", () => {
+    it("should pass a well-known folder name straight through", async () => {
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "msg-1", subject: "Receipt" }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "archive" })
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("msg-1", "archive")
+      expect(mockClient.listMailFolders).not.toHaveBeenCalled()
+    })
+
+    // The bug this guards: "junk" is both a well-known alias and a legal display name for a
+    // custom folder. The alias wins, so a mailbox with a folder called "Junk" has its message
+    // filed into Junk Email instead — a different folder. Echoing params.destination back said
+    // "to junk" either way and hid which one happened.
+    it("should name the well-known folder it resolved, not what the caller typed", async () => {
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "new-id", subject: "Newsletter" }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "junk" })
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("msg-1", "junkemail")
+      expect(result.value).toBe('Moved "Newsletter" to the junkemail folder. New ID: new-id')
+    })
+
+    it("should name the matched folder when resolving a display name", async () => {
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f-receipts", displayName: "Receipts" }] }))
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "new-id", subject: "Invoice" }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "receipts" })
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("msg-1", "f-receipts")
+      expect(result.value).toBe('Moved "Invoice" to "Receipts". New ID: new-id')
+    })
+
+    it("should say it fell through to a folder ID rather than implying a name match", async () => {
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f1", displayName: "Archive" }] }))
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "new-id", subject: "Contract" }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "AAMkAGI0-opaque" })
+      expect(result.value).toBe('Moved "Contract" to folder ID AAMkAGI0-opaque. New ID: new-id')
+    })
+
+    // A typo'd folder name and a real folder ID are indistinguishable before the call. After Graph
+    // has rejected it they are not, so the failure explains itself instead of surfacing an opaque
+    // store error.
+    it("should explain a typo'd folder name once Graph rejects it", async () => {
+      const { Left: L } = await import("functype/either")
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f1", displayName: "Receipts" }] }))
+      mockClient.moveMessage.mockResolvedValue(L({ message: "The specified object was not found in the store." }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "Reciepts" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain('No top-level folder is named "Reciepts"')
+      expect((result.value as Error).message).toContain("list_mail_folders")
+    })
+
+    it("should not blame the folder name when a well-known move fails", async () => {
+      const { Left: L } = await import("functype/either")
+      mockClient.moveMessage.mockResolvedValue(L({ message: "Mailbox is unavailable." }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "archive" })
+      expect((result.value as Error).message).toBe("Failed to move message: Mailbox is unavailable.")
+    })
+
+    // Triage moves in batches; echoing each body back would flood the caller's context.
+    it("should confirm tersely without echoing the message body", async () => {
+      mockClient.moveMessage.mockResolvedValue(
+        Right({ id: "new-id", subject: "Receipt", body: { content: "a very long message body" } }),
+      )
+      const result = await moveMessage({ message_id: "msg-1", destination: "archive" })
+      expect(result.value).toBe('Moved "Receipt" to the archive folder. New ID: new-id')
+      expect(result.value).not.toContain("a very long message body")
+    })
+
+    it("should name an untitled message rather than printing undefined", async () => {
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "new-id" }))
+      const result = await moveMessage({ message_id: "msg-1", destination: "archive" })
+      expect(result.value).toContain("(No Subject)")
+    })
+
+    it("should map a well-known alias and ignore case", async () => {
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "msg-1" }))
+      await moveMessage({ message_id: "msg-1", destination: "Deleted Items" })
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("msg-1", "deleteditems")
+    })
+
+    it("should resolve a folder display name to its ID", async () => {
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f-receipts", displayName: "Receipts" }] }))
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "msg-1" }))
+      await moveMessage({ message_id: "msg-1", destination: "Receipts" })
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("msg-1", "f-receipts")
+    })
+
+    it("should error rather than guess when a display name is ambiguous", async () => {
+      mockClient.listMailFolders.mockResolvedValue(
+        Right({
+          value: [
+            { id: "f-a", displayName: "Receipts" },
+            { id: "f-b", displayName: "Receipts" },
+          ],
+        }),
+      )
+      const result = await moveMessage({ message_id: "msg-1", destination: "Receipts" })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("Multiple folders")
+      expect((result.value as Error).message).toContain("f-a")
+      expect(mockClient.moveMessage).not.toHaveBeenCalled()
+    })
+
+    it("should fall through to Graph when nothing matches, assuming a folder ID", async () => {
+      mockClient.listMailFolders.mockResolvedValue(Right({ value: [{ id: "f1", displayName: "Archive" }] }))
+      mockClient.moveMessage.mockResolvedValue(Right({ id: "msg-1" }))
+      await moveMessage({ message_id: "msg-1", destination: "AAMkAGI0-opaque-id" })
+      expect(mockClient.moveMessage).toHaveBeenCalledWith("msg-1", "AAMkAGI0-opaque-id")
+    })
+  })
+
   describe("listAttachments", () => {
     it("should list attachments with a read_document path for each", async () => {
       mockClient.listAttachments.mockResolvedValue(

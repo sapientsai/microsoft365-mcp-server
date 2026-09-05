@@ -13,6 +13,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphMailFolder,
   GraphMeetingTimeSuggestion,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
@@ -80,6 +81,23 @@ export const formatAttachmentList = (messageId: string, attachments: ReadonlyArr
 
 export const formatMessageList = (messages: ReadonlyArray<GraphMessage>): string =>
   messages.length === 0 ? "No messages found." : `# Messages\n\n${messages.map(formatMessageSummary).join("\n")}`
+
+export const formatMailFolderSummary = (folder: GraphMailFolder): string => {
+  const counts = `${folder.totalItemCount ?? 0} items, ${folder.unreadItemCount ?? 0} unread`
+  // Graph's /me/mailFolders returns immediate children of the root only, so a folder's own
+  // subfolders are absent from this listing. Printing the count is what makes them discoverable —
+  // otherwise a caller sees "Inbox" and has no way to learn that Inbox/Clients exists at all.
+  const children = (folder.childFolderCount ?? 0) > 0 ? `, ${folder.childFolderCount} subfolders` : ""
+  return `- **${folder.displayName ?? "(Unnamed)"}** (${counts}${children}) (ID: ${folder.id})`
+}
+
+export const formatMailFolderList = (folders: ReadonlyArray<GraphMailFolder>): string =>
+  folders.length === 0
+    ? "No mail folders found."
+    : `# Mail Folders\n\n${folders.map(formatMailFolderSummary).join("\n")}\n\n` +
+      `Top-level folders only. A folder showing subfolders has children that are not listed here; ` +
+      `reach them with graph_query on /me/mailFolders/{id}/childFolders, then pass the subfolder's ` +
+      `ID to move_message.`
 
 export const formatMessageDetail = (msg: GraphMessage): string => {
   const from = Option(msg.from?.emailAddress)

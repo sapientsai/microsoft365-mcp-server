@@ -22,6 +22,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphMailFolder,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
   GraphNotebook,
@@ -49,6 +50,12 @@ const createGraphClient = (auth: AuthStrategy) => {
     request<ODataResponse<GraphMessage>>("GET", "/me/messages", { odataParams })
 
   const getMessage = (id: string) => request<GraphMessage>("GET", `/me/messages/${id}`)
+
+  const listMailFolders = (odataParams?: ODataParams) =>
+    request<ODataResponse<GraphMailFolder>>("GET", "/me/mailFolders", { odataParams })
+
+  const moveMessage = (id: string, destinationId: string) =>
+    request<GraphMessage>("POST", `/me/messages/${id}/move`, { body: { destinationId } })
 
   // $select omits contentBytes deliberately: fileAttachment includes the full base64 payload
   // by default, which would drag megabytes of binary through the model for a listing.
@@ -445,6 +452,9 @@ const createGraphClient = (auth: AuthStrategy) => {
     // Mail
     listMessages,
     getMessage,
+    listMailFolders,
+    moveMessage,
+
     listAttachments,
     sendMessage,
     createDraft,
