@@ -77,7 +77,7 @@
   "devDependencies": {
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.4.1",
     "ts-builds": "^3.4.1",
     "tsdown": "^0.22.14"
   },
