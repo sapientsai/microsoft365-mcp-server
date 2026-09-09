@@ -26,6 +26,7 @@ import type {
   GraphTodoTask,
   GraphUser,
 } from "../types"
+import { describeRecurrence } from "./recurrence"
 
 // Mail
 export const formatMessageSummary = (msg: GraphMessage): string => {
@@ -41,19 +42,36 @@ export const formatMessageSummary = (msg: GraphMessage): string => {
 const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment"
 const ITEM_ATTACHMENT = "#microsoft.graph.itemAttachment"
 
+// A referenceAttachment is a LINK to OneDrive/SharePoint/Dropbox, not bytes in the mailbox. Printing
+// a read_document path for one promises content that endpoint cannot serve, and silently dropping it
+// is worse still: the document exists, and hiding it lets a sweep report coverage it does not have.
+// So it is listed like any other attachment, with its URL and the reason bytes are not available.
+const formatReferenceAttachment = (att: GraphAttachment): string => {
+  const kind = att.isFolder ? "folder" : "file"
+  const provider = att.providerType ? `${att.providerType}, ` : ""
+  const access = att.permission ? `, ${att.permission}` : ""
+  return [
+    `- **${att.name ?? "(unnamed)"}** — cloud ${kind} link (${provider}reference attachment${access})`,
+    att.sourceUrl ? `  URL: ${att.sourceUrl}` : `  URL: not returned by Graph for this attachment`,
+    `  No bytes in the mailbox: save_attachment and read_document cannot fetch this. Open the URL.`,
+  ].join("\n")
+}
+
 // The read_document path is included per attachment on purpose: it is the only way to get at the
 // content, and deriving it by hand is easy to get wrong (the trailing /$value is required).
 //
 // It is only emitted for attachments that actually have bytes in the mailbox. read_document reads
-// the /$value stream, which only a fileAttachment serves. A referenceAttachment is a OneDrive or
-// Dropbox link and stores nothing; an itemAttachment is an embedded Outlook item, reachable as MIME
-// but not as a document. Printing the path for either promises content that endpoint cannot return,
-// and a caller that follows it gets an opaque failure instead of "there is nothing here to read".
+// the /$value stream, which only a fileAttachment serves. An itemAttachment is an embedded Outlook
+// item, reachable as MIME but not as a document. Printing the path for either promises content that
+// endpoint cannot return, and a caller that follows it gets an opaque failure instead of "there is
+// nothing here to read".
 //
 // Graph returns @odata.type on every attachment whether or not it is $select-ed, so this costs
 // nothing extra. An unrecognised type still gets the path — better to offer a read that might work
 // than to hide a file attachment behind a type name we have not seen before.
 export const formatAttachmentSummary = (messageId: string, att: GraphAttachment): string => {
+  if (att["@odata.type"] === REFERENCE_ATTACHMENT) return formatReferenceAttachment(att)
+
   const inline = att.isInline ? " [inline]" : ""
   const type = att.contentType ?? "unknown type"
   const size = Option(att.size)
@@ -65,8 +83,6 @@ export const formatAttachmentSummary = (messageId: string, att: GraphAttachment)
   const header = `- **${att.name ?? "(unnamed)"}** (${type}, ${size})${inline}`
 
   switch (att["@odata.type"]) {
-    case REFERENCE_ATTACHMENT:
-      return `${header}\n  cloud link — no file is stored in the mailbox, so read_document cannot fetch it`
     case ITEM_ATTACHMENT:
       return `${header}\n  embedded Outlook item — not readable with read_document`
     default:
@@ -531,7 +547,13 @@ export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
       () => "",
       (v) => v,
     )
-  return `- **${task.title ?? "Untitled"}** [${status}]${due} (ID: ${task.id})`
+  const repeats = Option(task.recurrence)
+    .map((r) => ` (Repeats: ${describeRecurrence(r)})`)
+    .fold(
+      () => "",
+      (v) => v,
+    )
+  return `- **${task.title ?? "Untitled"}** [${status}]${due}${repeats} (ID: ${task.id})`
 }
 
 export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
@@ -550,6 +572,10 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
 - Status: ${task.status ?? "notStarted"}
 - Importance: ${task.importance ?? "normal"}
 - Due: ${task.dueDateTime?.dateTime ?? "N/A"}
+- Repeats: ${Option(task.recurrence).fold(
+    () => "No",
+    (r) => describeRecurrence(r),
+  )}
 - Completed: ${task.completedDateTime?.dateTime ?? "N/A"}
 - Reminder: ${task.isReminderOn ? "Yes" : "No"}
 - Created: ${task.createdDateTime ?? ""}
@@ -606,3 +632,73 @@ export const formatAuthStatus = (status: {
 
 ## Scopes
 ${status.scopes.length > 0 ? status.scopes.map((s) => `- ${s}`).join("\n") : "No scopes available"}`
+
+// Compact scan format. Optimised for one job: letting a caller read thousands of
+// message headers cheaply enough to decide which handful to open properly.
+//
+// Rows are pipe-delimited rather than markdown because the markdown list form spends
+// roughly a third of each row on bullets, bold markers and field labels that repeat
+// identically on every line. Measured against a real mailbox, 500 messages cost about
+// 32,000 tokens in the standard list format and about 9,600 here — the difference
+// between scanning a 15,000-message archive and giving up on it.
+//
+// The `ref` is a short session-local handle (see message-refs), not a Graph ID.
+export const formatMessageScanRow = (msg: GraphMessage, ref: number): string => {
+  const from = Option(msg.from?.emailAddress.name).fold(
+    () => msg.from?.emailAddress.address ?? "Unknown",
+    (v) => v,
+  )
+
+  // Minute precision: triage groups by day, and seconds are never the deciding factor.
+  const received = msg.receivedDateTime?.slice(0, 16) ?? ""
+
+  // Single-character flags keep the common case (no flags) to one empty column.
+  const flags = `${msg.isRead === false ? "U" : ""}${msg.hasAttachments ? "A" : ""}`
+
+  // Subjects are the one field worth spending characters on — it is what the caller
+  // actually filters against — but a runaway subject line shouldn't blow the budget.
+  const subject = (msg.subject ?? "(No Subject)").replace(/[\r\n|]+/g, " ").slice(0, 120)
+
+  return `${ref}|${received}|${from.replace(/[|]/g, " ").slice(0, 40)}|${subject}|${flags}`
+}
+
+export const formatMessageScan = (
+  messages: ReadonlyArray<GraphMessage>,
+  refs: ReadonlyArray<number>,
+  meta: {
+    readonly folder?: string
+    readonly hasMore: boolean
+    readonly nextSkip?: number
+    readonly searched?: boolean
+  },
+): string => {
+  if (messages.length === 0) return "No messages found."
+
+  const scope = meta.folder ? ` in ${meta.folder}` : ""
+  const header = [
+    `# Message scan — ${messages.length}${scope}`,
+    "",
+    "ref|received|from|subject|flags   (flags: U=unread, A=has attachments)",
+    "Pass a ref to get_message or list_attachments in place of the message ID.",
+    "",
+  ].join("\n")
+
+  const rows = messages.map((msg, i) => formatMessageScanRow(msg, refs[i]!)).join("\n")
+
+  // A truncated scan is the dangerous case: the caller sees a full-looking page and
+  // may conclude it saw everything. Say plainly that results were cut off, and how to
+  // get the rest — which differs for a search, since Graph cannot skip through one.
+  const more = !meta.hasMore
+    ? ""
+    : meta.searched
+      ? "\n\n**INCOMPLETE — more results exist beyond this page, and a search cannot be paged** " +
+        "(Graph ignores skip on a search query).\n\n" +
+        "**If you need complete coverage, re-run this as a filter instead** — a filter pages with skip " +
+        'until a page comes back short, so you can tell when you are done. e.g. filter: "hasAttachments eq ' +
+        'true and receivedDateTime ge 2024-01-01T00:00:00Z".\n\n' +
+        "Narrowing the search by date shrinks each window but still cannot tell you whether a window was " +
+        "whole — a short search result is NOT evidence you have seen everything."
+      : `\n\n**INCOMPLETE — more results exist.** Re-run with skip: ${meta.nextSkip} to continue.`
+
+  return `${header}${rows}${more}`
+}

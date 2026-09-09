@@ -36,6 +36,74 @@ describe("graph-client AuthStrategy injection", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer INJECTED.TOKEN")
   })
 
+  // Graph validates $select for /attachments against the BASE attachment type. sourceUrl and
+  // friends live on the derived referenceAttachment, so naming them in a $select makes Graph
+  // reject the whole request — for every message, not only ones carrying a cloud link:
+  //
+  //   Parsing OData Select and Expand failed: Could not find a property named 'sourceUrl'
+  //   on type 'microsoft.graph.attachment'.
+  //
+  // That shipped once and broke list_attachments and save_attachment outright. The previous
+  // version of this test asserted the broken behaviour, because it only checked the URL we build
+  // and never what Graph does with it. Assert the absence instead — it is the property that
+  // actually keeps the endpoint working.
+  it("does not $select derived referenceAttachment properties (Graph rejects the request)", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubFetch({ value: [] })
+
+    const client = initializeGraphClient(auth)
+    await client.listAttachments("MSG-ID")
+
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    const requested = decodeURIComponent(url)
+    for (const derived of ["sourceUrl", "providerType", "permission", "isFolder"]) {
+      expect(requested).not.toContain(derived)
+    }
+  })
+
+  // The reference fields and @odata.type must still reach the caller — dropping them is how cloud
+  // links became invisible in the first place. With no $select, Graph returns them itself.
+  it("passes through @odata.type and reference fields, and strips contentBytes", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubFetch({
+      value: [
+        {
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          id: "FILE",
+          name: "invoice.pdf",
+          size: 1024,
+          contentBytes: "QUJD".repeat(10_000),
+        },
+        {
+          "@odata.type": "#microsoft.graph.referenceAttachment",
+          id: "LINK",
+          name: "Renovation invoices",
+          sourceUrl: "https://www.icloud.com/iclouddrive/EXAMPLE",
+          providerType: "other",
+          permission: "view",
+          isFolder: true,
+        },
+      ],
+    })
+
+    const client = initializeGraphClient(auth)
+    const result = await client.listAttachments("MSG-ID")
+
+    expect(result.isRight()).toBe(true)
+    const attachments = (result.value as { value: ReadonlyArray<Record<string, unknown>> }).value
+
+    const file = attachments.find((a) => a.id === "FILE")
+    expect(file?.["@odata.type"]).toBe("#microsoft.graph.fileAttachment")
+    // A fileAttachment's base64 payload would be megabytes of binary through the model.
+    expect(file).not.toHaveProperty("contentBytes")
+    expect(file?.name).toBe("invoice.pdf")
+
+    const link = attachments.find((a) => a.id === "LINK")
+    expect(link?.sourceUrl).toBe("https://www.icloud.com/iclouddrive/EXAMPLE")
+    expect(link?.providerType).toBe("other")
+    expect(link?.isFolder).toBe(true)
+  })
+
   // The mail-tools spec mocks the client, so it only proves "text" was passed along. The header
   // string itself is what Graph parses, and a malformed one is silently ignored — the body comes
   // back as HTML and nothing errors. Verified against live Graph v1.0: this exact string returns

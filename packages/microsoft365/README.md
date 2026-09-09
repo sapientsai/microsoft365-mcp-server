@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **73 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **74 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -66,6 +66,16 @@ Simplest setup — opens a browser or displays a device code for headless enviro
 MS365_AUTH_MODE=interactive
 MS365_CLIENT_ID=your-client-id
 MS365_TENANT_ID=common          # "common" for multi-tenant
+```
+
+If the browser cannot be launched, authentication falls back to device code
+automatically and prints a URL and code to stderr. This covers headless hosts and
+macOS browsers that refuse a second instance while already running (Arc, for
+example, reports "Arc is already open. Only one instance of Arc can be opened at a
+time."). To skip the browser attempt entirely:
+
+```bash
+MS365_USE_DEVICE_CODE=true
 ```
 
 ### Client Secret
@@ -173,15 +183,85 @@ az rest --method POST \
 
 Or in Azure Portal: Enterprise Applications > your app > Users and groups > Add user.
 
+### Other Mailboxes (Delegated and Shared)
+
+Mail tools take an optional `mailbox` parameter — an email address — so one server can
+work across a household or a team: your own mail by default, someone else's when named.
+
+```bash
+MS365_ALLOWED_MAILBOXES="bel@example.com,household@example.com"
+```
+
+Nothing is reachable until it is listed. Omitting `mailbox` always means your own
+mailbox, so existing setups need no configuration and behave exactly as before.
+
+Two boundaries apply, and both matter:
+
+| Boundary                  | Set by                                                 | What it does                                                                              |
+| ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Azure                     | Delegation, or an ApplicationAccessPolicy for app-only | Caps what the credential can reach at all. The real enforcement.                          |
+| `MS365_ALLOWED_MAILBOXES` | This server                                            | Narrows one deployment within that cap, and returns a clear error instead of a Graph 403. |
+
+The env var is configuration, not security: it lets a single app registration serve
+several agents with different reach — a triage bot limited to one mailbox, an assistant
+given two — without minting a registration per agent. It cannot widen what Azure allows.
+
+**Which permission you need depends on how the server authenticates:**
+
+- **Interactive / OAuth proxy (delegated).** Reaching another mailbox needs a `.Shared`
+  scope; the non-shared one does not grant it. Add it explicitly:
+
+  ```bash
+  MS365_EXTRA_SCOPES="Mail.ReadWrite.Shared"   # or Mail.Read.Shared for read-only
+  ```
+
+  The mailbox's owner must also have granted you delegate access (in Outlook, or via
+  `Add-MailboxPermission`). Actions are performed as you: Exchange audit records
+  distinguish delegate access from owner access, but not one delegate tool from another.
+
+- **Client secret / certificate (app-only).** These request `.default`, so permissions
+  come from the app registration — nothing to add here. There is no `/me` for an app-only
+  token, so `mailbox` is **required** on every mail call. Scope the app to specific
+  mailboxes with an ApplicationAccessPolicy, otherwise `Mail.ReadWrite` reaches every
+  mailbox in the tenant:
+
+  ```powershell
+  New-ApplicationAccessPolicy -AppId <app-id> `
+    -PolicyScopeGroupId mailbox-group@example.com -AccessRight RestrictAccess
+  ```
+
+Note that `scan_messages` refs are per-mailbox: a ref from one mailbox passed to a call
+addressing another is refused with an explanation rather than resolving to the wrong
+message.
+
+### Cleaning a large inbox
+
+A mailbox with tens of thousands of messages is mostly a few hundred senders repeating.
+Two tools make that tractable without paging headers through the model:
+
+1. `summarize_senders` reads the whole folder server-side and returns one row per
+   sender — count, unread, first and last date, latest subject — most frequent first.
+2. `move_messages_matching` moves everything from chosen senders (or matching an OData
+   filter) to a destination, using Graph JSON batching (20 moves per round-trip, with
+   throttling retried). It is a dry run unless `dry_run: false` is passed, and a live
+   run refuses to move more than `limit` (default 1000) messages, so a mis-scoped
+   filter cannot empty a folder. `destination: deleteditems` is the bulk-delete: it is
+   reversible from Deleted Items, and a hard delete is deliberately not offered.
+
+Both fetch without `$orderby` — Graph rejects a `from/emailAddress` filter combined with
+a `receivedDateTime` sort ("The restriction or sort order is too complex"), which is why
+`scan_messages` cannot filter by sender.
+
 ### Safety Layers
 
-| Layer                    | Protection                                               | Default            |
-| ------------------------ | -------------------------------------------------------- | ------------------ |
-| **User assignment**      | Only assigned users can authenticate                     | Off (enable above) |
-| **Platform governance**  | Per-tool allow/confirm/deny in Claude Desktop Enterprise | Platform-level     |
-| **Tool filtering**       | Presets, read-only, org-mode gating                      | All tools          |
-| **Tenant restriction**   | `MS365_TENANT_ID` locks to one org                       | `common`           |
-| **M365 native recovery** | Recycle bins, version history                            | Built-in           |
+| Layer                    | Protection                                                   | Default            |
+| ------------------------ | ------------------------------------------------------------ | ------------------ |
+| **User assignment**      | Only assigned users can authenticate                         | Off (enable above) |
+| **Platform governance**  | Per-tool allow/confirm/deny in Claude Desktop Enterprise     | Platform-level     |
+| **Tool filtering**       | Presets, read-only, org-mode gating                          | All tools          |
+| **Mailbox allowlist**    | `MS365_ALLOWED_MAILBOXES` caps which mailboxes are reachable | Own mailbox only   |
+| **Tenant restriction**   | `MS365_TENANT_ID` locks to one org                           | `common`           |
+| **M365 native recovery** | Recycle bins, version history                                | Built-in           |
 
 **Recovery by domain:**
 
@@ -223,13 +303,21 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 ## Available Tools
 
-### Mail (16 tools)
+### Mail (20 tools)
 
 | Tool                     | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
 | `list_messages`          | List inbox messages with optional filtering                              |
+| `scan_messages`          | Compact header rows for triage — survey thousands of messages cheaply    |
 | `get_message`            | Get a specific message with full body                                    |
 | `search_messages`        | Search messages by query                                                 |
+| `list_attachments`       | List a message's attachments with name, content type and size            |
+| `save_attachment`        | Save an attachment to a local file and return its path                   |
+| `move_message`           | Move a message to another folder                                         |
+| `batch_move_messages`    | Move many messages in one call                                           |
+| `summarize_senders`      | Count a folder by sender, server-side — find what to sweep               |
+| `move_messages_matching` | Move everything matching senders/filter, batched; dry-run by default     |
+| `list_mail_folders`      | List mail folders with item and unread counts                            |
 | `send_message`           | Send a new email                                                         |
 | `send_reply`             | Reply to the sender and send now (threaded, original quoted)             |
 | `send_reply_all`         | Reply to all recipients and send now (threaded, original quoted)         |
@@ -239,14 +327,22 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `create_reply_all_draft` | Create a reply-all draft — threaded, with the original quoted underneath |
 | `create_forward_draft`   | Create a forward draft — original quoted, recipients you specify         |
 | `send_draft`             | Send an existing email draft                                             |
-| `list_attachments`       | List a message's attachments, with a read_document path for file ones    |
-| `list_mail_folders`      | List top-level mail folders with item, unread and subfolder counts       |
-| `move_message`           | Move a message to a well-known folder, a folder name, or a folder ID     |
-| `batch_move_messages`    | Move up to 50 messages to one folder in a single call                    |
 
 > The `create_*_draft` tools produce a properly threaded draft (same conversation, full
 > quoted history) for review, then send via `send_draft`. They remain available under
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode.
+
+> **Reading attachments.** `read_document` extracts _text_, so a scanned PDF or a
+> photographed letter comes back empty — there is no text layer to extract. Use
+> `save_attachment` for those: it writes the file locally and returns the path, leaving
+> the client to read the PDF or image with whatever it already has. That keeps
+> rasterising and OCR out of this server.
+>
+> **Cloud links are not files.** A _reference attachment_ — a OneDrive, SharePoint or
+> Dropbox link someone attached instead of a file — has no bytes in the mailbox, so
+> neither tool can fetch it. Both now **report the link and its URL** rather than
+> failing or omitting it, because a hidden link is a document you do not know exists.
+> Open the URL to get the content.
 
 ### Calendar (7 tools)
 
@@ -358,14 +454,37 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 > constrained HTML subset and silently drops unsupported CSS/tags, so a page can post
 > successfully yet render differently than the source.
 
-### To Do (4 tools)
+### To Do (5 tools)
 
-| Tool               | Description          |
-| ------------------ | -------------------- |
-| `list_todo_lists`  | List task lists      |
-| `list_todo_tasks`  | List tasks in a list |
-| `create_todo_task` | Create a new task    |
-| `update_todo_task` | Update a task        |
+| Tool               | Description                         |
+| ------------------ | ----------------------------------- |
+| `list_todo_lists`  | List task lists                     |
+| `list_todo_tasks`  | List tasks in a list                |
+| `create_todo_task` | Create a task, optionally repeating |
+| `update_todo_task` | Update a task, or change its repeat |
+| `delete_todo_task` | Delete a task permanently           |
+
+`create_todo_task` and `update_todo_task` take an optional `recurrence`, mapping to
+Graph's `patternedRecurrence`. Pass a `pattern` of `daily`, `weekly`,
+`absoluteMonthly`, `relativeMonthly`, `absoluteYearly` or `relativeYearly`, with the
+fields that pattern needs — `days_of_week` for weekly, `day_of_month` for
+`absoluteMonthly`, and so on. Quarterly is `absoluteMonthly` with an `interval` of 3.
+
+The repeat runs forever unless `range_type` is `endDate` or `numbered`. A recurring
+task needs a `due_date`: To Do rolls the task forward from it, so without one the
+task repeats but never appears in Today. Pass `clear_recurrence` on an update to
+make a repeating task one-off again.
+
+**Completing a recurring task does not mark that task completed.** Graph rolls the
+same task id forward to the next due date and returns it as `notStarted`, while the
+completed occurrence becomes a _separate_ task with a new id. The task id you hold
+therefore refers to the live series, not one occurrence, and `update_todo_task` says
+so in its result rather than reporting a bare "Task updated" over a `notStarted` task.
+
+`delete_todo_task` is permanent — To Do has no recycle bin and Graph offers no
+restore. Because an id addresses the series, deleting a repeating task ends the whole
+series; that requires `force: true`, and the refusal points at `clear_recurrence` for
+the usual case of wanting the task to stop repeating without losing it.
 
 ### Auth & Utility (5 tools)
 
@@ -396,6 +515,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_CERT_PATH`         | Certificate path (for `certificate` mode)                                               | --                  |
 | `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                         | --                  |
 | `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                          | --                  |
+| `MS365_USE_DEVICE_CODE`   | Skip the browser in `interactive` mode and use device code                              | `false`             |
 | `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                           | --                  |
 | `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                     | `v1.0`              |
 | `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                      | `stdio`             |
@@ -404,12 +524,36 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_PRESETS`           | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`      | -- (all tools)      |
 | `MS365_EXTRA_SCOPES`      | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)              | --                  |
 | `MS365_MAX_EXTRACT_BYTES` | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.      | -- (per-format)     |
+| `MS365_ALLOWED_MAILBOXES` | Comma-separated addresses the `mailbox` parameter may target. Unset = own mailbox only  | --                  |
 | `MS365_ENABLED_TOOLS`     | Regex pattern to filter tools                                                           | --                  |
 | `MS365_READ_ONLY`         | Hide write tools                                                                        | `false`             |
 | `MS365_ORG_MODE`          | Enable org-only tools (teams, chats, groups, planner)                                   | `false`             |
 | `MS365_REQUIRE_DRAFT`     | Hide all `send_*` mail tools; force the `create_*_draft` + `send_draft` flow            | `false`             |
 | `TOKEN_STORAGE_PATH`      | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
 | `FASTMCP_HOST`            | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
+
+### Graph resilience
+
+Every Graph call goes through a retry / timeout / circuit-breaker layer. The defaults suit
+normal use; these knobs exist for tuning a deployment without a code change.
+
+| Variable                          | Description                                                          | Default  |
+| --------------------------------- | -------------------------------------------------------------------- | -------- |
+| `MS365_GRAPH_MAX_RETRIES`         | Retries for a throttled (429) or transient (503/504/network) call    | `3`      |
+| `MS365_GRAPH_TIMEOUT_MS`          | Per-attempt fetch timeout. Sized for slow large uploads              | `100000` |
+| `MS365_GRAPH_BASE_BACKOFF_MS`     | Base for exponential backoff with full jitter                        | `200`    |
+| `MS365_GRAPH_MAX_BACKOFF_MS`      | Backoff ceiling. A 429's `Retry-After` overrides it (capped at 60 s) | `5000`   |
+| `MS365_GRAPH_CIRCUIT_THRESHOLD`   | Consecutive failures before the breaker opens                        | `5`      |
+| `MS365_GRAPH_CIRCUIT_COOLDOWN_MS` | How long the breaker stays open before allowing a probe              | `30000`  |
+| `MS365_GRAPH_CIRCUIT_DISABLED`    | Disable the breaker entirely                                         | `false`  |
+
+A 429 is retried on every method — Graph decides to throttle before it executes the
+operation, so nothing has landed server-side. A 503/504/network failure is retried only
+for idempotent methods (GET/HEAD/PUT/DELETE); retrying a POST or PATCH there could
+duplicate a side effect that already succeeded, so those surface to the caller instead.
+
+When the breaker is open, calls fail fast as a `throttle` error carrying `retryAfter`,
+rather than adding load to an upstream that is already failing.
 
 ## Claude Desktop (Local Installation)
 

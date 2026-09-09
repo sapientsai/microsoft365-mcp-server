@@ -33,12 +33,15 @@ export {
   listMailFolders,
   listMessages,
   moveMessage,
+  moveMessagesMatching,
+  scanMessages,
   searchMessages,
   sendDraft,
   sendForward,
   sendMessage,
   sendReply,
   sendReplyAll,
+  summarizeSenders,
 } from "./mail-tools"
 export { getMeetingTranscript, listMeetingTranscripts } from "./meetings-tools"
 export {
@@ -64,7 +67,8 @@ export {
   updatePlannerTaskDetails,
 } from "./planner-tools"
 export { readDocument } from "./read-document-tools"
+export { saveAttachment } from "./save-attachment-tools"
 export { getSite, listSiteDrives, listSiteItems, listSites, searchSiteFiles } from "./sharepoint-tools"
 export { listChannelMessages, listChannels, listTeams, sendChannelMessage } from "./teams-tools"
-export { createTodoTask, listTodoLists, listTodoTasks, updateTodoTask } from "./todo-tools"
+export { createTodoTask, deleteTodoTask, listTodoLists, listTodoTasks, updateTodoTask } from "./todo-tools"
 export { getMe, getUser, listUsers } from "./users-tools"

@@ -33,6 +33,7 @@
     "test:watch": "ts-builds test:watch",
     "test:coverage": "ts-builds test:coverage",
     "build": "NODE_ENV=production ts-builds build && node scripts/check-bundle-deferral.mjs",
+    "sweep": "node dist/mailbox-sweep.js",
     "dev": "ts-builds dev",
     "prepublishOnly": "pnpm validate",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",

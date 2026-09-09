@@ -2,6 +2,7 @@ import { type Either, Left, Right } from "functype/either"
 
 import type { AuthStrategy } from "./auth-strategy"
 import { GRAPH_API_BASE } from "./constants"
+import { type FetchLike, isCircuitOpenError, resilientFetch } from "./resilience"
 import type { GraphApiError, GraphApiVersion, ODataParams, ODataResponse } from "./types"
 import { appendODataQuery, buildODataQuery } from "./utils/odata-helpers"
 import { fetchAllPages, parseJsonResponse } from "./utils/pagination"
@@ -18,6 +19,9 @@ export type GraphRequestOptions = {
 export type GraphRequestConfig = {
   // Resolved per call (servers may read an env var at request time), so it's a function.
   readonly defaultVersion?: () => GraphApiVersion
+  // Injectable for tests. Defaults to the retry/timeout/circuit-breaker wrapper;
+  // pass plain `fetch` to opt a caller out of resilience entirely.
+  readonly fetchImpl?: FetchLike
 }
 
 export type GraphRequest = {
@@ -79,8 +83,18 @@ export const mapHttpError = async <T>(response: Response): Promise<Either<GraphA
 // Generic Microsoft Graph request layer: auth via an injected AuthStrategy, OData query
 // building, typed error mapping, and auto-pagination. Domain methods (listMessages, etc.)
 // are built on top of this in each server.
+// A tripped circuit is a throttle-shaped condition, not a network fault: the caller
+// should back off, not retry immediately. Map it onto the existing typed error union
+// so no call site needs to learn a new failure mode.
+const circuitOpenError = (error: { message: string; cooldownMs: number }): GraphApiError => ({
+  type: "throttle",
+  message: error.message,
+  retryAfter: Math.ceil(error.cooldownMs / 1000),
+})
+
 export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfig = {}): GraphRequest => {
   const resolveVersion = config.defaultVersion ?? (() => "v1.0" as const)
+  const doFetch = config.fetchImpl ?? resilientFetch
 
   const request = async <T>(
     method: string,
@@ -111,7 +125,7 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
         fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
       }
 
-      const response = await fetch(url, fetchOptions)
+      const response = await doFetch(url, fetchOptions)
 
       if (!response.ok) return mapHttpError<T>(response)
       if (response.status === 204) return Right<GraphApiError, T>({} as T)
@@ -122,6 +136,7 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
 
       return parseJsonResponse<T>(text)
     } catch (error) {
+      if (isCircuitOpenError(error)) return Left<GraphApiError, T>(circuitOpenError(error))
       return Left<GraphApiError, T>({
         type: "network",
         message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
@@ -148,7 +163,7 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
 
       const token = tokenResult.value as string
       try {
-        const response = await fetch(url, {
+        const response = await doFetch(url, {
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
@@ -159,6 +174,7 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
         const text = await response.text()
         return parseJsonResponse<ODataResponse<T>>(text)
       } catch (error) {
+        if (isCircuitOpenError(error)) return Left<GraphApiError, ODataResponse<T>>(circuitOpenError(error))
         return Left<GraphApiError, ODataResponse<T>>({
           type: "network",
           message: `Network error: ${error instanceof Error ? error.message : String(error)}`,

@@ -19,6 +19,8 @@ export type AuthConfig =
       readonly tenantId: string
       readonly clientId: string
       readonly redirectUri?: string
+      /** Skip the browser and go straight to device code (MS365_USE_DEVICE_CODE). */
+      readonly useDeviceCode?: boolean
     }
   | {
       readonly mode: "certificate"
@@ -79,6 +81,15 @@ export type GraphMessage = {
   readonly importance?: string
 }
 
+export type GraphBatchResponse = {
+  readonly responses: ReadonlyArray<{
+    readonly id: string
+    readonly status: number
+    readonly headers?: Record<string, string>
+    readonly body?: unknown
+  }>
+}
+
 export type GraphMailFolder = {
   readonly id: string
   readonly displayName?: string
@@ -97,6 +108,14 @@ export type GraphAttachment = {
   readonly lastModifiedDateTime?: string
   /** @odata.type — distinguishes fileAttachment from itemAttachment / referenceAttachment. */
   readonly "@odata.type"?: string
+  /** referenceAttachment only: the OneDrive/SharePoint URL the attachment points at. */
+  readonly sourceUrl?: string
+  /** referenceAttachment only: "oneDriveBusiness" | "oneDriveConsumer" | "dropbox" | "other". */
+  readonly providerType?: string
+  /** referenceAttachment only: whether the link grants view or edit access. */
+  readonly permission?: string
+  /** referenceAttachment only: true when the target is a folder rather than a file. */
+  readonly isFolder?: boolean
 }
 
 export type GraphEvent = {
@@ -296,6 +315,29 @@ export type GraphTodoList = {
   readonly wellknownListName?: string
 }
 
+export type GraphRecurrencePattern = {
+  readonly type: string
+  readonly interval: number
+  readonly dayOfMonth?: number
+  readonly daysOfWeek?: ReadonlyArray<string>
+  readonly firstDayOfWeek?: string
+  readonly index?: string
+  readonly month?: number
+}
+
+export type GraphRecurrenceRange = {
+  readonly type: string
+  readonly startDate: string
+  readonly endDate?: string
+  readonly numberOfOccurrences?: number
+  readonly recurrenceTimeZone?: string
+}
+
+export type GraphPatternedRecurrence = {
+  readonly pattern: GraphRecurrencePattern
+  readonly range: GraphRecurrenceRange
+}
+
 export type GraphTodoTask = {
   readonly id: string
   readonly title?: string
@@ -305,6 +347,7 @@ export type GraphTodoTask = {
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly dueDateTime?: { readonly dateTime?: string; readonly timeZone?: string }
   readonly completedDateTime?: { readonly dateTime?: string; readonly timeZone?: string }
+  readonly recurrence?: GraphPatternedRecurrence
   readonly createdDateTime?: string
   readonly lastModifiedDateTime?: string
 }

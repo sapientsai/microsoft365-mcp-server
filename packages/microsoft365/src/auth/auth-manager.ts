@@ -2,11 +2,11 @@ import type { TokenCredential } from "@azure/identity"
 import { Ref } from "functype"
 import { type Either, Left, Right } from "functype/either"
 import { None, type Option, Some } from "functype/option"
-import jwt from "jsonwebtoken"
 
 import type { AuthConfig, AuthError, AuthMode, AuthStatus } from "../types"
 import { createCredential, isClientProvidedToken, testCredential } from "./auth-modes"
 import type { TokenInfo } from "./auth-types"
+import { parseGrantedScopes } from "./scope-drift"
 import { GRAPH_DEFAULT_SCOPE } from "./scopes"
 import { getContextToken } from "./token-context"
 
@@ -17,25 +17,6 @@ type MutableAuthState = {
 }
 
 const authStateRef = Ref<Option<MutableAuthState>>(None())
-
-const parseJwtScopes = (token: string): ReadonlyArray<string> => {
-  try {
-    const decoded = jwt.decode(token)
-    if (decoded === null || typeof decoded !== "object") return []
-
-    if (typeof decoded.scp === "string") {
-      return decoded.scp.split(" ").filter((s: string) => s.length > 0)
-    }
-
-    if (Array.isArray(decoded.roles)) {
-      return decoded.roles as string[]
-    }
-
-    return []
-  } catch {
-    return []
-  }
-}
 
 export const initializeAuth = async (config: AuthConfig): Promise<Either<AuthError, true>> => {
   const credentialResult = createCredential(config)
@@ -84,7 +65,7 @@ export const getAuthStatus = async (): Promise<Either<AuthError, AuthStatus>> =>
   // In OAuth proxy mode, tokens come per-request via AsyncLocalStorage
   const contextToken = getContextToken()
   if (contextToken) {
-    const scopes = parseJwtScopes(contextToken)
+    const scopes = parseGrantedScopes(contextToken)
     const status: AuthStatus = {
       mode: "oauth-proxy",
       authenticated: true,
@@ -119,7 +100,7 @@ const getTokenInfo = async (credential: TokenCredential): Promise<TokenInfo> => 
     if (!isExpired) {
       const accessToken = credential.getAccessTokenValue()
       if (accessToken) {
-        const scopes = parseJwtScopes(accessToken)
+        const scopes = parseGrantedScopes(accessToken)
         return { isExpired, expiresOn, scopes }
       }
     }
@@ -130,7 +111,7 @@ const getTokenInfo = async (credential: TokenCredential): Promise<TokenInfo> => 
   try {
     const token = await credential.getToken(GRAPH_DEFAULT_SCOPE)
     if (token?.token) {
-      const scopes = parseJwtScopes(token.token)
+      const scopes = parseGrantedScopes(token.token)
       return {
         isExpired: false,
         expiresOn: new Date(token.expiresOnTimestamp),

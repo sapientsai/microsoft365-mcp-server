@@ -12,6 +12,7 @@ import type {
   GraphApiError,
   GraphApiVersion,
   GraphAttachment,
+  GraphBatchResponse,
   GraphBucket,
   GraphChannel,
   GraphChannelMessage,
@@ -46,69 +47,108 @@ const createGraphClient = (auth: AuthStrategy) => {
   const { request, requestPaginated } = createGraphRequest(auth, { defaultVersion })
 
   // Mail
-  const listMessages = (odataParams?: ODataParams) =>
-    request<ODataResponse<GraphMessage>>("GET", "/me/messages", { odataParams })
+  const listMessages = (odataParams?: ODataParams, prefix: string = "/me") =>
+    request<ODataResponse<GraphMessage>>("GET", `${prefix}/messages`, { odataParams })
 
   // Prefer: outlook.body-content-type="text" makes Graph convert the body server-side.
   // Marketing mail is mostly CSS and layout tables — one newsletter measured 79,347
   // characters as HTML — so for a caller that only needs the words this is a ~95%
   // reduction, and better than stripping tags locally.
-  const getMessage = (id: string, bodyContentType?: "text" | "html") =>
+  const getMessage = (id: string, bodyContentType?: "text" | "html", prefix: string = "/me") =>
     request<GraphMessage>(
       "GET",
-      `/me/messages/${id}`,
+      `${prefix}/messages/${id}`,
       bodyContentType ? { headers: { Prefer: `outlook.body-content-type="${bodyContentType}"` } } : undefined,
     )
 
-  const listMailFolders = (odataParams?: ODataParams) =>
-    request<ODataResponse<GraphMailFolder>>("GET", "/me/mailFolders", { odataParams })
+  const listMailFolders = (odataParams?: ODataParams, prefix: string = "/me") =>
+    request<ODataResponse<GraphMailFolder>>("GET", `${prefix}/mailFolders`, { odataParams })
 
-  const moveMessage = (id: string, destinationId: string) =>
-    request<GraphMessage>("POST", `/me/messages/${id}/move`, { body: { destinationId } })
+  // Scoped to one folder. /me/messages spans the whole mailbox, so scanning an
+  // archive without this means paging through inbox and sent mail to reach it.
+  const listFolderMessages = (folderId: string, odataParams?: ODataParams, prefix: string = "/me") =>
+    request<ODataResponse<GraphMessage>>("GET", `${prefix}/mailFolders/${folderId}/messages`, { odataParams })
 
-  // $select omits contentBytes deliberately: fileAttachment includes the full base64 payload
-  // by default, which would drag megabytes of binary through the model for a listing.
-  const listAttachments = (messageId: string) =>
-    request<ODataResponse<GraphAttachment>>("GET", `/me/messages/${messageId}/attachments`, {
-      odataParams: { $select: ["id", "name", "contentType", "size", "isInline", "lastModifiedDateTime"] },
-    })
+  const moveMessage = (id: string, destinationId: string, prefix: string = "/me") =>
+    request<GraphMessage>("POST", `${prefix}/messages/${id}/move`, { body: { destinationId } })
 
-  const sendMessage = (message: Record<string, unknown>) =>
-    request<Record<string, never>>("POST", "/me/sendMail", { body: message })
+  // Every message in one folder, across all pages, for a sweep or a roll-up. Deliberately
+  // unordered: Graph rejects a $filter on from/emailAddress combined with $orderby
+  // receivedDateTime ("The restriction or sort order is too complex"), and neither use
+  // needs an order — they need the whole set. Capped by the paginator at 50 pages.
+  const listFolderMessagesAll = (folderId: string, odataParams: ODataParams, prefix: string = "/me") =>
+    requestPaginated<GraphMessage>(`${prefix}/mailFolders/${folderId}/messages`, { odataParams })
 
-  const createDraft = (message: Record<string, unknown>) =>
-    request<GraphMessage>("POST", "/me/messages", { body: message })
+  // JSON batching: up to 20 sub-requests per round-trip, each with its own status. The
+  // only way to move thousands of messages without thousands of round-trips.
+  const batchRequest = (requests: ReadonlyArray<Record<string, unknown>>) =>
+    request<GraphBatchResponse>("POST", "/$batch", { body: { requests } })
 
-  const sendDraft = (messageId: string) => request<Record<string, never>>("POST", `/me/messages/${messageId}/send`)
+  // No $select here, deliberately — see the two constraints it has to satisfy at once.
+  //
+  // sourceUrl/providerType/permission/isFolder exist only on referenceAttachment, and
+  // @odata.type is what tells the callers which kind of attachment they have. Graph validates
+  // $select against the *base* attachment type, so naming a derived property bare rejects the
+  // entire request — "Could not find a property named 'sourceUrl' on type
+  // 'microsoft.graph.attachment'" — for every message in the mailbox, whether or not it carries a
+  // cloud link. Selecting only the base properties would parse, but then drops @odata.type and
+  // the reference fields, which is the bug this endpoint had before: cloud links were invisible.
+  //
+  // So: ask for everything, and drop contentBytes here instead. That was the only reason to
+  // $select in the first place — a fileAttachment carries its full base64 payload inline, which
+  // would drag megabytes of binary through the model for what is meant to be a listing.
+  const stripContentBytes = (response: ODataResponse<GraphAttachment>): ODataResponse<GraphAttachment> => ({
+    ...response,
+    value: response.value.map((att) => {
+      const { contentBytes: _discarded, ...rest } = att as GraphAttachment & { contentBytes?: string }
+      return rest as GraphAttachment
+    }),
+  })
 
-  const sendReply = (id: string, comment: string) =>
-    request<Record<string, never>>("POST", `/me/messages/${id}/reply`, { body: { comment } })
+  const listAttachments = (messageId: string, prefix: string = "/me") =>
+    request<ODataResponse<GraphAttachment>>("GET", `${prefix}/messages/${messageId}/attachments`).then((result) =>
+      result.map(stripContentBytes),
+    )
+
+  const sendMessage = (message: Record<string, unknown>, prefix: string = "/me") =>
+    request<Record<string, never>>("POST", `${prefix}/sendMail`, { body: message })
+
+  const createDraft = (message: Record<string, unknown>, prefix: string = "/me") =>
+    request<GraphMessage>("POST", `${prefix}/messages`, { body: message })
+
+  const sendDraft = (messageId: string, prefix: string = "/me") =>
+    request<Record<string, never>>("POST", `${prefix}/messages/${messageId}/send`)
+
+  const sendReply = (id: string, comment: string, prefix: string = "/me") =>
+    request<Record<string, never>>("POST", `${prefix}/messages/${id}/reply`, { body: { comment } })
 
   // Draft-creating reply actions: return a threaded draft (original quoted) for review.
-  const createReplyDraft = (id: string, comment: string) =>
-    request<GraphMessage>("POST", `/me/messages/${id}/createReply`, { body: { comment } })
+  const createReplyDraft = (id: string, comment: string, prefix: string = "/me") =>
+    request<GraphMessage>("POST", `${prefix}/messages/${id}/createReply`, { body: { comment } })
 
-  const createReplyAllDraft = (id: string, comment: string) =>
-    request<GraphMessage>("POST", `/me/messages/${id}/createReplyAll`, { body: { comment } })
+  const createReplyAllDraft = (id: string, comment: string, prefix: string = "/me") =>
+    request<GraphMessage>("POST", `${prefix}/messages/${id}/createReplyAll`, { body: { comment } })
 
   const createForwardDraft = (
     id: string,
     comment: string,
     toRecipients: ReadonlyArray<{ emailAddress: { address: string } }>,
-  ) => request<GraphMessage>("POST", `/me/messages/${id}/createForward`, { body: { comment, toRecipients } })
+    prefix: string = "/me",
+  ) => request<GraphMessage>("POST", `${prefix}/messages/${id}/createForward`, { body: { comment, toRecipients } })
 
   // Immediate-send reply actions: thread + quote, then send in one step.
-  const sendReplyAll = (id: string, comment: string) =>
-    request<Record<string, never>>("POST", `/me/messages/${id}/replyAll`, { body: { comment } })
+  const sendReplyAll = (id: string, comment: string, prefix: string = "/me") =>
+    request<Record<string, never>>("POST", `${prefix}/messages/${id}/replyAll`, { body: { comment } })
 
   const sendForward = (
     id: string,
     comment: string,
     toRecipients: ReadonlyArray<{ emailAddress: { address: string } }>,
-  ) => request<Record<string, never>>("POST", `/me/messages/${id}/forward`, { body: { comment, toRecipients } })
+    prefix: string = "/me",
+  ) => request<Record<string, never>>("POST", `${prefix}/messages/${id}/forward`, { body: { comment, toRecipients } })
 
-  const searchMessages = (query: string, odataParams?: ODataParams) =>
-    request<ODataResponse<GraphMessage>>("GET", "/me/messages", {
+  const searchMessages = (query: string, odataParams?: ODataParams, prefix: string = "/me") =>
+    request<ODataResponse<GraphMessage>>("GET", `${prefix}/messages`, {
       odataParams: { ...odataParams, $search: query },
     })
 
@@ -391,6 +431,12 @@ const createGraphClient = (auth: AuthStrategy) => {
   const updateTodoTask = (listId: string, taskId: string, task: Record<string, unknown>) =>
     request<GraphTodoTask>("PATCH", `/me/todo/lists/${listId}/tasks/${taskId}`, { body: task })
 
+  const getTodoTask = (listId: string, taskId: string) =>
+    request<GraphTodoTask>("GET", `/me/todo/lists/${listId}/tasks/${taskId}`)
+
+  const deleteTodoTask = (listId: string, taskId: string) =>
+    request<Record<string, never>>("DELETE", `/me/todo/lists/${listId}/tasks/${taskId}`)
+
   // Text-only file upload. Binary uploads must use get_upload_config (httpStream) or upload_file_from_path (stdio).
   const uploadFile = async (
     path: string,
@@ -460,11 +506,13 @@ const createGraphClient = (auth: AuthStrategy) => {
     requestPaginated,
     // Mail
     listMessages,
+    listFolderMessages,
+    listFolderMessagesAll,
+    batchRequest,
     getMessage,
+    listAttachments,
     listMailFolders,
     moveMessage,
-
-    listAttachments,
     sendMessage,
     createDraft,
     sendDraft,
@@ -548,6 +596,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     listTodoTasks,
     createTodoTask,
     updateTodoTask,
+    getTodoTask,
+    deleteTodoTask,
     // Upload
     uploadFile,
     // Generic
