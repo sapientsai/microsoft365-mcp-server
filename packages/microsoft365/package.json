@@ -68,7 +68,7 @@
     "@azure/identity": "^4.13.2",
     "@sapientsai/document-extract": "workspace:*",
     "dotenv": "^17.4.2",
-    "fastmcp": "^4.20.2",
+    "fastmcp": "^4.20.11",
     "functype": "^1.9.0",
     "functype-log": "^1.9.0",
     "jsonwebtoken": "^9.0.3",
