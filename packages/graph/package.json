@@ -37,7 +37,7 @@
   "dependencies": {
     "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.0",
     "functype": "^1.9.0",
     "somamcp": "^1.4.0",
     "zod": "^4.5.4"
