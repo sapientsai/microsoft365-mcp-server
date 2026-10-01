@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type {
+  GraphDriveItem,
   GraphEvent,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
@@ -12,6 +13,8 @@ import type {
   GraphUser,
 } from "../src/types"
 import {
+  formatDriveItemDetail,
+  formatDriveItemList,
   formatEventDetail,
   formatEventList,
   formatMeetingTimeSuggestions,
@@ -208,6 +211,78 @@ describe("formatters", () => {
       expect(result).toContain("# Pages")
       expect(result).toContain("Meeting Notes")
       expect(result).toContain("ID: pg-1")
+    })
+  })
+  describe("drive item formatters", () => {
+    const item: GraphDriveItem = {
+      id: "item-1",
+      name: "Plan.docx",
+      size: 2048,
+      lastModifiedDateTime: "2026-09-30T12:00:00Z",
+      file: { mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+      parentReference: { driveId: "drive-1", id: "parent-1", path: "/drive/root:/Work/Oncala" },
+    }
+
+    it("shows the parent path, parent ID and drive ID in the detail view", () => {
+      const result = formatDriveItemDetail(item)
+      expect(result).toContain("- Parent Path: /drive/root:/Work/Oncala")
+      expect(result).toContain("- Parent ID: parent-1")
+      expect(result).toContain("- Drive ID: drive-1")
+    })
+
+    it("omits the parent lines when Graph returns no parentReference", () => {
+      const result = formatDriveItemDetail({ id: "item-2", name: "Loose.txt" })
+      expect(result).not.toContain("Parent")
+      expect(result).not.toContain("Drive ID")
+    })
+
+    it("puts the parent path and modified date on each summary line", () => {
+      const result = formatDriveItemList([item])
+      expect(result).toContain("- in /drive/root:/Work/Oncala")
+      expect(result).toContain("- modified 2026-09-30T12:00:00Z")
+    })
+
+    it("falls back to the parent ID when the path is missing, as /search returns", () => {
+      const result = formatDriveItemList([{ ...item, parentReference: { driveId: "drive-1", id: "parent-1" } }])
+      expect(result).toContain("- parent ID: parent-1")
+      expect(result).not.toContain("- in ")
+    })
+
+    it("keeps the bare summary line when Graph returns neither parent nor date", () => {
+      expect(formatDriveItemList([{ id: "item-3", name: "Bare" }])).toBe("# Files\n\n- **Bare** (ID: item-3) - File")
+    })
+
+    it("decodes a percent-encoded parent path in both views", () => {
+      const encoded = {
+        ...item,
+        parentReference: { id: "parent-1", path: "/drive/root:/Client%20Files/100%25%20Done" },
+      }
+      expect(formatDriveItemDetail(encoded)).toContain("- Parent Path: /drive/root:/Client Files/100% Done")
+      expect(formatDriveItemList([encoded])).toContain("- in /drive/root:/Client Files/100% Done")
+    })
+
+    it("prints a malformed path as Graph sent it instead of throwing", () => {
+      const malformed = { ...item, parentReference: { path: "/drive/root:/Bad%ZZ" } }
+      expect(formatDriveItemList([malformed])).toContain("- in /drive/root:/Bad%ZZ")
+    })
+
+    it("shows a folder's parent on its summary line", () => {
+      const folder: GraphDriveItem = {
+        id: "folder-1",
+        name: "Reports",
+        folder: { childCount: 3 },
+        parentReference: { path: "/drive/root:/Work" },
+      }
+      expect(formatDriveItemList([folder])).toContain(
+        "- **Reports** (ID: folder-1) - Folder (3 items) - in /drive/root:/Work",
+      )
+    })
+
+    it("shows only the parent ID in the detail view when Graph omits the path", () => {
+      const result = formatDriveItemDetail({ ...item, parentReference: { id: "parent-1" } })
+      expect(result).toContain("- Parent ID: parent-1")
+      expect(result).not.toContain("Parent Path")
+      expect(result).not.toContain("Drive ID")
     })
   })
 })

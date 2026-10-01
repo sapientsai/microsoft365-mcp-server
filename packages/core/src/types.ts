@@ -51,5 +51,14 @@ export type GraphDriveItem = {
   readonly lastModifiedBy?: { readonly user?: { readonly displayName?: string } }
   readonly folder?: { readonly childCount?: number }
   readonly file?: { readonly mimeType?: string }
+  // `path` is the folder in drive-path form, e.g. "/drive/root:/Work". Graph may omit it
+  // (search results, items outside the default drive), so callers must not rely on it alone.
+  readonly parentReference?: {
+    readonly driveId?: string
+    readonly driveType?: string
+    readonly id?: string
+    readonly name?: string
+    readonly path?: string
+  }
   readonly "@microsoft.graph.downloadUrl"?: string
 }

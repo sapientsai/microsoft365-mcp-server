@@ -315,6 +315,18 @@ ${phones}`
 }
 
 // Files
+
+// Graph percent-encodes parentReference.path ("/drive/root:/Client%20Files"). Decode it once here
+// so callers can match folder names directly and never need to decode again. A malformed escape
+// would make decodeURIComponent throw, so print such a path as Graph sent it.
+const decodeDrivePath = (path: string): string => {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
 export const formatDriveItemSummary = (item: GraphDriveItem): string => {
   const type = item.folder ? `Folder (${item.folder.childCount ?? 0} items)` : (item.file?.mimeType ?? "File")
   const size = Option(item.size)
@@ -323,7 +335,16 @@ export const formatDriveItemSummary = (item: GraphDriveItem): string => {
       () => "",
       (v) => v,
     )
-  return `- **${item.name ?? "Untitled"}** (ID: ${item.id}) - ${type}${size}`
+  // Graph's /search returns parentReference without `path`; the parent ID still lets a caller
+  // resolve the folder, so fall back to it rather than print nothing.
+  const parent = Option(item.parentReference?.path)
+    .map((path) => ` - in ${decodeDrivePath(path)}`)
+    .or(Option(item.parentReference?.id).map((id) => ` - parent ID: ${id}`))
+    .orElse("")
+  const modified = Option(item.lastModifiedDateTime)
+    .map((date) => ` - modified ${date}`)
+    .orElse("")
+  return `- **${item.name ?? "Untitled"}** (ID: ${item.id}) - ${type}${size}${parent}${modified}`
 }
 
 export const formatDriveItemList = (items: ReadonlyArray<GraphDriveItem>): string =>
@@ -336,11 +357,18 @@ export const formatDriveItemDetail = (item: GraphDriveItem): string => {
       () => "",
       (v) => v,
     )
+  const parentLines = [
+    Option(item.parentReference?.path).map((path) => `\n- Parent Path: ${decodeDrivePath(path)}`),
+    Option(item.parentReference?.id).map((id) => `\n- Parent ID: ${id}`),
+    Option(item.parentReference?.driveId).map((id) => `\n- Drive ID: ${id}`),
+  ]
+    .map((line) => line.orElse(""))
+    .join("")
 
   return `# ${item.name ?? "Untitled"}
 
 ## Details
-- ID: ${item.id}
+- ID: ${item.id}${parentLines}
 - Type: ${item.folder ? "Folder" : "File"}
 - Size: ${formatBytes(item.size ?? 0)}
 - MIME Type: ${item.file?.mimeType ?? "N/A"}
