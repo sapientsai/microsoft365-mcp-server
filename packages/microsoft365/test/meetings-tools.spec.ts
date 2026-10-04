@@ -377,6 +377,14 @@ describe("getMeetingTranscript", () => {
     expect(result.value).toContain("[truncated: chars 0–50,000 of 183,402; call again with offset: 50000]")
   })
 
+  it("never splits an emoji across two parts", async () => {
+    stubFetch([{ ok: true, status: 200, body: `${"x".repeat(49)}😀${"y".repeat(50)}` }]) // 😀 is 2 UTF-16 units at 49–50
+
+    const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID, max_chars: 50 })
+
+    expect(result.value).toContain(`${"x".repeat(49)}😀\n\n[truncated: chars 0–51 of 101; call again with offset: 51]`)
+  })
+
   it("adds no marker when the whole transcript fits", async () => {
     stubFetch([{ ok: true, status: 200, body: VTT }])
 

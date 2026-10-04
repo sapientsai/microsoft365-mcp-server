@@ -205,7 +205,11 @@ export const sliceTranscript = (text: string, offset: number, maxChars: number):
     return Left(new UserError(`offset ${offset} is past the end of the transcript (${total.toLocaleString()} chars)`))
   }
 
-  const end = Math.min(offset + maxChars, total)
+  // Never end a window between the two halves of an emoji (a UTF-16 surrogate pair): a lone half
+  // breaks UTF-8 encoding in the client. Step forward, not back — stepping back with max_chars 1
+  // would name the same offset forever.
+  const cut = Math.min(offset + maxChars, total)
+  const end = cut < total && (text.charCodeAt(cut - 1) & 0xfc00) === 0xd800 ? cut + 1 : cut
   const window = text.slice(offset, end)
   const range = `chars ${offset.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}`
 
