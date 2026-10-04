@@ -83,7 +83,7 @@
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.13.3",
-    "ts-builds": "^3.4.1",
+    "ts-builds": "^3.4.3",
     "tsdown": "^0.23.0"
   },
   "engines": {
