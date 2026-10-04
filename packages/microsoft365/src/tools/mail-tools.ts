@@ -18,6 +18,19 @@ const requireClient = () => {
   return client.orThrow()
 }
 
+// list_messages always sorts by receivedDateTime, and Graph rejects a $filter that does not lead
+// with the sort property: "InefficientFilter — The restriction or sort order is too complex for
+// this operation" (List messages docs, "Using filter and orderby in the same query"; confirmed live
+// 2026-10-04 with "importance eq 'high'"). Putting a condition every message satisfies first lets any
+// caller filter through while results stay newest first, which dropping the sort would not.
+const ALWAYS_TRUE_DATE_CONDITION = "receivedDateTime ge 1900-01-01T00:00:00Z"
+const LEADS_WITH_SORT_FIELD = /^\s*\(*\s*receivedDateTime\b/i
+
+export const orderableFilter = (filter?: string): string | undefined => {
+  if (filter === undefined || filter.trim() === "") return undefined
+  return LEADS_WITH_SORT_FIELD.test(filter) ? filter : `${ALWAYS_TRUE_DATE_CONDITION} and (${filter})`
+}
+
 export const listMessages = async (params: {
   top?: number
   filter?: string
@@ -32,7 +45,7 @@ export const listMessages = async (params: {
   // HTML, which the listing never prints.
   const odataParams = {
     $select: MESSAGE_SUMMARY_FIELDS,
-    $filter: params.filter,
+    $filter: orderableFilter(params.filter),
     $orderby: "receivedDateTime desc",
   }
   const options = { preview: params.include_preview ?? false }

@@ -20,6 +20,7 @@ import {
   listMailFolders,
   listMessages,
   moveMessage,
+  orderableFilter,
   searchMessages,
   listAttachments,
   sendDraft,
@@ -395,7 +396,11 @@ describe("mail-tools", () => {
       })
 
       expect(mockClient.listAllMessages).toHaveBeenCalledWith(
-        { $select: MESSAGE_SUMMARY_FIELDS, $filter: "isRead eq true", $orderby: "receivedDateTime desc" },
+        {
+          $select: MESSAGE_SUMMARY_FIELDS,
+          $filter: "receivedDateTime ge 1900-01-01T00:00:00Z and (isRead eq true)",
+          $orderby: "receivedDateTime desc",
+        },
         "inbox",
       )
       expect(mockClient.listMessages).not.toHaveBeenCalled()
@@ -412,6 +417,48 @@ describe("mail-tools", () => {
       expect(result.value).toContain(
         "from Jane Doe <jane@example.com> (2026-10-03T09:00:00Z) (Message-ID: <q3@mail.example.com>) (ID: m1)",
       )
+    })
+  })
+
+  // Graph answers InefficientFilter when the sort property (receivedDateTime) does not lead the filter.
+  // Seen live on 2026-10-04 with "importance eq 'high'".
+  describe("orderableFilter", () => {
+    it("puts an always-true date condition before a filter that does not lead with receivedDateTime", () => {
+      expect(orderableFilter("importance eq 'high'")).toBe(
+        "receivedDateTime ge 1900-01-01T00:00:00Z and (importance eq 'high')",
+      )
+    })
+
+    it("keeps the caller's grouping, so an or-filter is not split", () => {
+      expect(orderableFilter("isRead eq false or importance eq 'high'")).toBe(
+        "receivedDateTime ge 1900-01-01T00:00:00Z and (isRead eq false or importance eq 'high')",
+      )
+    })
+
+    it("leaves a filter that already leads with receivedDateTime alone", () => {
+      const filters = [
+        "receivedDateTime ge 2026-10-01T00:00:00Z and isRead eq false",
+        "  (receivedDateTime ge 2026-10-01T00:00:00Z or importance eq 'high')",
+        "ReceivedDateTime ge 2026-10-01T00:00:00Z",
+      ]
+      for (const filter of filters) expect(orderableFilter(filter)).toBe(filter)
+    })
+
+    it("still prefixes a filter that names receivedDateTime only later", () => {
+      expect(orderableFilter("isRead eq false and receivedDateTime ge 2026-10-01T00:00:00Z")).toMatch(
+        /^receivedDateTime ge 1900-01-01T00:00:00Z and \(isRead eq false/,
+      )
+    })
+
+    it("does not mistake a longer property name for receivedDateTime", () => {
+      expect(orderableFilter("receivedDateTimeX eq 1")).toBe(
+        "receivedDateTime ge 1900-01-01T00:00:00Z and (receivedDateTimeX eq 1)",
+      )
+    })
+
+    it("sends no filter for a missing or blank one", () => {
+      expect(orderableFilter(undefined)).toBeUndefined()
+      expect(orderableFilter("   ")).toBeUndefined()
     })
   })
 

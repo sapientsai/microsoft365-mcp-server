@@ -266,10 +266,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "OData filter expression. Results are sorted by receivedDateTime, and Graph requires the sort " +
-            "property to appear in the filter, first: start with a receivedDateTime condition, e.g. " +
-            '"receivedDateTime ge 2026-10-01T00:00:00Z and isRead eq false", or Graph may reject the filter ' +
-            "as InefficientFilter. To restrict to one folder, use folder instead of filtering on parentFolderId.",
+          'OData filter expression, e.g. "importance eq \'high\'" or "isRead eq false". Results are sorted ' +
+            "newest first, and Graph rejects a filter that does not lead with receivedDateTime, so the tool " +
+            "puts an always-true receivedDateTime condition first when yours does not start with one. To " +
+            "restrict to one folder, use folder instead of filtering on parentFolderId.",
         ),
       folder: z
         .string()

@@ -34,6 +34,7 @@
     "test:coverage": "ts-builds test:coverage",
     "build": "NODE_ENV=production ts-builds build && node scripts/check-bundle-deferral.mjs",
     "check:install": "node scripts/check-npm-install.mjs",
+    "smoke:live": "node scripts/smoke-live.mjs",
     "dev": "ts-builds dev",
     "prepublishOnly": "pnpm validate",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",

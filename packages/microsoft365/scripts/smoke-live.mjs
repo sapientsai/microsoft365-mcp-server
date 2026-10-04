@@ -1,0 +1,223 @@
+#!/usr/bin/env node
+// Drives the BUILT server against real Microsoft Graph, before a release.
+//
+// The unit suite replaces Graph with a fake that accepts any query, so it cannot see Graph's own
+// rules. 1.2.9 shipped with list_messages unable to filter on importance ("InefficientFilter") while
+// 299 tests passed. This script is the missing check: it starts dist/bin.js over stdio, speaks MCP to
+// it, and calls the tools with the queries callers actually send.
+//
+// It needs a real sign-in, so it is not part of validate or CI. Run it before tagging:
+//
+//   pnpm build && pnpm --filter microsoft365-mcp-server smoke:live
+//
+// In the default interactive mode the server blocks at startup until the Microsoft sign-in in the
+// browser completes. Credentials come from the repo-root .env (MS365_CLIENT_ID, MS365_TENANT_ID, ...)
+// or the shell; MS365_ORG_MODE=true is needed for the meeting tools.
+//
+// Data-dependent checks SKIP rather than fail when the account has nothing to test with. Set
+// SMOKE_MEETING_ID to page through that meeting's first transcript.
+//
+// Output is tool names, pass/fail/skip and counts only. Tool output can hold mail and file contents
+// and lands wherever this is run (an agent transcript included), so it is never printed; nor is the
+// environment. Server stderr is forwarded only for its setup and sign-in lines.
+
+import { spawn } from "node:child_process"
+import { dirname, join } from "node:path"
+import { createInterface } from "node:readline"
+import { fileURLToPath } from "node:url"
+
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
+const REPO_ROOT = join(PACKAGE_ROOT, "..", "..")
+const STARTUP_TIMEOUT_MS = 300_000 // covers a browser sign-in
+const CALL_TIMEOUT_MS = 90_000
+
+const FORWARDED_STDERR = /^\s*(\[(Setup|Server|Error|Auth)\]|Authentication Required|Please visit|And enter code)/
+
+// The server loads .env from its working directory, so it runs from the repo root.
+const server = spawn(process.execPath, [join(PACKAGE_ROOT, "dist", "bin.js")], {
+  cwd: REPO_ROOT,
+  env: { ...process.env, TRANSPORT_TYPE: "stdio" },
+  stdio: ["pipe", "pipe", "pipe"],
+})
+
+// A write after the server has exited raises EPIPE; the exit handler below already reports it.
+server.stdin.on("error", () => {})
+
+createInterface({ input: server.stderr }).on("line", (line) => {
+  if (FORWARDED_STDERR.test(line)) console.error(`  server: ${line.trim()}`)
+})
+
+const pending = new Map()
+let nextId = 1
+
+createInterface({ input: server.stdout }).on("line", (line) => {
+  let message
+  try {
+    message = JSON.parse(line)
+  } catch {
+    return // not JSON-RPC; never echoed, since it could hold anything
+  }
+  const waiter = pending.get(message.id)
+  if (waiter) {
+    pending.delete(message.id)
+    waiter(message)
+  }
+})
+
+let exited = false
+server.on("exit", (code) => {
+  exited = true
+  for (const waiter of pending.values()) waiter({ error: { message: `server exited (code ${code})` } })
+  pending.clear()
+})
+
+const rpc = (method, params, timeoutMs) =>
+  new Promise((resolve) => {
+    if (exited) return resolve({ error: { message: "server is not running" } })
+    const id = nextId++
+    const timer = setTimeout(() => {
+      pending.delete(id)
+      resolve({ error: { message: `no response within ${timeoutMs / 1000}s` } })
+    }, timeoutMs)
+    pending.set(id, (message) => {
+      clearTimeout(timer)
+      resolve(message)
+    })
+    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`)
+  })
+
+const firstLine = (text) =>
+  String(text ?? "")
+    .split("\n")[0]
+    .slice(0, 200)
+
+/** Calls a tool. Returns { ok, text } or { ok: false, error }. */
+const call = async (name, args) => {
+  const response = await rpc("tools/call", { name, arguments: args }, CALL_TIMEOUT_MS)
+  if (response.error) return { ok: false, error: firstLine(response.error.message) }
+  const text = (response.result?.content ?? []).map((part) => part.text ?? "").join("\n")
+  if (response.result?.isError) return { ok: false, error: firstLine(text) }
+  return { ok: true, text }
+}
+
+const results = []
+const record = (status, name, detail) => {
+  results.push(status)
+  console.log(`${status.padEnd(4)}  ${name}${detail ? ` — ${detail}` : ""}`)
+}
+
+const messageLines = (text) => text.split("\n").filter((line) => line.startsWith("- **"))
+
+// One list_messages case: Graph must accept the query, and every line must end with the Graph ID.
+const listCase = async (label, args) => {
+  const result = await call("list_messages", args)
+  if (!result.ok) return record("FAIL", label, result.error)
+  const lines = messageLines(result.text)
+  const malformed = lines.filter((line) => !/\(ID: [^)]+\)$/.test(line))
+  if (malformed.length > 0) return record("FAIL", label, `${malformed.length} line(s) do not end with "(ID: ...)"`)
+  record("PASS", label, `${lines.length} message(s)`)
+  return lines
+}
+
+const main = async () => {
+  console.log("Starting the server (sign in in the browser if one opens)...")
+  const init = await rpc(
+    "initialize",
+    { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "smoke-live", version: "1" } },
+    STARTUP_TIMEOUT_MS,
+  )
+  if (init.error) {
+    record("FAIL", "server start", `${firstLine(init.error.message)} — check MS365_CLIENT_ID and the sign-in`)
+    return
+  }
+  server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`)
+
+  const me = await call("get_me", {})
+  if (!me.ok) {
+    record("FAIL", "get_me", me.error)
+    return // nothing below can work without a signed-in user
+  }
+  record("PASS", "get_me")
+
+  // Mail: the filters callers send. Each would fail with InefficientFilter if the sort property did
+  // not lead the filter Graph receives.
+  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().replace(/\.\d+Z$/, "Z")
+  await listCase("list_messages", { top: 3 })
+  const high = await listCase("list_messages filter importance eq 'high'", { top: 3, filter: "importance eq 'high'" })
+  await listCase("list_messages filter isRead eq false", { top: 3, filter: "isRead eq false" })
+  await listCase("list_messages filter receivedDateTime ge (7 days ago)", {
+    top: 3,
+    filter: `receivedDateTime ge ${weekAgo}`,
+  })
+  await listCase("list_messages folder inbox, with previews", { top: 3, folder: "inbox", include_preview: true })
+  await listCase("list_messages folder sentitems", { top: 3, folder: "sentitems" })
+  await listCase("list_messages folder inbox, fetch_all_pages, date filter", {
+    folder: "inbox",
+    fetch_all_pages: true,
+    filter: `receivedDateTime ge ${weekAgo}`,
+  })
+
+  if (!high || high.length === 0) record("SKIP", "[High importance] flag", "no high-importance mail")
+  else if (high.every((line) => line.includes("[High importance]"))) record("PASS", "[High importance] flag")
+  else record("FAIL", "[High importance] flag", "a high-importance message printed without the flag")
+
+  const search = await call("search_messages", { query: "meeting", top: 3 })
+  if (!search.ok) record("FAIL", "search_messages", search.error)
+  else record("PASS", "search_messages", `${messageLines(search.text).length} message(s)`)
+
+  // Files: a .log OneDrive stored with an unknown type must come back as text.
+  const files = await call("search_files", { query: "log" })
+  if (!files.ok) {
+    record("FAIL", "search_files", files.error)
+  } else {
+    record("PASS", "search_files")
+    const log = files.text.match(/^- \*\*[^*]+\.log\*\* \(ID: ([^)]+)\) - File/m)
+    if (!log) {
+      record("SKIP", "download_file / read_document on a .log", "no .log file found")
+    } else {
+      const download = await call("download_file", { item_id: log[1] })
+      if (!download.ok) record("FAIL", "download_file .log", download.error)
+      else if (download.text.includes("## Content")) record("PASS", "download_file .log", "content shown")
+      else record("SKIP", "download_file .log", "over the 100 KB inline limit, or not text")
+      const read = await call("read_document", { path: `/me/drive/items/${log[1]}/content`, max_chars: 2000 })
+      record(read.ok ? "PASS" : "FAIL", "read_document .log", read.ok ? "" : read.error)
+    }
+  }
+
+  // Transcripts: page through until the last part, following each marker's offset.
+  const meetingId = process.env.SMOKE_MEETING_ID
+  if (!meetingId) {
+    record("SKIP", "transcript paging", "set SMOKE_MEETING_ID to test it")
+    return
+  }
+  const transcripts = await call("list_meeting_transcripts", { meeting_id: meetingId })
+  const transcriptId = transcripts.ok ? transcripts.text.match(/transcript_id: `([^`]+)`/)?.[1] : undefined
+  if (!transcripts.ok) return record("FAIL", "list_meeting_transcripts", transcripts.error)
+  if (!transcriptId) return record("SKIP", "transcript paging", "the meeting has no transcript")
+
+  let offset = 0
+  for (let part = 1; part <= 20; part++) {
+    const page = await call("get_meeting_transcript", {
+      meeting_id: meetingId,
+      transcript_id: transcriptId,
+      max_chars: 20_000,
+      offset,
+    })
+    if (!page.ok) return record("FAIL", "transcript paging", `part ${part}: ${page.error}`)
+    const next = page.text.match(/call again with offset: (\d+)\]$/)
+    if (!next) return record("PASS", "transcript paging", `${part} part(s)`)
+    if (Number(next[1]) <= offset) return record("FAIL", "transcript paging", "the offset did not advance")
+    offset = Number(next[1])
+  }
+  record("FAIL", "transcript paging", "no end marker after 20 parts")
+}
+
+await main()
+server.kill()
+
+const failed = results.filter((status) => status === "FAIL").length
+const skipped = results.filter((status) => status === "SKIP").length
+console.log(
+  `\n${failed === 0 ? "✔" : "✗"} smoke:live — ${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped`,
+)
+process.exit(failed === 0 ? 0 : 1)
