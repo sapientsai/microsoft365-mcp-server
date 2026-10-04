@@ -21,6 +21,6 @@
     "build:mcpb": "pnpm --filter microsoft365-mcp-server build:mcpb"
   },
   "devDependencies": {
-    "ts-builds": "^3.4.3"
+    "ts-builds": "^4.0.0"
   }
 }
