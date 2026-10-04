@@ -41,7 +41,7 @@
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/node": "^24.13.3",
     "ts-builds": "^3.4.1",
-    "tsdown": "^0.22.14"
+    "tsdown": "^0.23.0"
   },
   "engines": {
     "node": ">=22"

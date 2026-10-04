@@ -37,15 +37,15 @@
   "dependencies": {
     "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.5",
     "functype": "^1.9.0",
     "somamcp": "^1.4.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "ts-builds": "^3.4.1",
-    "tsdown": "^0.22.14"
+    "tsdown": "^0.23.0"
   },
   "engines": {
     "node": ">=22"

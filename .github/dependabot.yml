@@ -9,3 +9,9 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    ignore:
+      # @types/node tracks the runtime: .nvmrc pins Node 24 and engines allow >=22. Types for a newer
+      # major typecheck APIs that do not exist at runtime, and nothing else here would catch that.
+      # Raise it together with .nvmrc instead.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
