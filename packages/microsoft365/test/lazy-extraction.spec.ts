@@ -75,23 +75,39 @@ describe("extraction stays off the startup path", () => {
     expect(dynamic[0]).toMatch(/read-document-tools\.ts$/)
   })
 
-  // §11.4: core is a devDependency and gets bundled by tsdown, which is fine because it is cheap.
-  // The extract package must NOT follow that pattern — a bundled dependency is inlined, which would
-  // turn the dynamic import into a no-op and load the parsers at startup after all. Declaring it a
-  // real dependency is what keeps it external and the import genuinely deferred.
-  it("declares the extract package as a runtime dependency, not a devDependency", () => {
+  // The extract package is a devDependency on purpose, like core. tsdown inlines devDependencies, and
+  // for a dynamic import it emits a separate chunk loaded through `import("./<chunk>.js")`, so the
+  // deferral survives inlining. It used to be a runtime dependency on the belief that inlining
+  // would turn the dynamic import into a no-op. That left `"@sapientsai/document-extract":
+  // "workspace:*"` in the published manifest, and since the package is private, `npm install
+  // microsoft365-mcp-server` failed with EUNSUPPORTEDPROTOCOL for every published version.
+  //
+  // The parsers are the opposite: runtime dependencies, so tsdown keeps them external and npm
+  // installs them. As devDependencies they would be inlined into the chunk.
+  it("bundles the extract package and leaves the parsers to npm", () => {
     const pkg = JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf-8")) as {
       dependencies?: Record<string, string>
       devDependencies?: Record<string, string>
     }
 
-    expect(pkg.dependencies?.[EXTRACT_PACKAGE]).toBeDefined()
-    expect(pkg.devDependencies?.[EXTRACT_PACKAGE]).toBeUndefined()
+    expect(pkg.devDependencies?.[EXTRACT_PACKAGE]).toBeDefined()
+    expect(pkg.dependencies?.[EXTRACT_PACKAGE]).toBeUndefined()
+    for (const parser of PARSERS) expect(pkg.dependencies?.[parser]).toBeDefined()
+  })
+
+  // A workspace: specifier in dependencies is what npm cannot install. Any of them, not just extract.
+  it("declares no workspace package as a runtime dependency", () => {
+    const pkg = JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf-8")) as {
+      dependencies?: Record<string, string>
+    }
+
+    const workspace = Object.entries(pkg.dependencies ?? {}).filter(([, range]) => range.startsWith("workspace:"))
+    expect(workspace).toEqual([])
   })
 })
 
-// The bundle half of this guard — asserting the emitted dist/ still reaches extraction through a
-// dynamic `import(...)` and did not inline the parsers — lives in scripts/check-bundle-deferral.mjs
-// and runs as part of `pnpm build`. It cannot live here: `ts-builds validate` runs test before
+// The bundle half of this guard — asserting the emitted dist/ reaches extraction only through a
+// dynamic `import(...)` of a local chunk, and did not inline the parsers — lives in
+// scripts/check-bundle-deferral.mjs and runs as part of `pnpm build`. It cannot live here: `ts-builds validate` runs test before
 // build, so a vitest assertion about dist/ either skips on a clean checkout or reads a stale
 // artifact locally. Neither state tests anything.

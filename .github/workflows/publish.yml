@@ -38,6 +38,11 @@ jobs:
           echo "Files to be published:"
           npm pack --dry-run
 
+      # Before the release and the publish: a tarball npm cannot install must never be released.
+      - name: Check the package installs from npm
+        working-directory: packages/microsoft365
+        run: node scripts/check-npm-install.mjs
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:

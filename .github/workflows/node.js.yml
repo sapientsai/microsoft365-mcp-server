@@ -27,3 +27,8 @@ jobs:
 
       - name: Run CI Pipeline
         run: pnpm run validate
+
+      # Installs the packed artifact with plain npm, outside the workspace. validate cannot catch a
+      # manifest npm cannot install: every check it runs resolves dependencies through pnpm.
+      - name: Check the package installs from npm
+        run: node packages/microsoft365/scripts/check-npm-install.mjs

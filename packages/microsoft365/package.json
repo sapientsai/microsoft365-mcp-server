@@ -33,6 +33,7 @@
     "test:watch": "ts-builds test:watch",
     "test:coverage": "ts-builds test:coverage",
     "build": "NODE_ENV=production ts-builds build && node scripts/check-bundle-deferral.mjs",
+    "check:install": "node scripts/check-npm-install.mjs",
     "dev": "ts-builds dev",
     "prepublishOnly": "pnpm validate",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",
@@ -66,15 +67,18 @@
   "homepage": "https://github.com/sapientsai/microsoft365-mcp-server#readme",
   "dependencies": {
     "@azure/identity": "^4.13.2",
-    "@sapientsai/document-extract": "workspace:*",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "fastmcp": "^4.20.2",
     "functype": "^1.9.0",
     "functype-log": "^1.9.0",
     "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.12.2",
+    "unpdf": "^1.8.1",
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.13.3",

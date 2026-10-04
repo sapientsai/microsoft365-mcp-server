@@ -97,12 +97,12 @@ importers:
       '@azure/identity':
         specifier: ^4.13.2
         version: 4.13.2(supports-color@7.2.0)
-      '@sapientsai/document-extract':
-        specifier: workspace:*
-        version: link:../extract
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      exceljs:
+        specifier: ^4.4.0
+        version: 4.4.0
       fastmcp:
         specifier: ^4.20.2
         version: 4.20.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
@@ -115,10 +115,19 @@ importers:
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
+      mammoth:
+        specifier: ^1.12.2
+        version: 1.12.2
+      unpdf:
+        specifier: ^1.8.1
+        version: 1.8.1
       zod:
         specifier: ^4.5.4
         version: 4.5.4
     devDependencies:
+      '@sapientsai/document-extract':
+        specifier: workspace:*
+        version: link:../extract
       '@sapientsai/ms-graph-core':
         specifier: workspace:*
         version: link:../core
