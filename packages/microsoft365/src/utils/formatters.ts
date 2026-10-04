@@ -44,9 +44,10 @@ export const MESSAGE_SUMMARY_FIELDS = [
 export type MessageSummaryOptions = { readonly preview?: boolean }
 
 // Name and address both, when both exist: callers match senders by address, and a display name
-// alone ("Jane") cannot be matched reliably.
+// alone ("Jane") cannot be matched reliably. Angle brackets are stripped from the name so the
+// only <...> in the sender is the address: "Jane <Sales>" would otherwise parse as address "Sales".
 const formatSender = (msg: GraphMessage): string => {
-  const name = msg.from?.emailAddress.name
+  const name = msg.from?.emailAddress.name?.replace(/[<>]/g, "").trim()
   const address = msg.from?.emailAddress.address
   if (name && address && name !== address) return `${name} <${address}>`
   return address ?? name ?? "Unknown"
@@ -56,7 +57,8 @@ export const formatMessageSummary = (msg: GraphMessage, options: MessageSummaryO
   const read = msg.isRead ? "" : " [Unread]"
   const attachments = msg.hasAttachments ? " [Attachments]" : ""
   // internetMessageId is the RFC 5322 Message-ID, the same in every mailbox that holds the message,
-  // unlike the Graph ID. It already carries its angle brackets.
+  // unlike the Graph ID. It already carries its angle brackets. It goes BEFORE "(ID: ...)": callers
+  // parse the Graph ID as the line's last element, and Graph returns a Message-ID for nearly all mail.
   const messageId = Option(msg.internetMessageId)
     .map((id) => ` (Message-ID: ${id})`)
     .orElse("")
@@ -66,7 +68,7 @@ export const formatMessageSummary = (msg: GraphMessage, options: MessageSummaryO
         .map((text) => `\n  > ${text}`)
         .orElse("")
     : ""
-  return `- **${msg.subject ?? "(No Subject)"}** from ${formatSender(msg)} (${msg.receivedDateTime ?? ""})${read}${attachments} (ID: ${msg.id})${messageId}${preview}`
+  return `- **${msg.subject ?? "(No Subject)"}** from ${formatSender(msg)} (${msg.receivedDateTime ?? ""})${read}${attachments}${messageId} (ID: ${msg.id})${preview}`
 }
 
 const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment"

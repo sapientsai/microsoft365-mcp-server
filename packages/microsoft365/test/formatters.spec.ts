@@ -74,9 +74,24 @@ describe("formatters", () => {
 
     it("shows the internetMessageId when Graph returns it", () => {
       expect(formatMessageList([{ ...message, internetMessageId: "<abc@mail.example.com>" }])).toContain(
-        "(ID: msg-1) (Message-ID: <abc@mail.example.com>)",
+        "(Message-ID: <abc@mail.example.com>) (ID: msg-1)",
       )
       expect(formatMessageList([message])).not.toContain("Message-ID")
+    })
+
+    // Callers parse the Graph ID as the last element of each line; anything appended after it breaks them.
+    it("ends every summary line with the Graph ID", () => {
+      const line = formatMessageList([{ ...message, internetMessageId: "<abc@mail.example.com>" }])
+        .split("\n")
+        .pop()
+      expect(line).toMatch(/\(ID: msg-1\)$/)
+    })
+
+    it("strips angle brackets from a display name, so the address is the only <...>", () => {
+      const result = formatMessageList([
+        { id: "m", from: { emailAddress: { name: "Jane <Sales>", address: "j@x.com" } } },
+      ])
+      expect(result).toContain("from Jane Sales <j@x.com> (")
     })
 
     it("adds the body preview only when asked, on one collapsed line", () => {

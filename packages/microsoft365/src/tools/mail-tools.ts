@@ -37,16 +37,27 @@ export const listMessages = async (params: {
   }
   const options = { preview: params.include_preview ?? false }
 
+  // Same resolution as move_message, so both tools accept the same folder names.
+  const resolved = params.folder === undefined ? undefined : await resolveDestination(client, params.folder)
+  if (resolved?.isLeft()) return Left(resolved.value as UserError)
+  const target = resolved?.orThrow()
+
+  const toUserError = (error: { message: string }) =>
+    target?.assumedId
+      ? new UserError(
+          `No top-level folder is named "${params.folder}", and Graph rejected it as a folder ID: ` +
+            `${error.message}. Check list_mail_folders for the name, or pass a subfolder's ID.`,
+        )
+      : new UserError(`Failed to list messages: ${error.message}`)
+
   if (params.fetch_all_pages) {
-    const result = await client.listAllMessages(odataParams, params.folder)
-    return result
-      .mapLeft((error) => new UserError(`Failed to list messages: ${error.message}`))
-      .map((items) => formatMessageList(items as ReadonlyArray<GraphMessage>, options))
+    const result = await client.listAllMessages(odataParams, target?.id)
+    return result.mapLeft(toUserError).map((items) => formatMessageList(items as ReadonlyArray<GraphMessage>, options))
   }
 
-  const result = await client.listMessages({ ...odataParams, $top: params.top ?? 25 }, params.folder)
+  const result = await client.listMessages({ ...odataParams, $top: params.top ?? 25 }, target?.id)
   return result
-    .mapLeft((error) => new UserError(`Failed to list messages: ${error.message}`))
+    .mapLeft(toUserError)
     .map((response) => formatMessageList((response as ODataResponse<GraphMessage>).value, options))
 }
 

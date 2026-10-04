@@ -275,8 +275,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "Only this folder: a well-known name (inbox, sentitems, drafts, deleteditems, archive, junkemail) " +
-            "or a folder ID from list_mail_folders. Default: every folder.",
+          "Only this folder: a well-known name (inbox, sentitems, drafts, deleteditems, archive, junkemail), " +
+            "a top-level folder's display name, or a folder ID from list_mail_folders (needed for a subfolder). " +
+            "Default: every folder.",
         ),
       include_preview: z
         .boolean()
