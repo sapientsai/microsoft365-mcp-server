@@ -173,13 +173,14 @@ const main = async () => {
     filter: `receivedDateTime ge ${weekAgo} or importance eq 'high'`,
   })
 
-  // The prefix must exclude nothing. Drafts are where a missing receivedDateTime would show: the
-  // tautology filter below is prefixed, the unfiltered call is not, so the counts must match.
+  // The prefix must exclude nothing. Drafts are where a missing receivedDateTime would show. The
+  // prefix condition is sent on its own (it leads with receivedDateTime, so it goes through
+  // unchanged), isolating exclusion from grouping; the counts must match the unfiltered call.
   const drafts = await call("list_messages", { folder: "drafts", fetch_all_pages: true })
   const draftsPrefixed = await call("list_messages", {
     folder: "drafts",
     fetch_all_pages: true,
-    filter: "isRead eq true or isRead eq false",
+    filter: "receivedDateTime ge 1900-01-01T00:00:00Z",
   })
   if (!drafts.ok || !draftsPrefixed.ok) {
     record("FAIL", "date prefix excludes no drafts", (drafts.ok ? draftsPrefixed : drafts).error)
