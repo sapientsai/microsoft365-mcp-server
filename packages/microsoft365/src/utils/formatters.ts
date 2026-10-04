@@ -37,6 +37,7 @@ export const MESSAGE_SUMMARY_FIELDS = [
   "receivedDateTime",
   "isRead",
   "hasAttachments",
+  "importance",
   "internetMessageId",
   "bodyPreview",
 ] as const
@@ -56,6 +57,8 @@ const formatSender = (msg: GraphMessage): string => {
 export const formatMessageSummary = (msg: GraphMessage, options: MessageSummaryOptions = {}): string => {
   const read = msg.isRead ? "" : " [Unread]"
   const attachments = msg.hasAttachments ? " [Attachments]" : ""
+  // Only "high" is flagged: Graph marks nearly all mail "normal", so a flag for that is noise.
+  const importance = msg.importance?.toLowerCase() === "high" ? " [High importance]" : ""
   // internetMessageId is the RFC 5322 Message-ID, the same in every mailbox that holds the message,
   // unlike the Graph ID. It already carries its angle brackets. It goes BEFORE "(ID: ...)": callers
   // parse the Graph ID as the line's last element, and Graph returns a Message-ID for nearly all mail.
@@ -68,7 +71,7 @@ export const formatMessageSummary = (msg: GraphMessage, options: MessageSummaryO
         .map((text) => `\n  > ${text}`)
         .orElse("")
     : ""
-  return `- **${msg.subject ?? "(No Subject)"}** from ${formatSender(msg)} (${msg.receivedDateTime ?? ""})${read}${attachments}${messageId} (ID: ${msg.id})${preview}`
+  return `- **${msg.subject ?? "(No Subject)"}** from ${formatSender(msg)} (${msg.receivedDateTime ?? ""})${read}${attachments}${importance}${messageId} (ID: ${msg.id})${preview}`
 }
 
 const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment"

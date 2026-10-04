@@ -79,6 +79,16 @@ describe("formatters", () => {
       expect(formatMessageList([message])).not.toContain("Message-ID")
     })
 
+    it("flags high importance after the other flags, and nothing else", () => {
+      const line = (importance?: string) =>
+        formatMessageList([{ id: "m", isRead: false, hasAttachments: true, importance, internetMessageId: "<x@y>" }])
+      expect(line("high")).toContain("[Unread] [Attachments] [High importance] (Message-ID: <x@y>) (ID: m)")
+      expect(line("High")).toContain("[High importance]")
+      expect(line("normal")).not.toContain("importance")
+      expect(line("low")).not.toContain("importance")
+      expect(line(undefined)).not.toContain("importance")
+    })
+
     // Callers parse the Graph ID as the last element of each line; anything appended after it breaks them.
     it("ends every summary line with the Graph ID", () => {
       const line = formatMessageList([{ ...message, internetMessageId: "<abc@mail.example.com>" }])
