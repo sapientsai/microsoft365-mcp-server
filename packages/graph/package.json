@@ -38,13 +38,13 @@
     "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
     "dotenv": "^18.0.5",
-    "functype": "^1.9.0",
+    "functype": "^1.12.0",
     "somamcp": "^1.4.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^24.13.3",
-    "ts-builds": "^3.4.1",
+    "@types/node": "^24.19.1",
+    "ts-builds": "^3.4.3",
     "tsdown": "^0.23.0"
   },
   "engines": {
