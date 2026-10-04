@@ -27,6 +27,7 @@ import {
   formatTodoTaskDetail,
   formatTodoTaskList,
   formatUserDetail,
+  MESSAGE_SUMMARY_FIELDS,
 } from "../src/utils/formatters"
 
 describe("formatters", () => {
@@ -55,6 +56,56 @@ describe("formatters", () => {
 
     it("should format empty message list", () => {
       expect(formatMessageList([])).toBe("No messages found.")
+    })
+
+    // Callers match senders by address; a display name alone ("John") cannot be matched reliably.
+    it("shows the sender's name and address together", () => {
+      expect(formatMessageList([message])).toContain("from John <john@example.com>")
+    })
+
+    it("falls back to whichever of name and address exists", () => {
+      const sender = (emailAddress: { name?: string; address?: string }) =>
+        formatMessageList([{ id: "m", from: { emailAddress } }])
+      expect(sender({ address: "a@example.com" })).toContain("from a@example.com (")
+      expect(sender({ name: "Only Name" })).toContain("from Only Name (")
+      expect(sender({ name: "a@example.com", address: "a@example.com" })).toContain("from a@example.com (")
+      expect(formatMessageList([{ id: "m" }])).toContain("from Unknown (")
+    })
+
+    it("shows the internetMessageId when Graph returns it", () => {
+      expect(formatMessageList([{ ...message, internetMessageId: "<abc@mail.example.com>" }])).toContain(
+        "(ID: msg-1) (Message-ID: <abc@mail.example.com>)",
+      )
+      expect(formatMessageList([message])).not.toContain("Message-ID")
+    })
+
+    it("adds the body preview only when asked, on one collapsed line", () => {
+      const withPreview = { ...message, bodyPreview: "Hi team,\r\n\r\n  the report   is attached." }
+      expect(formatMessageList([withPreview])).not.toContain("the report")
+      expect(formatMessageList([withPreview], { preview: true })).toContain("\n  > Hi team, the report is attached.")
+    })
+
+    it("adds no preview line for an empty preview", () => {
+      expect(formatMessageList([{ ...message, bodyPreview: "  \n " }], { preview: true })).not.toContain("  >")
+    })
+
+    // list_messages $selects MESSAGE_SUMMARY_FIELDS. A field the formatter reads but the list lacks
+    // would print blank with no error, so record every field it actually touches.
+    it("reads no message field outside MESSAGE_SUMMARY_FIELDS", () => {
+      const read = new Set<string>()
+      const tracked = new Proxy(
+        { ...message, internetMessageId: "<abc@mail.example.com>" },
+        {
+          get: (target, key, receiver) => {
+            if (typeof key === "string") read.add(key)
+            return Reflect.get(target, key, receiver)
+          },
+        },
+      )
+      formatMessageList([tracked], { preview: true })
+
+      expect(read.size).toBeGreaterThan(0)
+      expect([...read].filter((key) => !(MESSAGE_SUMMARY_FIELDS as ReadonlyArray<string>).includes(key))).toEqual([])
     })
 
     it("should format message detail", () => {

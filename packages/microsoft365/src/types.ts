@@ -74,6 +74,7 @@ export type GraphMessage = {
   readonly receivedDateTime?: string
   readonly isRead?: boolean
   readonly hasAttachments?: boolean
+  readonly internetMessageId?: string
   readonly bodyPreview?: string
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly importance?: string

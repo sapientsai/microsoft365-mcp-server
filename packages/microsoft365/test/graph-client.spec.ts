@@ -106,4 +106,33 @@ describe("graph-client AuthStrategy injection", () => {
     expect(init.method).toBe("PATCH")
     expect((init.headers as Record<string, string>)["If-Match"]).toBe('W/"e"')
   })
+
+  describe("message listing paths", () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    const requestedUrl = () => (vi.mocked(fetch).mock.calls[0] as [string, RequestInit])[0]
+
+    it("lists every folder when no folder is given", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).listMessages()
+      expect(requestedUrl()).toMatch(/\/v1\.0\/me\/messages(\?|$)/)
+    })
+
+    it("lists one folder by well-known name", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).listMessages(undefined, "inbox")
+      expect(requestedUrl()).toContain("/me/mailFolders/inbox/messages")
+    })
+
+    it("encodes a folder ID so its characters cannot change the path", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).listMessages(undefined, "AAMk/AB+c=")
+      expect(requestedUrl()).toContain("/me/mailFolders/AAMk%2FAB%2Bc%3D/messages")
+    })
+
+    it("pages through the same folder path", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).listAllMessages(undefined, "sentitems")
+      expect(requestedUrl()).toContain("/me/mailFolders/sentitems/messages")
+    })
+  })
 })

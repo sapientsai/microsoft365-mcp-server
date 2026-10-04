@@ -46,8 +46,16 @@ const createGraphClient = (auth: AuthStrategy) => {
   const { request, requestPaginated } = createGraphRequest(auth, { defaultVersion })
 
   // Mail
-  const listMessages = (odataParams?: ODataParams) =>
-    request<ODataResponse<GraphMessage>>("GET", "/me/messages", { odataParams })
+  // /me/messages spans every folder, Sent Items included. A folder takes a well-known name
+  // (inbox, sentitems, ...) or a folder ID; Graph accepts either in the same path segment.
+  const messagesPath = (folder?: string) =>
+    folder ? `/me/mailFolders/${encodeURIComponent(folder)}/messages` : "/me/messages"
+
+  const listMessages = (odataParams?: ODataParams, folder?: string) =>
+    request<ODataResponse<GraphMessage>>("GET", messagesPath(folder), { odataParams })
+
+  const listAllMessages = (odataParams?: ODataParams, folder?: string) =>
+    requestPaginated<GraphMessage>(messagesPath(folder), { odataParams })
 
   // Prefer: outlook.body-content-type="text" makes Graph convert the body server-side.
   // Marketing mail is mostly CSS and layout tables — one newsletter measured 79,347
@@ -461,6 +469,7 @@ const createGraphClient = (auth: AuthStrategy) => {
     requestPaginated,
     // Mail
     listMessages,
+    listAllMessages,
     getMessage,
     listMailFolders,
     moveMessage,

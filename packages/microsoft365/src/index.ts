@@ -256,10 +256,32 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Mail Tools ===
   {
     name: "list_messages",
-    description: "List email messages from your inbox",
+    description:
+      "List email messages, newest first. Covers every folder (Inbox, Sent Items, Archive, ...) unless " +
+      "folder is set. Each line shows the sender's name and address, the received time, the Graph " +
+      "message ID and the internetMessageId.",
     parameters: z.object({
       top: z.number().optional().describe("Number of messages to return (default: 25)"),
-      filter: z.string().optional().describe("OData filter expression"),
+      filter: z
+        .string()
+        .optional()
+        .describe(
+          "OData filter expression. Results are sorted by receivedDateTime, and Graph requires the sort " +
+            "property to appear in the filter, first: start with a receivedDateTime condition, e.g. " +
+            '"receivedDateTime ge 2026-10-01T00:00:00Z and isRead eq false", or Graph may reject the filter ' +
+            "as InefficientFilter. To restrict to one folder, use folder instead of filtering on parentFolderId.",
+        ),
+      folder: z
+        .string()
+        .optional()
+        .describe(
+          "Only this folder: a well-known name (inbox, sentitems, drafts, deleteditems, archive, junkemail) " +
+            "or a folder ID from list_mail_folders. Default: every folder.",
+        ),
+      include_preview: z
+        .boolean()
+        .optional()
+        .describe("Add each message's body preview (Graph's bodyPreview, up to 255 characters) on an indented line"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await listMessages(params)),

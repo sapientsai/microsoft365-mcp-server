@@ -227,7 +227,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 | Tool                     | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
-| `list_messages`          | List inbox messages with optional filtering                              |
+| `list_messages`          | List messages, all folders or one (`folder`), with optional filtering    |
 | `get_message`            | Get a specific message with full body                                    |
 | `search_messages`        | Search messages by query                                                 |
 | `send_message`           | Send a new email                                                         |
