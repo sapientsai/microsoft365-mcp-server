@@ -193,6 +193,28 @@ const contentHttpError = (attempt: ContentAttempt): UserError => {
 }
 
 /**
+ * Cut one window out of a transcript, starting at `offset`.
+ *
+ * An hour's meeting runs to about 60,000 chars of WebVTT, so the default window cuts off ordinary
+ * meetings; the marker therefore carries the exact `offset` to pass next. It is printed as a raw
+ * number because "50,000" cannot be pasted back as a parameter.
+ */
+export const sliceTranscript = (text: string, offset: number, maxChars: number): Either<UserError, string> => {
+  const total = text.length
+  if (offset > 0 && offset >= total) {
+    return Left(new UserError(`offset ${offset} is past the end of the transcript (${total.toLocaleString()} chars)`))
+  }
+
+  const end = Math.min(offset + maxChars, total)
+  const window = text.slice(offset, end)
+  const range = `chars ${offset.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}`
+
+  if (end < total) return Right(`${window}\n\n[truncated: ${range}; call again with offset: ${end}]`)
+  if (offset > 0) return Right(`${window}\n\n[${range}; end of transcript]`)
+  return Right(window)
+}
+
+/**
  * Fetch one transcript's text.
  *
  * Uses fetch directly rather than the shared Graph client because this endpoint returns WebVTT, not
@@ -204,6 +226,7 @@ export const getMeetingTranscript = async (
     transcript_id: string
     include_speaker_names?: boolean
     max_chars?: number
+    offset?: number
   },
 ): Promise<Either<UserError, string>> => {
   const client = requireClient()
@@ -233,15 +256,12 @@ export const getMeetingTranscript = async (
   if (!attempt.ok) return Left(contentHttpError(attempt))
 
   const speakersDropped = wantSpeakers && attempt !== first
-  const maxChars = params.max_chars ?? DEFAULT_MAX_CHARS
-  const body =
-    attempt.text.length > maxChars
-      ? `${attempt.text.slice(0, maxChars)}\n\n[truncated at ${maxChars.toLocaleString()} chars — full transcript is ${attempt.text.length.toLocaleString()} chars]`
-      : attempt.text
+  const body = sliceTranscript(attempt.text, params.offset ?? 0, params.max_chars ?? DEFAULT_MAX_CHARS)
+  if (body.isLeft()) return body
 
   const note = speakersDropped
     ? "\n\nNote: this tenant has speaker attribution disabled, so utterances carry timestamps but no speaker names."
     : ""
 
-  return Right(`# Transcript ${params.transcript_id}${note}\n\n${body}`)
+  return Right(`# Transcript ${params.transcript_id}${note}\n\n${body.value as string}`)
 }

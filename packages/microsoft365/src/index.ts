@@ -1016,7 +1016,21 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .boolean()
         .optional()
         .describe("Ask for speaker-attributed text (default: true). Ignored if the tenant disallows it."),
-      max_chars: z.number().optional().describe("Truncate the transcript at this length (default: 50000)"),
+      max_chars: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Return at most this many characters per call (default: 50000)"),
+      offset: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          "Character position to start from (default: 0). When the output ends with a truncation marker, " +
+            "call again with the offset it names to get the next part.",
+        ),
     }),
     execute: async (params) => unwrapResult(await getMeetingTranscript(params)),
     domain: "meetings",

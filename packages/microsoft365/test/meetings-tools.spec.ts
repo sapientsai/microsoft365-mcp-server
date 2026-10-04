@@ -324,8 +324,66 @@ describe("getMeetingTranscript", () => {
     })
 
     expect(result.isRight()).toBe(true)
-    expect(result.value).toContain("truncated at 50 chars")
-    expect(result.value).toContain("full transcript is 200 chars")
+    expect(result.value).toContain("[truncated: chars 0–50 of 200; call again with offset: 50]")
+  })
+
+  it("returns the window starting at offset, and names the next offset", async () => {
+    stubFetch([{ ok: true, status: 200, body: "a".repeat(50) + "b".repeat(50) + "c".repeat(100) }])
+
+    const result = await getMeetingTranscript({
+      meeting_id: MEETING_ID,
+      transcript_id: TRANSCRIPT_ID,
+      max_chars: 50,
+      offset: 50,
+    })
+
+    expect(result.isRight()).toBe(true)
+    // Repeated letters, because the header and marker contain single a's and c's of their own.
+    expect(result.value).toContain(`\n\n${"b".repeat(50)}\n\n[truncated`)
+    expect(result.value).not.toContain("aa")
+    expect(result.value).not.toContain("cc")
+    expect(result.value).toContain("[truncated: chars 50–100 of 200; call again with offset: 100]")
+  })
+
+  it("marks the last window as the end and gives no further offset", async () => {
+    stubFetch([{ ok: true, status: 200, body: "x".repeat(120) }])
+
+    const result = await getMeetingTranscript({
+      meeting_id: MEETING_ID,
+      transcript_id: TRANSCRIPT_ID,
+      max_chars: 50,
+      offset: 100,
+    })
+
+    expect(result.isRight()).toBe(true)
+    expect(result.value).toContain("[chars 100–120 of 120; end of transcript]")
+    expect(result.value).not.toContain("call again")
+  })
+
+  it("rejects an offset past the end instead of returning an empty body", async () => {
+    stubFetch([{ ok: true, status: 200, body: "x".repeat(120) }])
+
+    const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID, offset: 120 })
+
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("offset 120 is past the end of the transcript (120 chars)")
+  })
+
+  it("prints the next offset as a raw number even when it needs thousands separators", async () => {
+    stubFetch([{ ok: true, status: 200, body: "x".repeat(183_402) }])
+
+    const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID })
+
+    expect(result.value).toContain("[truncated: chars 0–50,000 of 183,402; call again with offset: 50000]")
+  })
+
+  it("adds no marker when the whole transcript fits", async () => {
+    stubFetch([{ ok: true, status: 200, body: VTT }])
+
+    const result = await getMeetingTranscript({ meeting_id: MEETING_ID, transcript_id: TRANSCRIPT_ID })
+
+    expect(result.value).not.toContain("[truncated")
+    expect(result.value).not.toContain("end of transcript")
   })
 
   it("resolves a join URL before fetching content", async () => {

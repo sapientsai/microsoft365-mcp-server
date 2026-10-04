@@ -592,7 +592,10 @@ Worth knowing:
 4. **A separate tenant setting can block transcripts outright.** `GraphAccessToTranscriptsDisabled`
    has no request-side workaround — a Teams admin has to re-enable Graph API access to transcripts
    (`Set-CsTeamsMeetingConfiguration`). The tool says so rather than retrying.
-5. **Output is bounded** by `max_chars` (50,000 default) with a truncation marker, like
-   `read_document`.
+5. **Output is bounded, and long transcripts are read in parts.** Each call returns at most
+   `max_chars` (50,000 default). An hour's meeting runs to about 60,000 chars, so a truncated
+   result ends with a marker naming the next start, e.g.
+   `[truncated: chars 0–50,000 of 183,402; call again with offset: 50000]`. Pass that `offset` to
+   continue; the last part ends with `end of transcript`.
 6. **No metering.** These Teams APIs stopped being metered on August 25, 2025; no billing
    configuration is required.
