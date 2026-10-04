@@ -46,10 +46,13 @@ const stripComments = (code) => code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(
 
 const escape = (specifier) => specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-const countAll = (code, specifier) => code.match(new RegExp(`["']${escape(specifier)}["']`, "g"))?.length ?? 0
+// A specifier or any of its subpaths: "unpdf/pdfjs" or "exceljs/dist/es5" loads the parser too.
+const specifierPattern = (specifier) => `["']${escape(specifier)}(?:/[^"']*)?["']`
+
+const countAll = (code, specifier) => code.match(new RegExp(specifierPattern(specifier), "g"))?.length ?? 0
 
 const countDynamic = (code, specifier) =>
-  code.match(new RegExp(`\\bimport\\s*\\(\\s*["']${escape(specifier)}["']`, "g"))?.length ?? 0
+  code.match(new RegExp(`\\bimport\\s*\\(\\s*${specifierPattern(specifier)}`, "g"))?.length ?? 0
 
 // Local chunk specifiers. Static: `from "./x.js"` and bare `import "./x.js"`. Dynamic: `import("./x.js")`.
 const localStatic = (code) =>

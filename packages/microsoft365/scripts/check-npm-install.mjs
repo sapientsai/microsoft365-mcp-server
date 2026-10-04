@@ -36,8 +36,12 @@ const fail = (message) => {
   process.exit(1)
 }
 
+// Five minutes per step: a hung `npm install` would otherwise hold the CI job to its six-hour cap.
+const STEP_TIMEOUT_MS = 300_000
+
 const run = (command, args, cwd) => {
-  const result = spawnSync(command, args, { cwd, encoding: "utf-8" })
+  const result = spawnSync(command, args, { cwd, encoding: "utf-8", timeout: STEP_TIMEOUT_MS })
+  if (result.error) fail(`\`${command} ${args.join(" ")}\` did not finish: ${result.error.message}`)
   if (result.status !== 0) {
     fail(`\`${command} ${args.join(" ")}\` exited ${result.status}:\n${(result.stderr || result.stdout).trim()}`)
   }
