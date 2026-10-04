@@ -69,7 +69,7 @@
     "@azure/identity": "^4.13.2",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
-    "fastmcp": "^4.20.2",
+    "fastmcp": "^4.22.1",
     "functype": "^1.9.0",
     "functype-log": "^1.9.0",
     "jsonwebtoken": "^9.0.3",
