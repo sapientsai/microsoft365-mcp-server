@@ -38,7 +38,7 @@
     "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
     "dotenv": "^18.0.5",
-    "functype": "^1.9.0",
+    "functype": "^1.10.0",
     "somamcp": "^1.4.0",
     "zod": "^4.6.5"
   },

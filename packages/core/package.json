@@ -32,7 +32,7 @@
   },
   "prettier": "ts-builds/prettier",
   "dependencies": {
-    "functype": "^1.9.0"
+    "functype": "^1.10.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
