@@ -67,7 +67,7 @@
   "homepage": "https://github.com/sapientsai/microsoft365-mcp-server#readme",
   "dependencies": {
     "@azure/identity": "^4.13.2",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.5",
     "exceljs": "^4.4.0",
     "fastmcp": "^4.20.2",
     "functype": "^1.9.0",
