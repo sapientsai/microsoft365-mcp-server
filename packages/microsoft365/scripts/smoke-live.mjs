@@ -22,6 +22,7 @@
 // environment. Server stderr is forwarded only for its setup and sign-in lines.
 
 import { spawn } from "node:child_process"
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
@@ -31,10 +32,16 @@ const REPO_ROOT = join(PACKAGE_ROOT, "..", "..")
 const STARTUP_TIMEOUT_MS = 300_000 // covers a browser sign-in
 const CALL_TIMEOUT_MS = 90_000
 
-const FORWARDED_STDERR = /^\s*(\[(Setup|Server|Error|Auth)\]|Authentication Required|Please visit|And enter code)/
+const FORWARDED_STDERR = /^\s*(\[(Setup|Server|Error|Auth|Fatal)\]|Authentication Required|Please visit|And enter code)/
+
+const BIN = join(PACKAGE_ROOT, "dist", "bin.js")
+if (!existsSync(BIN)) {
+  console.error(`✗ ${BIN} is missing — run \`pnpm build\` first.`)
+  process.exit(1)
+}
 
 // The server loads .env from its working directory, so it runs from the repo root.
-const server = spawn(process.execPath, [join(PACKAGE_ROOT, "dist", "bin.js")], {
+const server = spawn(process.execPath, [BIN], {
   cwd: REPO_ROOT,
   env: { ...process.env, TRANSPORT_TYPE: "stdio" },
   stdio: ["pipe", "pipe", "pipe"],
@@ -44,7 +51,7 @@ const server = spawn(process.execPath, [join(PACKAGE_ROOT, "dist", "bin.js")], {
 server.stdin.on("error", () => {})
 
 createInterface({ input: server.stderr }).on("line", (line) => {
-  if (FORWARDED_STDERR.test(line)) console.error(`  server: ${line.trim()}`)
+  if (FORWARDED_STDERR.test(line)) console.error(`  server: ${line.trim().slice(0, 200)}`)
 })
 
 const pending = new Map()
@@ -57,6 +64,9 @@ createInterface({ input: server.stdout }).on("line", (line) => {
   } catch {
     return // not JSON-RPC; never echoed, since it could hold anything
   }
+  // A request from the server (ping, roots/list) can carry the same id as one of ours; only a
+  // response may resolve a pending call.
+  if (message.method !== undefined) return
   const waiter = pending.get(message.id)
   if (waiter) {
     pending.delete(message.id)
@@ -127,7 +137,7 @@ const main = async () => {
     STARTUP_TIMEOUT_MS,
   )
   if (init.error) {
-    record("FAIL", "server start", `${firstLine(init.error.message)} — check MS365_CLIENT_ID and the sign-in`)
+    record("FAIL", "server start", `${firstLine(init.error.message)} — see the server lines above`)
     return
   }
   server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`)
@@ -156,6 +166,29 @@ const main = async () => {
     fetch_all_pages: true,
     filter: `receivedDateTime ge ${weekAgo}`,
   })
+  // Leads with the sort property but adds an "or", so it is sent unprefixed. If Graph rejects this,
+  // orderableFilter should prefix every filter instead.
+  await listCase("list_messages filter receivedDateTime ... or importance", {
+    top: 3,
+    filter: `receivedDateTime ge ${weekAgo} or importance eq 'high'`,
+  })
+
+  // The prefix must exclude nothing. Drafts are where a missing receivedDateTime would show: the
+  // tautology filter below is prefixed, the unfiltered call is not, so the counts must match.
+  const drafts = await call("list_messages", { folder: "drafts", fetch_all_pages: true })
+  const draftsPrefixed = await call("list_messages", {
+    folder: "drafts",
+    fetch_all_pages: true,
+    filter: "isRead eq true or isRead eq false",
+  })
+  if (!drafts.ok || !draftsPrefixed.ok) {
+    record("FAIL", "date prefix excludes no drafts", (drafts.ok ? draftsPrefixed : drafts).error)
+  } else {
+    const [plain, prefixed] = [messageLines(drafts.text).length, messageLines(draftsPrefixed.text).length]
+    if (plain === 0) record("SKIP", "date prefix excludes no drafts", "no drafts")
+    else if (plain === prefixed) record("PASS", "date prefix excludes no drafts", `${plain} draft(s) both ways`)
+    else record("FAIL", "date prefix excludes no drafts", `${plain} without the prefix, ${prefixed} with it`)
+  }
 
   if (!high || high.length === 0) record("SKIP", "[High importance] flag", "no high-importance mail")
   else if (high.every((line) => line.includes("[High importance]"))) record("PASS", "[High importance] flag")
@@ -171,7 +204,8 @@ const main = async () => {
     record("FAIL", "search_files", files.error)
   } else {
     record("PASS", "search_files")
-    const log = files.text.match(/^- \*\*[^*]+\.log\*\* \(ID: ([^)]+)\) - File/m)
+    // The type after the ID is the MIME type (octet-stream for a .log), so only the name and ID are matched.
+    const log = files.text.match(/^- \*\*[^*]+\.log\*\* \(ID: ([^)]+)\)/m)
     if (!log) {
       record("SKIP", "download_file / read_document on a .log", "no .log file found")
     } else {
@@ -212,8 +246,11 @@ const main = async () => {
   record("FAIL", "transcript paging", "no end marker after 20 parts")
 }
 
-await main()
-server.kill()
+try {
+  await main()
+} finally {
+  server.kill() // an orphaned server could keep the sign-in redirect port and break the next run
+}
 
 const failed = results.filter((status) => status === "FAIL").length
 const skipped = results.filter((status) => status === "SKIP").length
