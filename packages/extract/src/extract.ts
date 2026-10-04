@@ -1,5 +1,6 @@
 import { extname } from "node:path"
 
+import { isTextMimeType, isUnknownMimeType, looksLikeText } from "@sapientsai/ms-graph-core"
 import ExcelJS from "exceljs"
 import { type Either, Left, Right } from "functype/either"
 import mammoth from "mammoth"
@@ -12,18 +13,15 @@ import { extractText as extractPdfText, getDocumentProxy } from "unpdf"
 
 export type ExtractError = { readonly type: "parse" | "unsupported"; readonly message: string }
 
-export const CONTENT_TYPE_MAP: Record<string, string> = {
+// Binary document formats, for files OneDrive stored as application/octet-stream. Text formats are
+// deliberately absent: an extension cannot tell a real .log from a binary renamed to .log, so text
+// is decided by looksLikeText on the bytes.
+const DOCUMENT_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".doc": "application/msword",
   ".xls": "application/vnd.ms-excel",
-  ".txt": "text/plain",
-  ".csv": "text/csv",
-  ".json": "application/json",
-  ".xml": "application/xml",
-  ".html": "text/html",
-  ".htm": "text/html",
 }
 
 export const EXTRACTABLE_TYPES = [
@@ -32,23 +30,9 @@ export const EXTRACTABLE_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ] as const
 
-const TEXT_MIME_PREFIXES = ["text/", "application/json", "application/xml", "application/csv"]
-const TEXT_MIME_SUFFIXES = ["+xml", "+json"]
-
-export const isTextContent = (contentType: string): boolean => {
-  const lower = contentType.toLowerCase()
-  return (
-    TEXT_MIME_PREFIXES.some((prefix) => lower.startsWith(prefix)) ||
-    TEXT_MIME_SUFFIXES.some((suffix) => lower.includes(suffix))
-  )
-}
-
 export const resolveContentType = (contentType: string, filename: string): string => {
   const lower = contentType.toLowerCase()
-  if (lower === "application/octet-stream" || lower === "") {
-    const ext = extname(filename).toLowerCase()
-    return CONTENT_TYPE_MAP[ext] ?? contentType
-  }
+  if (isUnknownMimeType(lower)) return DOCUMENT_TYPES[extname(filename).toLowerCase()] ?? lower
   return lower
 }
 
@@ -105,10 +89,11 @@ export const extractTextFromBuffer = async (
 ): Promise<Either<ExtractError, string>> => {
   const resolved = resolveContentType(contentType, filename)
 
-  if (isTextContent(resolved)) return Right(buffer.toString("utf-8"))
+  if (isTextMimeType(resolved)) return Right(buffer.toString("utf-8"))
   if (resolved === "application/pdf") return extractPdf(buffer)
   if (resolved === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return extractDocx(buffer)
   if (resolved === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return extractXlsx(buffer)
+  if (isUnknownMimeType(resolved) && looksLikeText(buffer, filename)) return Right(buffer.toString("utf-8"))
 
   const supported = [...EXTRACTABLE_TYPES, "text/*"].join(", ")
   return Left(

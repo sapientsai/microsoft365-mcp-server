@@ -764,7 +764,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "MIME type, default text/plain. Must be a text type (text/*, application/json, application/xml, application/javascript, *+json, *+xml). Binary types are rejected.",
+          "MIME type of the content, default text/plain. Must be a text type (text/*, application/json, application/xml, application/javascript, *+json, *+xml); binary types are rejected. It only gates this check: OneDrive decides the stored file's MIME type itself and may not keep this value.",
         ),
       conflict_behavior: z
         .enum(["rename", "replace", "fail"])

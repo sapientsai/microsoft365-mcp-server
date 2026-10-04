@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs"
 import { describe, expect, it } from "vitest"
 
-import { EXTRACTABLE_TYPES, extractTextFromBuffer, isTextContent, resolveContentType } from "../src/extract"
+import { EXTRACTABLE_TYPES, extractTextFromBuffer, resolveContentType } from "../src/extract"
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -15,18 +15,16 @@ const xlsxBuffer = async (sheets: Record<string, string[][]>): Promise<Buffer> =
   return Buffer.from(await wb.xlsx.writeBuffer())
 }
 
-describe("isTextContent / resolveContentType", () => {
-  it("recognizes text-ish content types", () => {
-    expect(isTextContent("text/plain")).toBe(true)
-    expect(isTextContent("application/json")).toBe(true)
-    expect(isTextContent("application/vnd.oasis+xml")).toBe(true)
-    expect(isTextContent("application/pdf")).toBe(false)
-  })
-
-  it("resolves octet-stream by extension", () => {
+describe("resolveContentType", () => {
+  it("resolves octet-stream to a document type by extension", () => {
     expect(resolveContentType("application/octet-stream", "report.pdf")).toBe("application/pdf")
     expect(resolveContentType("", "data.xlsx")).toBe(XLSX)
     expect(resolveContentType("text/csv", "x.bin")).toBe("text/csv")
+  })
+
+  // A text extension proves nothing about the bytes, so it is left unknown for the sniff to decide.
+  it("leaves octet-stream unknown for a text extension", () => {
+    expect(resolveContentType("application/octet-stream", "app.log")).toBe("application/octet-stream")
   })
 })
 
@@ -67,6 +65,22 @@ describe("extractTextFromBuffer", () => {
     const result = await extractTextFromBuffer(Buffer.from("not a docx"), DOCX, "broken.docx")
     expect(result.isLeft()).toBe(true)
     expect((result.value as { type: string }).type).toBe("parse")
+  })
+
+  // Seen 2026-10-03: OneDrive stored a .log uploaded as text/plain as application/octet-stream,
+  // and read_document refused it.
+  it("reads an octet-stream .log and .jsonl by sniffing the bytes", async () => {
+    const log = await extractTextFromBuffer(Buffer.from("INFO started\n"), "application/octet-stream", "app.log")
+    expect(log.value).toBe("INFO started\n")
+    const jsonl = await extractTextFromBuffer(Buffer.from('{"a":1}\n'), "application/octet-stream", "e.jsonl")
+    expect(jsonl.value).toBe('{"a":1}\n')
+  })
+
+  it("refuses a binary file renamed to .log", async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d])
+    const result = await extractTextFromBuffer(png, "application/octet-stream", "image.log")
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as { type: string }).type).toBe("unsupported")
   })
 
   it("rejects an unsupported content type", async () => {

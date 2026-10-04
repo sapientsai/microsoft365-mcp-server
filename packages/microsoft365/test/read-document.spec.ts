@@ -165,6 +165,28 @@ describe("readDocument — output", () => {
     expect(result.value as string).toContain("full document is 5,000 chars")
   })
 
+  // Seen 2026-10-03: OneDrive stored a .log uploaded as text/plain as octet-stream, and this tool
+  // refused it. Text is now decided by the bytes, not the MIME type.
+  it("reads a .log and a .jsonl stored as octet-stream", async () => {
+    givenItem({ name: "app.log", size: 20, mimeType: "application/octet-stream" })
+    vi.stubGlobal("fetch", givenContent("INFO started", "application/octet-stream"))
+    expect((await readDocument({ path: "/me/drive/items/1/content" })).value as string).toContain("INFO started")
+
+    givenItem({ name: "events.jsonl", size: 20, mimeType: "application/octet-stream" })
+    vi.stubGlobal("fetch", givenContent('{"a":1}', "application/octet-stream"))
+    expect((await readDocument({ path: "/me/drive/items/1/content" })).value as string).toContain('{"a":1}')
+  })
+
+  it("refuses a binary file renamed to .log", async () => {
+    givenItem({ name: "image.log", size: 20, mimeType: "application/octet-stream" })
+    vi.stubGlobal("fetch", givenContent("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", "application/octet-stream"))
+
+    const result = await readDocument({ path: "/me/drive/items/1/content" })
+
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Unsupported content type")
+  })
+
   // "unsupported" is the arm that means download_file is the right fallback, so the message says so.
   it("points at download_file for an unsupported content type", async () => {
     givenItem({ name: "photo.png", size: 10, mimeType: "image/png" })

@@ -5,6 +5,9 @@ import {
   describeFetchError,
   filenameFromPath,
   formatBytes,
+  isTextMimeType,
+  isUnknownMimeType,
+  looksLikeText,
   MAX_UPLOAD_SIZE,
   mintUploadTicket,
   resolveUploadContentType,
@@ -32,11 +35,7 @@ const requireClient = () => {
 const isENOENT = (error: unknown): boolean =>
   typeof error === "object" && error !== null && "code" in error && (error as { code: unknown }).code === "ENOENT"
 
-const TEXT_MIME_PREFIXES = ["text/", "application/json", "application/xml", "application/javascript"]
 const MAX_INLINE_SIZE = 100 * 1024 // 100KB
-
-const isTextFile = (mimeType?: string): boolean =>
-  mimeType !== undefined && TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix))
 
 export const listDriveItems = async (params: {
   folder_id?: string
@@ -109,15 +108,22 @@ export const downloadFile = async (params: {
   const item = metaResult.value as GraphDriveItem
   const detail = formatDriveItemDetail(item)
 
-  if (isTextFile(item.file?.mimeType) && (item.size ?? 0) <= MAX_INLINE_SIZE) {
-    const contentResult = await client.downloadFileContent(params.item_id, params.drive_id)
-    if (contentResult.isRight()) {
-      const content = contentResult.value as string
-      return Right(`${detail}\n\n## Content\n\n\`\`\`\n${content}\n\`\`\``)
-    }
-  }
+  if (!item.file) return Right(detail) // a folder: no content to show
 
-  return Right(detail)
+  const { mimeType } = item.file
+  // An unknown type (OneDrive's octet-stream for any extension it does not recognise) could be a
+  // .log or a zip; only the bytes can say, so those are fetched and sniffed too.
+  const mayBeText = isTextMimeType(mimeType) || isUnknownMimeType(mimeType)
+  if (!mayBeText || (item.size ?? 0) > MAX_INLINE_SIZE) return Right(detail)
+
+  const contentResult = await client.downloadFileContent(params.item_id, params.drive_id)
+  if (contentResult.isLeft()) return Right(detail)
+
+  const bytes = contentResult.value as Uint8Array
+  if (!isTextMimeType(mimeType) && !looksLikeText(bytes, item.name)) return Right(detail)
+
+  const content = new TextDecoder("utf-8").decode(bytes)
+  return Right(`${detail}\n\n## Content\n\n\`\`\`\n${content}\n\`\`\``)
 }
 
 export const createFolder = async (params: { parent_id: string; name: string }): Promise<Either<UserError, string>> => {
@@ -135,21 +141,6 @@ const UPLOAD_FILE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — Graph simple-PUT ceili
 const BINARY_REDIRECT_MESSAGE =
   "Binary uploads are not supported via upload_file. Use get_upload_config (HTTP/SSE deployments) or upload_file_from_path (stdio/local) instead — both stream binary directly to Graph without round-tripping bytes through the LLM."
 
-const TEXT_CONTENT_TYPE_ALLOWLIST = new Set([
-  "application/json",
-  "application/xml",
-  "application/javascript",
-  "application/x-www-form-urlencoded",
-])
-
-const isTextContentType = (contentType: string): boolean => {
-  const lower = contentType.toLowerCase().split(";")[0]?.trim() ?? ""
-  if (lower.startsWith("text/")) return true
-  if (TEXT_CONTENT_TYPE_ALLOWLIST.has(lower)) return true
-  if (lower.endsWith("+json") || lower.endsWith("+xml")) return true
-  return false
-}
-
 export const uploadFile = async (params: {
   path: string
   content: string
@@ -160,7 +151,7 @@ export const uploadFile = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   const contentType = params.content_type ?? "text/plain"
-  if (!isTextContentType(contentType)) {
+  if (!isTextMimeType(contentType)) {
     return Left(new UserError(BINARY_REDIRECT_MESSAGE))
   }
 

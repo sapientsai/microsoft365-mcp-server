@@ -38,6 +38,7 @@
     "unpdf": "^1.8.1"
   },
   "devDependencies": {
+    "@sapientsai/ms-graph-core": "workspace:*",
     "@types/node": "^24.13.3",
     "ts-builds": "^3.4.1",
     "tsdown": "^0.22.14"

@@ -177,10 +177,10 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const downloadFile = (id: string, driveId?: string) => request<GraphDriveItem>("GET", driveItemPath(id, driveId))
 
-  const downloadFileContent = async (id: string, driveId?: string): Promise<Either<GraphApiError, string>> => {
+  const downloadFileContent = async (id: string, driveId?: string): Promise<Either<GraphApiError, Uint8Array>> => {
     const tokenResult = await auth.getAccessToken()
     if (tokenResult.isLeft()) {
-      return Left<GraphApiError, string>({
+      return Left<GraphApiError, Uint8Array>({
         type: "auth",
         message: (tokenResult.value as { message: string }).message,
       })
@@ -196,12 +196,13 @@ const createGraphClient = (auth: AuthStrategy) => {
         redirect: "follow",
       })
       if (!response.ok) {
-        return mapHttpError<string>(response)
+        return mapHttpError<Uint8Array>(response)
       }
-      const text = await response.text()
-      return Right<GraphApiError, string>(text)
+      // Bytes, not text: download_file has to sniff a file OneDrive typed as octet-stream, and a
+      // decoded string has already replaced the evidence (NUL bytes, invalid UTF-8).
+      return Right<GraphApiError, Uint8Array>(new Uint8Array(await response.arrayBuffer()))
     } catch (error) {
-      return Left<GraphApiError, string>({
+      return Left<GraphApiError, Uint8Array>({
         type: "network",
         message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
       })
