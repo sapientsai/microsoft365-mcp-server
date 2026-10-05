@@ -223,7 +223,8 @@ const main = async () => {
 
   // Chats since: a time just ahead of now must return nothing, and a week back must return only chats
   // whose last message is newer than it.
-  const future = new Date(Date.now() + 60_000).toISOString()
+  // An hour ahead, so clock skew between this machine and Graph cannot let a real message through.
+  const future = new Date(Date.now() + 3600_000).toISOString()
   const weekBack = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
   const noChats = await call("list_chats", { since: future })
   const recentChats = await call("list_chats", { since: weekBack })
@@ -256,13 +257,17 @@ const main = async () => {
       const headers = messages.text.split("\n").filter((line) => line.startsWith("- **"))
       const texts = messages.text.split("\n").filter((line) => line.startsWith("  > "))
       const badHeaders = headers.filter((line) => !/\(ID: [^)]+\)$/.test(line)).length
-      const htmlTexts = texts.filter((line) => /<\/?(div|p|span|at|br|img|attachment)\b/i.test(line)).length
+      // Only markup the converter always removes: a tag with attributes, or Teams' <at>/<attachment>.
+      // A bare "<div>" can be a "&lt;div&gt;" someone typed, so it does not count.
+      const htmlTexts = texts.filter((line) => /<[a-z]+\s+[a-z-]+=|<\/?(at|attachment)\b/i.test(line)).length
       const leaked = noMessages.text.split("\n").filter((line) => line.startsWith("- **")).length
-      if (badHeaders > 0)
+      if (headers.length === 0)
+        record("SKIP", "list_chat_messages format and since", "the chat has no readable messages")
+      else if (badHeaders > 0)
         record("FAIL", "list_chat_messages format and since", `${badHeaders} line(s) not ending in the ID`)
       else if (htmlTexts > 0)
         record("FAIL", "list_chat_messages format and since", `${htmlTexts} text line(s) with HTML`)
-      else if (/could not be resolved/.test(messages.text))
+      else if (messages.text.trimEnd().endsWith("so the You and Mentions-you flags are omitted."))
         record("FAIL", "list_chat_messages format and since", "the signed-in user was not resolved")
       else if (leaked > 0)
         record("FAIL", "list_chat_messages format and since", `a future since returned ${leaked}: filter ignored`)
