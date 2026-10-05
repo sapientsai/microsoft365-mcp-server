@@ -936,6 +936,13 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       "the chat by its topic or its members and shows when the last message was sent and by whom. " +
       "Note: the self-chat (notes to self) is not listed here — use chat_id '48:notes' to send to it directly.",
     parameters: z.object({
+      since: z
+        .string()
+        .optional()
+        .describe(
+          "Only chats whose last message is after this ISO 8601 time, e.g. 2026-10-01T00:00:00Z. Reads " +
+            "pages until it reaches an older chat (at most 20 pages). Chats with no messages are skipped.",
+        ),
       top: z
         .number()
         .int()
@@ -955,10 +962,28 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "list_chat_messages",
-    description: "List messages in a Teams chat",
+    description:
+      "List messages in a Teams chat, newest first. Each message is a line " +
+      "'- **<sender>** (<created>) [You] [App] [Urgent|High importance] [Mentions you] (ID: <id>)' " +
+      "(flags only when they apply), followed by its text on a '  > ' line. System events (joins, " +
+      "renames) and deleted messages are left out.",
     parameters: z.object({
       chat_id: z.string().describe("Chat ID"),
-      top: z.number().optional().describe("Number of messages (default: 25)"),
+      top: z.number().int().positive().max(50).optional().describe("Number of messages (default: 25, max 50)"),
+      since: z
+        .string()
+        .optional()
+        .describe(
+          "Only messages created or changed after this ISO 8601 time, e.g. 2026-10-01T00:00:00Z. An old " +
+            "message that was edited after it is included; its line still shows when it was created. " +
+            "Reads every matching page.",
+        ),
+      max_chars: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Cut each message's text at this length (default: 300)"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await listChatMessages(params)),

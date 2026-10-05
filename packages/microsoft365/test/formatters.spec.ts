@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type {
   GraphChat,
+  GraphChatMessage,
   GraphDriveItem,
   GraphEvent,
   GraphMeetingTimeSuggestionsResult,
@@ -14,7 +15,10 @@ import type {
   GraphUser,
 } from "../src/types"
 import {
+  CHAT_SELF_UNRESOLVED_NOTE,
+  chatMessageText,
   formatChatList,
+  formatChatMessageList,
   formatDriveItemDetail,
   formatDriveItemList,
   formatEventDetail,
@@ -325,6 +329,91 @@ describe("formatters", () => {
       expect(formatChatList([{ id: "c", chatType: "group", lastUpdatedDateTime: "T3" }])).toContain(
         "- **group** (updated: T3) (group, ID: c)",
       )
+    })
+  })
+
+  describe("chat message formatters", () => {
+    const ME = "me-1"
+    const msg = (overrides: Partial<GraphChatMessage>): GraphChatMessage => ({
+      id: "m1",
+      messageType: "message",
+      createdDateTime: "2026-10-04T09:00:00Z",
+      from: { user: { id: "u-gregg", displayName: "Gregg Smith" } },
+      body: { contentType: "text", content: "Hello" },
+      ...overrides,
+    })
+
+    it("reduces HTML to one line of text, keeping mention names and decoding entities", () => {
+      const html =
+        '<div><at id="0">Jordan</at>&nbsp;can you check Q3?<br>It&#39;s &lt;urgent&gt; &amp; due &#x2014; today</div>'
+      expect(chatMessageText({ contentType: "html", content: html })).toBe(
+        "Jordan can you check Q3? It's <urgent> & due — today",
+      )
+    })
+
+    it("marks a message that is only an attachment or only an image", () => {
+      expect(chatMessageText({ contentType: "html", content: '<attachment id="a1"></attachment>' })).toBe(
+        "[attachment]",
+      )
+      expect(chatMessageText({ contentType: "html", content: '<p><img src="x" width="67"></p>' })).toBe("[image]")
+    })
+
+    it("leaves text bodies alone apart from whitespace", () => {
+      expect(chatMessageText({ contentType: "text", content: "  a &amp; b\n\n c " })).toBe("a &amp; b c")
+    })
+
+    it("puts the flags in a fixed order and the ID last, with the text on a '  > ' line", () => {
+      const all = msg({
+        from: { user: { id: ME, displayName: "Jordan Burke" } },
+        importance: "urgent",
+        mentions: [{ mentioned: { user: { id: ME } } }],
+      })
+      expect(formatChatMessageList([all], { meId: ME })).toContain(
+        "- **Jordan Burke** (2026-10-04T09:00:00Z) [You] [Urgent] [Mentions you] (ID: m1)\n  > Hello",
+      )
+    })
+
+    it("flags an app sender and high importance", () => {
+      const bot = msg({ from: { user: null, application: { displayName: "Planner" } }, importance: "high" })
+      expect(formatChatMessageList([bot], { meId: ME })).toContain(
+        "- **Planner** (2026-10-04T09:00:00Z) [App] [High importance] (ID: m1)",
+      )
+    })
+
+    // A mention of the whole chat or a tag has no user, and is not a mention of you.
+    it("does not count a chat-wide mention as mentioning you", () => {
+      const everyone = msg({ mentions: [{ mentioned: { user: null } }, { mentioned: null }] })
+      expect(formatChatMessageList([everyone], { meId: ME })).not.toContain("[Mentions you]")
+    })
+
+    it("leaves out system events and deleted messages", () => {
+      const result = formatChatMessageList([
+        msg({
+          id: "sys",
+          messageType: "systemEventMessage",
+          body: { contentType: "html", content: "<systemEventMessage/>" },
+        }),
+        msg({ id: "future", messageType: "unknownFutureValue" }),
+        msg({ id: "gone", deletedDateTime: "2026-10-04T10:00:00Z" }),
+        msg({ id: "kept" }),
+      ])
+      expect(result).toContain("(ID: kept)")
+      expect(result).not.toMatch(/\(ID: (sys|future|gone)\)/)
+    })
+
+    it("cuts long text at max_chars and omits the text line when there is none", () => {
+      const long = msg({ body: { contentType: "text", content: "x".repeat(400) } })
+      expect(formatChatMessageList([long])).toContain(`  > ${"x".repeat(300)}…`)
+      expect(formatChatMessageList([long], { maxChars: 10 })).toContain(`  > ${"x".repeat(10)}…`)
+      expect(formatChatMessageList([msg({ body: { contentType: "html", content: "<p></p>" } })])).not.toContain("  >")
+    })
+
+    it("adds one fixed note at the end when the signed-in user is unknown, and no [You]", () => {
+      const result = formatChatMessageList([msg({ from: { user: { id: ME, displayName: "Jordan" } } })], {
+        selfUnresolved: true,
+      })
+      expect(result).not.toContain("[You]")
+      expect(result.endsWith(`\n\n${CHAT_SELF_UNRESOLVED_NOTE}`)).toBe(true)
     })
   })
 

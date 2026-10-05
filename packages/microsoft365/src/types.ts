@@ -233,9 +233,19 @@ export type GraphChat = {
 export type GraphChatMessage = {
   readonly id: string
   readonly body?: { readonly contentType?: string; readonly content?: string }
-  readonly from?: { readonly user?: { readonly displayName?: string; readonly id?: string } }
+  readonly from?: {
+    readonly user?: { readonly displayName?: string; readonly id?: string } | null
+    readonly application?: { readonly displayName?: string; readonly id?: string } | null
+  } | null
   readonly createdDateTime?: string
+  readonly lastModifiedDateTime?: string
+  readonly deletedDateTime?: string | null
   readonly messageType?: string
+  readonly importance?: string
+  // A mention targets a user, or the whole chat (conversation) or a tag, which carry no user.
+  readonly mentions?: ReadonlyArray<{
+    readonly mentioned?: { readonly user?: { readonly id?: string } | null } | null
+  }>
 }
 
 export type GraphGroup = {

@@ -297,7 +297,7 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 | Tool                 | Description                                            |
 | -------------------- | ------------------------------------------------------ |
 | `list_chats`         | List Teams chats by latest message, named              |
-| `list_chat_messages` | List messages in a chat                                |
+| `list_chat_messages` | List chat messages as text, with flags and `since`     |
 | `send_chat_message`  | Send a message in a chat. Use `48:notes` for self-chat |
 
 ### Teams (4 tools, org mode)

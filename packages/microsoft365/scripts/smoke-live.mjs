@@ -221,6 +221,56 @@ const main = async () => {
     else record("PASS", "list_chats names and newest-first order", `${lines.length} chat(s)`)
   }
 
+  // Chats since: a time just ahead of now must return nothing, and a week back must return only chats
+  // whose last message is newer than it.
+  const future = new Date(Date.now() + 60_000).toISOString()
+  const weekBack = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+  const noChats = await call("list_chats", { since: future })
+  const recentChats = await call("list_chats", { since: weekBack })
+  if (!noChats.ok || !recentChats.ok) {
+    record("FAIL", "list_chats since", (noChats.ok ? recentChats : noChats).error)
+  } else {
+    const strays = noChats.text.split("\n").filter((line) => line.startsWith("- **")).length
+    const recent = recentChats.text.split("\n").filter((line) => line.startsWith("- **"))
+    const older = recent.filter((line) => {
+      const time = Date.parse(line.match(/\(last message ([^ )]+)/)?.[1] ?? "")
+      return Number.isNaN(time) || time <= Date.parse(weekBack)
+    }).length
+    if (strays > 0) record("FAIL", "list_chats since", `a future since returned ${strays} chat(s)`)
+    else if (older > 0) record("FAIL", "list_chats since", `${older} chat(s) not newer than since`)
+    else record("PASS", "list_chats since", `${recent.length} chat(s) active in the last 7 days`)
+  }
+
+  // Chat messages: every header line ends with the ID, no text line carries HTML, and a since just
+  // ahead of now returns nothing. Graph ignores a lastModifiedDateTime filter that is not paired with
+  // the matching $orderby, so messages coming back here would mean the filter was dropped.
+  const chatId = chats.ok ? chats.text.match(/, ID: ([^)]+)\)$/m)?.[1] : undefined
+  if (!chatId) {
+    record("SKIP", "list_chat_messages format and since", "no chat to read")
+  } else {
+    const messages = await call("list_chat_messages", { chat_id: chatId, top: 5 })
+    const noMessages = await call("list_chat_messages", { chat_id: chatId, since: future })
+    if (!messages.ok || !noMessages.ok) {
+      record("FAIL", "list_chat_messages format and since", (messages.ok ? noMessages : messages).error)
+    } else {
+      const headers = messages.text.split("\n").filter((line) => line.startsWith("- **"))
+      const texts = messages.text.split("\n").filter((line) => line.startsWith("  > "))
+      const badHeaders = headers.filter((line) => !/\(ID: [^)]+\)$/.test(line)).length
+      const htmlTexts = texts.filter((line) => /<\/?(div|p|span|at|br|img|attachment)\b/i.test(line)).length
+      const leaked = noMessages.text.split("\n").filter((line) => line.startsWith("- **")).length
+      if (badHeaders > 0)
+        record("FAIL", "list_chat_messages format and since", `${badHeaders} line(s) not ending in the ID`)
+      else if (htmlTexts > 0)
+        record("FAIL", "list_chat_messages format and since", `${htmlTexts} text line(s) with HTML`)
+      else if (/could not be resolved/.test(messages.text))
+        record("FAIL", "list_chat_messages format and since", "the signed-in user was not resolved")
+      else if (leaked > 0)
+        record("FAIL", "list_chat_messages format and since", `a future since returned ${leaked}: filter ignored`)
+      else
+        record("PASS", "list_chat_messages format and since", `${headers.length} message(s), ${texts.length} with text`)
+    }
+  }
+
   // Search: top must be honoured, not just accepted. A larger top returning more proves the cap.
   const searchTwo = await call("search_files", { query: "a", top: 2 })
   const searchFive = await call("search_files", { query: "a", top: 5 })
