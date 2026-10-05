@@ -351,6 +351,27 @@ describe("formatters", () => {
       )
     })
 
+    // One bad entity must not fail the whole listing: String.fromCodePoint throws past U+10FFFF.
+    it("leaves an out-of-range numeric entity as written", () => {
+      expect(chatMessageText({ contentType: "html", content: "a &#9999999999; b &#xFFFFFFFFF; c" })).toBe(
+        "a &#9999999999; b &#xFFFFFFFFF; c",
+      )
+    })
+
+    it("keeps an emoji's alt text, so a thumbs-up reply is not blank", () => {
+      expect(
+        chatMessageText({ contentType: "html", content: '<p><emoji id="yes" alt="👍" title="Like"></emoji></p>' }),
+      ).toBe("👍")
+    })
+
+    it("strips a tag with a '>' inside a quoted attribute, and drops script and style contents", () => {
+      expect(chatMessageText({ contentType: "html", content: '<span title="a>b">kept</span>' })).toBe("kept")
+      expect(chatMessageText({ contentType: "html", content: "<style>p{}</style>hi<script>x()</script>" })).toBe("hi")
+      expect(chatMessageText({ contentType: "html", content: "<table><tr><td>a</td><td>b</td></tr></table>" })).toBe(
+        "a b",
+      )
+    })
+
     it("marks a message that is only an attachment or only an image", () => {
       expect(chatMessageText({ contentType: "html", content: '<attachment id="a1"></attachment>' })).toBe(
         "[attachment]",
@@ -382,7 +403,7 @@ describe("formatters", () => {
 
     // A mention of the whole chat or a tag has no user, and is not a mention of you.
     it("does not count a chat-wide mention as mentioning you", () => {
-      const everyone = msg({ mentions: [{ mentioned: { user: null } }, { mentioned: null }] })
+      const everyone = msg({ mentions: [{ mentioned: { user: null } }, { mentioned: null }, null] })
       expect(formatChatMessageList([everyone], { meId: ME })).not.toContain("[Mentions you]")
     })
 

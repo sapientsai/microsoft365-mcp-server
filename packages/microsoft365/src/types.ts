@@ -245,7 +245,7 @@ export type GraphChatMessage = {
   // A mention targets a user, or the whole chat (conversation) or a tag, which carry no user.
   readonly mentions?: ReadonlyArray<{
     readonly mentioned?: { readonly user?: { readonly id?: string } | null } | null
-  }>
+  } | null>
 }
 
 export type GraphGroup = {

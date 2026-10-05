@@ -4,7 +4,7 @@ import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphChat, GraphChatMessage, ODataResponse } from "../types"
-import { formatChatList, formatChatMessageList } from "../utils/formatters"
+import { formatChatList, formatChatMessageList, isReadableChatMessage } from "../utils/formatters"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -23,10 +23,16 @@ type Client = NonNullable<ReturnType<typeof requireClient>>
 
 // A since value is parsed and re-serialized before it reaches a $filter, so only a real timestamp
 // can: "2026-10-01 or true" would otherwise widen the filter.
+// A time zone is required: JavaScript reads a date-time without one in the server's local zone, so
+// "2026-10-01T00:00:00" would mean a different instant in the container than on a laptop.
 const parseSince = (since: string): Either<UserError, string> => {
   const time = Date.parse(since)
-  return Number.isNaN(time)
-    ? Left(new UserError(`since must be an ISO 8601 date-time, e.g. 2026-10-01T00:00:00Z (got "${since}")`))
+  return Number.isNaN(time) || !/(Z|[+-]\d{2}:?\d{2})$/i.test(since.trim())
+    ? Left(
+        new UserError(
+          `since must be an ISO 8601 date-time with a time zone, e.g. 2026-10-01T00:00:00Z (got "${since}")`,
+        ),
+      )
     : Right(new Date(time).toISOString())
 }
 
@@ -111,6 +117,37 @@ export const listChats = async (params?: {
     .map((response) => formatChatList((response as ODataResponse<never>).value))
 }
 
+const DEFAULT_MESSAGE_TOP = 25
+
+const messagesSince = async (
+  client: Client,
+  chatId: string,
+  since: string,
+  top: number,
+  page: number = 0,
+  link?: string,
+): Promise<Either<UserError, { readonly messages: ReadonlyArray<GraphChatMessage>; readonly more: boolean }>> => {
+  const result =
+    link === undefined
+      ? await client.listChatMessages(chatId, {
+          $top: Math.min(top, 50),
+          $orderby: "lastModifiedDateTime desc",
+          $filter: `lastModifiedDateTime gt ${since}`,
+        })
+      : await client.request<ODataResponse<GraphChatMessage>>("GET", nextLinkPath(link))
+  if (result.isLeft())
+    return Left(new UserError(`Failed to list chat messages: ${(result.value as { message: string }).message}`))
+
+  const response = result.value as ODataResponse<GraphChatMessage>
+  const messages = response.value.filter(isReadableChatMessage)
+  const next = response["@odata.nextLink"]
+  if (messages.length >= top || next === undefined) return Right({ messages, more: next !== undefined })
+  if (page + 1 >= MAX_SINCE_PAGES) return Right({ messages, more: true })
+
+  const rest = await messagesSince(client, chatId, since, top - messages.length, page + 1, next)
+  return rest.map((later) => ({ messages: [...messages, ...later.messages], more: later.more }))
+}
+
 export const listChatMessages = async (params: {
   chat_id: string
   top?: number
@@ -134,18 +171,14 @@ export const listChatMessages = async (params: {
   const options = { meId, maxChars: params.max_chars, selfUnresolved: meId === undefined }
 
   // Graph ignores a lastModifiedDateTime filter unless the request also orders by it (List messages
-  // in a chat docs, "Optional query parameters"). The filter bounds the result, so every page is read.
+  // in a chat docs, "Optional query parameters"). top is the caller's budget: pages are read only
+  // until that many readable messages are in hand, and a note says when more matched.
   if (since !== undefined) {
-    const result = await client.requestPaginated<GraphChatMessage>(`/chats/${params.chat_id}/messages`, {
-      odataParams: {
-        $top: 50,
-        $orderby: "lastModifiedDateTime desc",
-        $filter: `lastModifiedDateTime gt ${since.value as string}`,
-      },
-    })
-    return result
-      .mapLeft((error) => new UserError(`Failed to list chat messages: ${error.message}`))
-      .map((items) => formatChatMessageList(items, options))
+    const top = params.top ?? DEFAULT_MESSAGE_TOP
+    const found = await messagesSince(client, params.chat_id, since.value as string, top)
+    return found.map(({ messages, more }) =>
+      formatChatMessageList(messages.slice(0, top), { ...options, moreRemain: more || messages.length > top }),
+    )
   }
 
   if (params.fetch_all_pages) {
@@ -155,7 +188,7 @@ export const listChatMessages = async (params: {
       .map((items) => formatChatMessageList(items, options))
   }
 
-  const result = await client.listChatMessages(params.chat_id, { $top: params.top ?? 25 })
+  const result = await client.listChatMessages(params.chat_id, { $top: params.top ?? DEFAULT_MESSAGE_TOP })
   return result
     .mapLeft((error) => new UserError(`Failed to list chat messages: ${error.message}`))
     .map((response) => formatChatMessageList((response as ODataResponse<GraphChatMessage>).value, options))

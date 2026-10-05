@@ -940,8 +940,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "Only chats whose last message is after this ISO 8601 time, e.g. 2026-10-01T00:00:00Z. Reads " +
-            "pages until it reaches an older chat (at most 20 pages). Chats with no messages are skipped.",
+          "Only chats whose last message is after this ISO 8601 time with a time zone, e.g. " +
+            "2026-10-01T00:00:00Z. Reads pages until it reaches an older chat (at most 20 pages) and returns " +
+            "every match unless top is set. Chats with no messages are skipped.",
         ),
       top: z
         .number()
@@ -950,8 +951,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .max(50)
         .optional()
         .describe(
-          "Number of chats to return (default: 25, max 50). Graph may return fewer per page when member " +
-            "names are included; use fetch_all_pages for more.",
+          "Number of chats to return (default: 25, max 50; with since, every match unless set). Graph may " +
+            "return fewer per page when member names are included; use fetch_all_pages for more.",
         ),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
@@ -974,9 +975,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "Only messages created or changed after this ISO 8601 time, e.g. 2026-10-01T00:00:00Z. An old " +
-            "message that was edited after it is included; its line still shows when it was created. " +
-            "Reads every matching page.",
+          "Only messages created or changed after this ISO 8601 time with a time zone, e.g. " +
+            "2026-10-01T00:00:00Z. An old message edited after it is included; its line still shows when it " +
+            "was created. Returns at most top messages (default 25); if more match, the output ends with " +
+            "'Note: more messages match; raise top or move since later to see them.'",
         ),
       max_chars: z
         .number()
