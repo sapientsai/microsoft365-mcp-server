@@ -368,19 +368,21 @@ const decodeDrivePath = (path: string): string => {
   }
 }
 
-// Search results carry no real count or size for a folder: Graph's search index reports both as
-// zero, so "Folder (0 items) (0 B)" would claim an empty folder. Callers that list from search pass
-// fromSearch to print just "Folder"; list_drive_items and get_drive_item keep the real values.
+// Search results carry no real count or size for a folder: Graph's search returns `folder: {}` and a
+// zero size, so "Folder (0 items) (0 B)" claimed an empty folder. Callers that list from search pass
+// fromSearch, which drops a missing or zero count and a zero size but keeps a real value if search
+// ever returns one. list_drive_items and get_drive_item keep printing what Graph reports.
 export type DriveItemSummaryOptions = { readonly fromSearch?: boolean }
 
 export const formatDriveItemSummary = (item: GraphDriveItem, options: DriveItemSummaryOptions = {}): string => {
   const searchFolder = options.fromSearch === true && item.folder !== undefined
+  const childCount = item.folder?.childCount ?? 0
   const type = item.folder
-    ? searchFolder
+    ? searchFolder && childCount === 0
       ? "Folder"
-      : `Folder (${item.folder.childCount ?? 0} items)`
+      : `Folder (${childCount} items)`
     : (item.file?.mimeType ?? "File")
-  const size = Option(searchFolder ? undefined : item.size)
+  const size = Option(searchFolder && !item.size ? undefined : item.size)
     .map((s) => ` (${formatBytes(s)})`)
     .fold(
       () => "",

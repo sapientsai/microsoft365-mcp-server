@@ -174,7 +174,10 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const getDriveItem = (id: string) => request<GraphDriveItem>("GET", `/me/drive/items/${id}`)
 
-  const filesSearchPath = (query: string) => `/me/drive/root/search(q='${encodeURIComponent(query)}')`
+  // q is an OData string literal: an apostrophe ends it unless doubled, so "O'Brien" broke the request.
+  const searchLiteral = (query: string) => encodeURIComponent(query.replaceAll("'", "''"))
+
+  const filesSearchPath = (query: string) => `/me/drive/root/search(q='${searchLiteral(query)}')`
 
   const searchFiles = (query: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphDriveItem>>("GET", filesSearchPath(query), { odataParams })
@@ -264,7 +267,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   }
 
   const siteSearchPath = (siteId: string, query: string, driveId?: string) =>
-    `${driveId ? `/sites/${siteId}/drives/${driveId}` : `/sites/${siteId}/drive`}/root/search(q='${encodeURIComponent(query)}')`
+    `${driveId ? `/sites/${siteId}/drives/${driveId}` : `/sites/${siteId}/drive`}/root/search(q='${searchLiteral(query)}')`
 
   const searchSiteFiles = (siteId: string, query: string, driveId?: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphDriveItem>>("GET", siteSearchPath(siteId, query, driveId), { odataParams })

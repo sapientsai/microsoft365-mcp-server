@@ -129,6 +129,18 @@ describe("graph-client AuthStrategy injection", () => {
       expect(decodeURIComponent(firstCall()[0])).toContain("/me/drive/root/search(q='ONC')?$top=25")
     })
 
+    // q is an OData string literal; an undoubled apostrophe ends it early and Graph rejects the request.
+    it("doubles an apostrophe in a search term", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).searchFiles("O'Brien notes")
+      expect(decodeURIComponent(firstCall()[0])).toContain("/me/drive/root/search(q='O''Brien notes')")
+
+      vi.unstubAllGlobals()
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).searchSiteFiles("s1", "it's")
+      expect(decodeURIComponent(firstCall()[0])).toContain("/sites/s1/drive/root/search(q='it''s')")
+    })
+
     it("limits a SharePoint search with $top, in the default library or a named drive", async () => {
       stubFetch({ value: [] })
       await initializeGraphClient(auth).searchSiteFiles("s1", "Annual", undefined, { $top: 10 })

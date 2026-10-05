@@ -201,19 +201,24 @@ const main = async () => {
 
   // Chats: named and newest first. Graph documents the members expand, the lastMessagePreview expand
   // and the sort separately, never together, so Graph accepting the combination is part of the check.
+  // A one-on-one or untitled group still labelled by its type means the members expand was dropped.
   const chats = await call("list_chats", { top: 5 })
   if (!chats.ok) {
     record("FAIL", "list_chats names and newest-first order", chats.error)
   } else {
     const lines = chats.text.split("\n").filter((line) => line.startsWith("- **"))
-    const dates = lines.flatMap((line) => line.match(/\(last message ([^ )]+)/)?.[1] ?? [])
-    const newestFirst = dates.every((date, i) => i === 0 || dates[i - 1] >= date)
-    const unnamed = lines.filter((line) => /^- \*\*(group|oneOnOne|meeting|Chat)\*\*/.test(line)).length
+    const times = lines.flatMap((line) => line.match(/\(last message ([^ )]+)/)?.[1] ?? []).map((t) => Date.parse(t))
+    const newestFirst = times.every((time, i) => i === 0 || times[i - 1] >= time)
+    const unnamed = lines.filter((line) => /^- \*\*(group|oneOnOne)\*\*/.test(line)).length
     if (lines.length === 0) record("SKIP", "list_chats names and newest-first order", "no chats")
-    else if (dates.length === 0)
+    else if (times.length === 0)
       record("FAIL", "list_chats names and newest-first order", "no line shows a last message")
+    else if (times.some(Number.isNaN))
+      record("FAIL", "list_chats names and newest-first order", "unparseable message time")
     else if (!newestFirst) record("FAIL", "list_chats names and newest-first order", "not sorted newest first")
-    else record("PASS", "list_chats names and newest-first order", `${lines.length} chat(s), ${unnamed} unnamed`)
+    else if (unnamed > 0)
+      record("FAIL", "list_chats names and newest-first order", `${unnamed} chat(s) named only by type`)
+    else record("PASS", "list_chats names and newest-first order", `${lines.length} chat(s)`)
   }
 
   // Search: top must be honoured, not just accepted. A larger top returning more proves the cap.
@@ -224,7 +229,8 @@ const main = async () => {
   } else {
     const [two, five] = [messageLines(searchTwo.text).length, messageLines(searchFive.text).length]
     if (two > 2) record("FAIL", "search_files top", `top 2 returned ${two} results`)
-    else record("PASS", "search_files top", `top 2 → ${two}, top 5 → ${five}${five > two ? " (cap applied)" : ""}`)
+    else if (five <= 2) record("SKIP", "search_files top", "too few matches to show the cap")
+    else record("PASS", "search_files top", `top 2 → ${two}, top 5 → ${five}`)
   }
 
   // Search folders: a folder that list_drive_items shows as non-empty must not read "0 items" in search.
@@ -245,24 +251,38 @@ const main = async () => {
       : undefined
     if (!found.ok) record("FAIL", "search folder line", found.error)
     else if (!line) record("SKIP", "search folder line", "search did not return the folder")
-    else if (/Folder \(|0 B/.test(line)) record("FAIL", "search folder line", "still shows a count or size")
-    else record("PASS", "search folder line", `${folder[3]}-item folder shown without a count`)
+    // Matched right after the ID, so a folder named "Folder (2020)" or a path holding "0 B" cannot trip it.
+    else if (/\) - Folder \(0 items\)|\) - Folder (\(\d+ items\) )?\(0 B\)/.test(line))
+      record("FAIL", "search folder line", "still shows a zero count or size")
+    else record("PASS", "search folder line", `${folder[3]}-item folder shown without a zero count`)
   }
 
-  // Events: the body must arrive as text, not the Teams invite's HTML.
-  const events = await call("list_events", { top: 5 })
-  const eventId = events.ok ? events.text.match(/\(ID: ([^)]+)\)$/m)?.[1] : undefined
-  if (!events.ok) {
-    record("FAIL", "get_event text body", events.error)
-  } else if (!eventId) {
-    record("SKIP", "get_event text body", "no events")
+  // Events: the body must arrive as text, not the Teams invite's HTML. A recent window, because
+  // list_events sorts oldest first; and an empty body proves nothing, so the first non-empty one counts.
+  const day = 24 * 3600 * 1000
+  const window = await call("list_calendar_view", {
+    start_date_time: new Date(Date.now() - 14 * day).toISOString(),
+    end_date_time: new Date(Date.now() + 14 * day).toISOString(),
+  })
+  if (!window.ok) {
+    record("FAIL", "get_event text body", window.error)
   } else {
-    const event = await call("get_event", { event_id: eventId })
-    const body = event.ok ? (event.text.split("## Body")[1] ?? "") : ""
-    if (!event.ok) record("FAIL", "get_event text body", event.error)
-    else if (/<(html|head|body|div|p|br|span|table|meta)\b/i.test(body))
-      record("FAIL", "get_event text body", "body has HTML tags")
-    else record("PASS", "get_event text body", `${body.trim().length} chars of text`)
+    const eventIds = [...window.text.matchAll(/\(ID: ([^)]+)\)$/gm)].map((match) => match[1]).slice(0, 8)
+    let outcome = ["SKIP", eventIds.length === 0 ? "no events in the last or next 14 days" : "no event with a body"]
+    for (const eventId of eventIds) {
+      const event = await call("get_event", { event_id: eventId })
+      if (!event.ok) {
+        outcome = ["FAIL", event.error]
+        break
+      }
+      const body = (event.text.split("## Body")[1] ?? "").trim()
+      if (body.length === 0) continue
+      outcome = /<(html|head|body|div|p|br|span|table|meta)\b/i.test(body)
+        ? ["FAIL", "body has HTML tags"]
+        : ["PASS", `${body.length} chars of text`]
+      break
+    }
+    record(outcome[0], "get_event text body", outcome[1])
   }
 
   // Files: a .log OneDrive stored with an unknown type must come back as text.
