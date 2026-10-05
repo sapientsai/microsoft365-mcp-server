@@ -39,11 +39,16 @@ export const listEvents = async (params: {
     .map((response) => formatEventList((response as ODataResponse<never>).value))
 }
 
-export const getEvent = async (params: { event_id: string }): Promise<Either<UserError, string>> => {
+export const getEvent = async (params: {
+  event_id: string
+  body_format?: "text" | "html"
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.getEvent(params.event_id)
+  // Text by default, unlike get_message: an event body is almost always a Teams invite, whose HTML
+  // is layout markup around a join link and the same details the event already carries.
+  const result = await client.getEvent(params.event_id, params.body_format ?? "text")
   return result.mapLeft((error) => new UserError(`Failed to get event: ${error.message}`)).map(formatEventDetail)
 }
 

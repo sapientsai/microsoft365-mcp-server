@@ -60,13 +60,12 @@ const createGraphClient = (auth: AuthStrategy) => {
   // Prefer: outlook.body-content-type="text" makes Graph convert the body server-side.
   // Marketing mail is mostly CSS and layout tables — one newsletter measured 79,347
   // characters as HTML — so for a caller that only needs the words this is a ~95%
-  // reduction, and better than stripping tags locally.
+  // reduction, and better than stripping tags locally. Events honour the same header.
+  const bodyFormat = (bodyContentType?: "text" | "html") =>
+    bodyContentType ? { headers: { Prefer: `outlook.body-content-type="${bodyContentType}"` } } : undefined
+
   const getMessage = (id: string, bodyContentType?: "text" | "html") =>
-    request<GraphMessage>(
-      "GET",
-      `/me/messages/${id}`,
-      bodyContentType ? { headers: { Prefer: `outlook.body-content-type="${bodyContentType}"` } } : undefined,
-    )
+    request<GraphMessage>("GET", `/me/messages/${id}`, bodyFormat(bodyContentType))
 
   const listMailFolders = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphMailFolder>>("GET", "/me/mailFolders", { odataParams })
@@ -131,7 +130,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     return request<ODataResponse<GraphEvent>>("GET", path, { odataParams })
   }
 
-  const getEvent = (id: string) => request<GraphEvent>("GET", `/me/events/${id}`)
+  const getEvent = (id: string, bodyContentType?: "text" | "html") =>
+    request<GraphEvent>("GET", `/me/events/${id}`, bodyFormat(bodyContentType))
 
   const createEvent = (event: Record<string, unknown>) => request<GraphEvent>("POST", "/me/events", { body: event })
 
@@ -174,8 +174,12 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const getDriveItem = (id: string) => request<GraphDriveItem>("GET", `/me/drive/items/${id}`)
 
-  const searchFiles = (query: string) =>
-    request<ODataResponse<GraphDriveItem>>("GET", `/me/drive/root/search(q='${encodeURIComponent(query)}')`)
+  const filesSearchPath = (query: string) => `/me/drive/root/search(q='${encodeURIComponent(query)}')`
+
+  const searchFiles = (query: string, odataParams?: ODataParams) =>
+    request<ODataResponse<GraphDriveItem>>("GET", filesSearchPath(query), { odataParams })
+
+  const searchAllFiles = (query: string) => requestPaginated<GraphDriveItem>(filesSearchPath(query))
 
   // A drive item lives under /me/drive only when it is in the caller's own OneDrive. SharePoint
   // items need their own drive, which is why the /me/drive-only version returned "The resource
@@ -259,18 +263,14 @@ const createGraphClient = (auth: AuthStrategy) => {
     return request<ODataResponse<GraphDriveItem>>("GET", `/sites/${siteId}/drive/root:/${cleanPath}:/children`)
   }
 
-  const searchSiteFiles = (siteId: string, query: string, driveId?: string) => {
-    if (driveId) {
-      return request<ODataResponse<GraphDriveItem>>(
-        "GET",
-        `/sites/${siteId}/drives/${driveId}/root/search(q='${encodeURIComponent(query)}')`,
-      )
-    }
-    return request<ODataResponse<GraphDriveItem>>(
-      "GET",
-      `/sites/${siteId}/drive/root/search(q='${encodeURIComponent(query)}')`,
-    )
-  }
+  const siteSearchPath = (siteId: string, query: string, driveId?: string) =>
+    `${driveId ? `/sites/${siteId}/drives/${driveId}` : `/sites/${siteId}/drive`}/root/search(q='${encodeURIComponent(query)}')`
+
+  const searchSiteFiles = (siteId: string, query: string, driveId?: string, odataParams?: ODataParams) =>
+    request<ODataResponse<GraphDriveItem>>("GET", siteSearchPath(siteId, query, driveId), { odataParams })
+
+  const searchAllSiteFiles = (siteId: string, query: string, driveId?: string) =>
+    requestPaginated<GraphDriveItem>(siteSearchPath(siteId, query, driveId))
 
   // Teams
   const listTeams = () =>
@@ -503,6 +503,7 @@ const createGraphClient = (auth: AuthStrategy) => {
     listDriveItemsByPath,
     getDriveItem,
     searchFiles,
+    searchAllFiles,
     downloadFile,
     downloadFileContent,
     createFolder,
@@ -514,6 +515,7 @@ const createGraphClient = (auth: AuthStrategy) => {
     listSiteDriveItems,
     listSiteDriveItemsByPath,
     searchSiteFiles,
+    searchAllSiteFiles,
     // Chats
     listChats,
     listChatMessages,

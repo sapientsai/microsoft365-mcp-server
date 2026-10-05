@@ -554,9 +554,15 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "get_event",
-    description: "Get detailed information about a calendar event",
+    description:
+      "Get detailed information about a calendar event. The body comes back as plain text by default; a " +
+      "Teams invite's text still includes its join link and any meeting ID and passcode.",
     parameters: z.object({
       event_id: z.string().describe("The event ID"),
+      body_format: z
+        .enum(["text", "html"])
+        .optional()
+        .describe("Body format: 'text' (default) has Graph strip the HTML server-side; 'html' returns the raw markup"),
     }),
     execute: async (params) => unwrapResult(await getEvent(params)),
     domain: "calendar",
@@ -710,9 +716,17 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "search_files",
-    description: "Search OneDrive/SharePoint files",
+    description:
+      "Search OneDrive/SharePoint files. Search results show folders without item counts or sizes, which search does not report; use list_drive_items or get_drive_item for those.",
     parameters: z.object({
       query: z.string().describe("Search query"),
+      top: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum results to return (default: 25). Use fetch_all_pages when every match is needed."),
+      fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await searchFiles(params)),
     domain: "files",
@@ -894,11 +908,19 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "search_site_files",
-    description: "Search files within a SharePoint site",
+    description:
+      "Search files within a SharePoint site. Search results show folders without item counts or sizes, which search does not report; use list_drive_items or get_drive_item for those.",
     parameters: z.object({
       site_id: z.string().describe("Site ID"),
       query: z.string().describe("Search query"),
       drive_id: z.string().optional().describe("Drive ID (omit to search default document library)"),
+      top: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum results to return (default: 25). Use fetch_all_pages when every match is needed."),
+      fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await searchSiteFiles(params)),
     domain: "files",
@@ -910,9 +932,20 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "list_chats",
     description:
-      "List your Teams chats (1:1, group, and meeting chats). Note: the self-chat (notes to self) is not listed here — use chat_id '48:notes' to send to it directly.",
+      "List your Teams chats (1:1, group, and meeting chats), most recent message first. Each line names " +
+      "the chat by its topic or its members and shows when the last message was sent and by whom. " +
+      "Note: the self-chat (notes to self) is not listed here — use chat_id '48:notes' to send to it directly.",
     parameters: z.object({
-      top: z.number().optional().describe("Number of chats to return (default: 25)"),
+      top: z
+        .number()
+        .int()
+        .positive()
+        .max(50)
+        .optional()
+        .describe(
+          "Number of chats to return (default: 25, max 50). Graph may return fewer per page when member " +
+            "names are included; use fetch_all_pages for more.",
+        ),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
     }),
     execute: async (params) => unwrapResult(await listChats(params)),

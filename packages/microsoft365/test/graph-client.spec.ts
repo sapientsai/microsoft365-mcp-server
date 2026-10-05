@@ -107,6 +107,53 @@ describe("graph-client AuthStrategy injection", () => {
     expect((init.headers as Record<string, string>)["If-Match"]).toBe('W/"e"')
   })
 
+  describe("connector report fixes: request shapes", () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    const firstCall = () => vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+
+    it("sends the same text Prefer header for an event as for a message", async () => {
+      stubFetch({ id: "e1" })
+      await initializeGraphClient(auth).getEvent("e1", "text")
+      expect((firstCall()[1].headers as Record<string, string>).Prefer).toBe('outlook.body-content-type="text"')
+    })
+
+    it("sends no Prefer header for an event when no format is given", async () => {
+      stubFetch({ id: "e1" })
+      await initializeGraphClient(auth).getEvent("e1")
+      expect((firstCall()[1].headers as Record<string, string>).Prefer).toBeUndefined()
+    })
+
+    it("limits a OneDrive search with $top", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).searchFiles("ONC", { $top: 25 })
+      expect(decodeURIComponent(firstCall()[0])).toContain("/me/drive/root/search(q='ONC')?$top=25")
+    })
+
+    it("limits a SharePoint search with $top, in the default library or a named drive", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).searchSiteFiles("s1", "Annual", undefined, { $top: 10 })
+      expect(decodeURIComponent(firstCall()[0])).toContain("/sites/s1/drive/root/search(q='Annual')?$top=10")
+
+      vi.unstubAllGlobals()
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).searchSiteFiles("s1", "Annual", "d1", { $top: 10 })
+      expect(decodeURIComponent(firstCall()[0])).toContain("/sites/s1/drives/d1/root/search(q='Annual')?$top=10")
+    })
+
+    it("asks for chat members and the last message, newest first", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).listChats({
+        $expand: ["members", "lastMessagePreview"],
+        $orderby: "lastMessagePreview/createdDateTime desc",
+        $top: 5,
+      })
+      const url = decodeURIComponent(firstCall()[0])
+      expect(url).toContain("$expand=members,lastMessagePreview")
+      expect(url).toContain("$orderby=lastMessagePreview/createdDateTime desc")
+      expect(url).toContain("$top=5")
+    })
+  })
+
   describe("message listing paths", () => {
     const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
     const requestedUrl = () => (vi.mocked(fetch).mock.calls[0] as [string, RequestInit])[0]

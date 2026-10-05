@@ -255,7 +255,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `list_events`               | List calendar events                                            |
 | `list_calendar_view`        | List event instances in a date range (expands recurring series) |
 | `find_meeting_availability` | Suggest meeting times where all participants are free           |
-| `get_event`                 | Get event details                                               |
+| `get_event`                 | Get event details (body as text by default)                     |
 | `create_event`              | Create a new event                                              |
 | `update_event`              | Update an existing event                                        |
 | `delete_event`              | Delete an event                                                 |
@@ -275,7 +275,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | ------------------ | ----------------------------------------------------------------------------- |
 | `list_drive_items` | List files and folders (supports `folder_id` or `folder_path` for navigation) |
 | `get_drive_item`   | Get file/folder metadata                                                      |
-| `search_files`     | Search OneDrive/SharePoint                                                    |
+| `search_files`     | Search OneDrive/SharePoint (25 results by default)                            |
 | `download_file`    | Download a file — returns content inline for text files under 100KB           |
 | `create_folder`    | Create a new folder                                                           |
 | `upload_file`      | Upload a file to OneDrive (text or base64-encoded binary, max ~4MB)           |
@@ -288,7 +288,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `get_site`          | Get SharePoint site details                                             |
 | `list_site_drives`  | List document libraries (drives) in a site                              |
 | `list_site_items`   | List files/folders in a site drive (supports `folder_id`/`folder_path`) |
-| `search_site_files` | Search files within a SharePoint site                                   |
+| `search_site_files` | Search a SharePoint site (25 results by default)                        |
 
 SharePoint tools use **delegated permissions** — users see only the sites and files they have access to. Private channel sites are properly isolated; access requires channel membership.
 
@@ -296,7 +296,7 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 
 | Tool                 | Description                                            |
 | -------------------- | ------------------------------------------------------ |
-| `list_chats`         | List Teams chats (1:1, group, meeting)                 |
+| `list_chats`         | List Teams chats by latest message, named              |
 | `list_chat_messages` | List messages in a chat                                |
 | `send_chat_message`  | Send a message in a chat. Use `48:notes` for self-chat |
 

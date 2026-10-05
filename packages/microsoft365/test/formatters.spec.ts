@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type {
+  GraphChat,
   GraphDriveItem,
   GraphEvent,
   GraphMeetingTimeSuggestionsResult,
@@ -13,6 +14,7 @@ import type {
   GraphUser,
 } from "../src/types"
 import {
+  formatChatList,
   formatDriveItemDetail,
   formatDriveItemList,
   formatEventDetail,
@@ -289,6 +291,43 @@ describe("formatters", () => {
       expect(result).toContain("ID: pg-1")
     })
   })
+  describe("chat formatters", () => {
+    const member = (displayName: string) => ({ displayName })
+
+    it("names an untitled chat by its members and shows the last message's time and sender", () => {
+      const chat: GraphChat = {
+        id: "c1",
+        chatType: "oneOnOne",
+        lastUpdatedDateTime: "2026-07-01T00:00:00Z",
+        members: [member("Jordan Burke"), member("Gregg Smith")],
+        lastMessagePreview: { createdDateTime: "2026-10-04T09:00:00Z", from: { user: { displayName: "Gregg Smith" } } },
+      }
+      expect(formatChatList([chat])).toContain(
+        "- **Jordan Burke, Gregg Smith** (last message 2026-10-04T09:00:00Z from Gregg Smith) (oneOnOne, ID: c1)",
+      )
+    })
+
+    it("prefers the topic, and caps a large member list", () => {
+      const members = ["A", "B", "C", "D", "E", "F"].map(member)
+      expect(formatChatList([{ id: "g1", chatType: "group", topic: "Launch", members }])).toContain("- **Launch**")
+      expect(formatChatList([{ id: "g2", chatType: "group", members }])).toContain("- **A, B, C, D +2 more**")
+    })
+
+    it("names a bot sender, and omits the sender when Graph gives none", () => {
+      const preview = (from: GraphChat["lastMessagePreview"]) => formatChatList([{ id: "c", lastMessagePreview: from }])
+      expect(preview({ createdDateTime: "T1", from: { user: null, application: { displayName: "Bot" } } })).toContain(
+        "(last message T1 from Bot)",
+      )
+      expect(preview({ createdDateTime: "T2", from: null })).toContain("(last message T2) (")
+    })
+
+    it("falls back to the update time and the chat type when Graph returns no preview or members", () => {
+      expect(formatChatList([{ id: "c", chatType: "group", lastUpdatedDateTime: "T3" }])).toContain(
+        "- **group** (updated: T3) (group, ID: c)",
+      )
+    })
+  })
+
   describe("drive item formatters", () => {
     const item: GraphDriveItem = {
       id: "item-1",
@@ -340,6 +379,15 @@ describe("formatters", () => {
     it("prints a malformed path as Graph sent it instead of throwing", () => {
       const malformed = { ...item, parentReference: { path: "/drive/root:/Bad%ZZ" } }
       expect(formatDriveItemList([malformed])).toContain("- in /drive/root:/Bad%ZZ")
+    })
+
+    // Graph's search index reports zero for a folder's count and size; printing them claims an empty folder.
+    it("omits a folder's count and size in search results only", () => {
+      const folder: GraphDriveItem = { id: "f1", name: "Reports", folder: { childCount: 0 }, size: 0 }
+      expect(formatDriveItemList([folder], { fromSearch: true })).toBe("# Files\n\n- **Reports** (ID: f1) - Folder")
+      expect(formatDriveItemList([folder])).toContain("- Folder (0 items) (0 B)")
+      const file: GraphDriveItem = { id: "x", name: "a.txt", size: 10, file: { mimeType: "text/plain" } }
+      expect(formatDriveItemList([file], { fromSearch: true })).toContain("- text/plain (10 B)")
     })
 
     it("shows a folder's parent on its summary line", () => {

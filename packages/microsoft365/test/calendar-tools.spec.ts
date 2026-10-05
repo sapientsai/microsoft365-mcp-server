@@ -9,7 +9,13 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { createEvent, findMeetingAvailability, listCalendarView, updateEvent } from "../src/tools/calendar-tools"
+import {
+  createEvent,
+  findMeetingAvailability,
+  getEvent,
+  listCalendarView,
+  updateEvent,
+} from "../src/tools/calendar-tools"
 
 const mockEvent: Partial<GraphEvent> = {
   id: "evt-123",
@@ -23,6 +29,7 @@ const mockClient = {
   updateEvent: vi.fn(),
   listCalendarView: vi.fn(),
   findMeetingTimes: vi.fn(),
+  getEvent: vi.fn(),
 }
 
 beforeEach(() => {
@@ -349,6 +356,28 @@ describe("calendar-tools", () => {
       })
       expect(result.isLeft()).toBe(true)
       expect(mockClient.findMeetingTimes).not.toHaveBeenCalled()
+    })
+  })
+
+  // A Teams invite's HTML is layout markup around a join link; the report that prompted this saw it raw.
+  describe("getEvent body format", () => {
+    it("asks Graph for a text body by default", async () => {
+      mockClient.getEvent.mockResolvedValue(
+        Right({ ...mockEvent, body: { contentType: "text", content: "Join here" } }),
+      )
+
+      const result = await getEvent({ event_id: "e1" })
+
+      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "text")
+      expect(result.value).toContain("Join here")
+    })
+
+    it("passes html through when asked", async () => {
+      mockClient.getEvent.mockResolvedValue(Right(mockEvent))
+
+      await getEvent({ event_id: "e1", body_format: "html" })
+
+      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html")
     })
   })
 })

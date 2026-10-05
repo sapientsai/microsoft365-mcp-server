@@ -83,14 +83,27 @@ export const getDriveItem = async (params: { item_id: string }): Promise<Either<
     .map(formatDriveItemDetail)
 }
 
-export const searchFiles = async (params: { query: string }): Promise<Either<UserError, string>> => {
+export const SEARCH_DEFAULT_TOP = 25
+
+export const searchFiles = async (params: {
+  query: string
+  top?: number
+  fetch_all_pages?: boolean
+}): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.searchFiles(params.query)
+  if (params.fetch_all_pages) {
+    const result = await client.searchAllFiles(params.query)
+    return result
+      .mapLeft((error) => new UserError(`Failed to search files: ${error.message}`))
+      .map((items) => formatDriveItemList(items as ReadonlyArray<GraphDriveItem>, { fromSearch: true }))
+  }
+
+  const result = await client.searchFiles(params.query, { $top: params.top ?? SEARCH_DEFAULT_TOP })
   return result
     .mapLeft((error) => new UserError(`Failed to search files: ${error.message}`))
-    .map((response) => formatDriveItemList((response as ODataResponse<never>).value))
+    .map((response) => formatDriveItemList((response as ODataResponse<GraphDriveItem>).value, { fromSearch: true }))
 }
 
 export const downloadFile = async (params: {

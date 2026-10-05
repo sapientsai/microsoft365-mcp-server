@@ -12,6 +12,13 @@ const requireClient = () => {
   return client.orThrow()
 }
 
+// Members give an untitled chat its name; lastMessagePreview gives the time it was last active, and
+// is the only sort Graph supports here (descending only). Both expands are documented for /me/chats.
+const CHAT_LIST_PARAMS = {
+  $expand: ["members", "lastMessagePreview"],
+  $orderby: "lastMessagePreview/createdDateTime desc",
+}
+
 export const listChats = async (params?: {
   top?: number
   fetch_all_pages?: boolean
@@ -20,13 +27,13 @@ export const listChats = async (params?: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params?.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphChat>("/me/chats")
+    const result = await client.requestPaginated<GraphChat>("/me/chats", { odataParams: CHAT_LIST_PARAMS })
     return result
       .mapLeft((error) => new UserError(`Failed to list chats: ${error.message}`))
       .map((items) => formatChatList(items))
   }
 
-  const result = await client.listChats({ $top: params?.top ?? 25 })
+  const result = await client.listChats({ ...CHAT_LIST_PARAMS, $top: params?.top ?? 25 })
   return result
     .mapLeft((error) => new UserError(`Failed to list chats: ${error.message}`))
     .map((response) => formatChatList((response as ODataResponse<never>).value))

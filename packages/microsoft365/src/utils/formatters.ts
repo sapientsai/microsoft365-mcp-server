@@ -368,9 +368,19 @@ const decodeDrivePath = (path: string): string => {
   }
 }
 
-export const formatDriveItemSummary = (item: GraphDriveItem): string => {
-  const type = item.folder ? `Folder (${item.folder.childCount ?? 0} items)` : (item.file?.mimeType ?? "File")
-  const size = Option(item.size)
+// Search results carry no real count or size for a folder: Graph's search index reports both as
+// zero, so "Folder (0 items) (0 B)" would claim an empty folder. Callers that list from search pass
+// fromSearch to print just "Folder"; list_drive_items and get_drive_item keep the real values.
+export type DriveItemSummaryOptions = { readonly fromSearch?: boolean }
+
+export const formatDriveItemSummary = (item: GraphDriveItem, options: DriveItemSummaryOptions = {}): string => {
+  const searchFolder = options.fromSearch === true && item.folder !== undefined
+  const type = item.folder
+    ? searchFolder
+      ? "Folder"
+      : `Folder (${item.folder.childCount ?? 0} items)`
+    : (item.file?.mimeType ?? "File")
+  const size = Option(searchFolder ? undefined : item.size)
     .map((s) => ` (${formatBytes(s)})`)
     .fold(
       () => "",
@@ -388,8 +398,13 @@ export const formatDriveItemSummary = (item: GraphDriveItem): string => {
   return `- **${item.name ?? "Untitled"}** (ID: ${item.id}) - ${type}${size}${parent}${modified}`
 }
 
-export const formatDriveItemList = (items: ReadonlyArray<GraphDriveItem>): string =>
-  items.length === 0 ? "No files found." : `# Files\n\n${items.map(formatDriveItemSummary).join("\n")}`
+export const formatDriveItemList = (
+  items: ReadonlyArray<GraphDriveItem>,
+  options: DriveItemSummaryOptions = {},
+): string =>
+  items.length === 0
+    ? "No files found."
+    : `# Files\n\n${items.map((item) => formatDriveItemSummary(item, options)).join("\n")}`
 
 export const formatDriveItemDetail = (item: GraphDriveItem): string => {
   const downloadUrl = Option(item["@microsoft.graph.downloadUrl"])
@@ -629,16 +644,30 @@ ${body}`
 }
 
 // Chats
-export const formatChatSummary = (chat: GraphChat): string => {
-  const topic = chat.topic ?? chat.chatType ?? "Chat"
-  const updated = Option(chat.lastUpdatedDateTime)
-    .map((d) => ` (updated: ${d})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  return `- **${topic}**${updated} (${chat.chatType ?? "unknown"}, ID: ${chat.id})`
+const CHAT_NAMES_SHOWN = 4
+
+// A one-on-one or untitled group chat has no topic, so its members are its name. A large group
+// would make the line kilobytes long, so only the first few are listed.
+const chatName = (chat: GraphChat): string => {
+  const names = (chat.members ?? []).flatMap((member) => (member.displayName ? [member.displayName] : []))
+  const shown = names.slice(0, CHAT_NAMES_SHOWN).join(", ")
+  const more = names.length > CHAT_NAMES_SHOWN ? ` +${names.length - CHAT_NAMES_SHOWN} more` : ""
+  return chat.topic ?? (names.length > 0 ? `${shown}${more}` : (chat.chatType ?? "Chat"))
 }
+
+// The last message's time, not lastUpdatedDateTime: that one tracks changes to the chat itself
+// (topic, membership) and does not move when someone posts.
+const chatActivity = (chat: GraphChat): string => {
+  const preview = chat.lastMessagePreview
+  const sender = preview?.from?.user?.displayName ?? preview?.from?.application?.displayName
+  return Option(preview?.createdDateTime)
+    .map((date) => ` (last message ${date}${sender ? ` from ${sender}` : ""})`)
+    .or(Option(chat.lastUpdatedDateTime).map((date) => ` (updated: ${date})`))
+    .orElse("")
+}
+
+export const formatChatSummary = (chat: GraphChat): string =>
+  `- **${chatName(chat)}**${chatActivity(chat)} (${chat.chatType ?? "unknown"}, ID: ${chat.id})`
 
 export const formatChatList = (chats: ReadonlyArray<GraphChat>): string =>
   chats.length === 0 ? "No chats found." : `# Chats\n\n${chats.map(formatChatSummary).join("\n")}`

@@ -221,6 +221,13 @@ export type GraphChat = {
     readonly displayName?: string
     readonly userId?: string
   }>
+  readonly lastMessagePreview?: {
+    readonly createdDateTime?: string
+    readonly from?: {
+      readonly user?: { readonly displayName?: string } | null
+      readonly application?: { readonly displayName?: string } | null
+    } | null
+  }
 }
 
 export type GraphChatMessage = {

@@ -199,6 +199,72 @@ const main = async () => {
   if (!search.ok) record("FAIL", "search_messages", search.error)
   else record("PASS", "search_messages", `${messageLines(search.text).length} message(s)`)
 
+  // Chats: named and newest first. Graph documents the members expand, the lastMessagePreview expand
+  // and the sort separately, never together, so Graph accepting the combination is part of the check.
+  const chats = await call("list_chats", { top: 5 })
+  if (!chats.ok) {
+    record("FAIL", "list_chats names and newest-first order", chats.error)
+  } else {
+    const lines = chats.text.split("\n").filter((line) => line.startsWith("- **"))
+    const dates = lines.flatMap((line) => line.match(/\(last message ([^ )]+)/)?.[1] ?? [])
+    const newestFirst = dates.every((date, i) => i === 0 || dates[i - 1] >= date)
+    const unnamed = lines.filter((line) => /^- \*\*(group|oneOnOne|meeting|Chat)\*\*/.test(line)).length
+    if (lines.length === 0) record("SKIP", "list_chats names and newest-first order", "no chats")
+    else if (dates.length === 0)
+      record("FAIL", "list_chats names and newest-first order", "no line shows a last message")
+    else if (!newestFirst) record("FAIL", "list_chats names and newest-first order", "not sorted newest first")
+    else record("PASS", "list_chats names and newest-first order", `${lines.length} chat(s), ${unnamed} unnamed`)
+  }
+
+  // Search: top must be honoured, not just accepted. A larger top returning more proves the cap.
+  const searchTwo = await call("search_files", { query: "a", top: 2 })
+  const searchFive = await call("search_files", { query: "a", top: 5 })
+  if (!searchTwo.ok || !searchFive.ok) {
+    record("FAIL", "search_files top", (searchTwo.ok ? searchFive : searchTwo).error)
+  } else {
+    const [two, five] = [messageLines(searchTwo.text).length, messageLines(searchFive.text).length]
+    if (two > 2) record("FAIL", "search_files top", `top 2 returned ${two} results`)
+    else record("PASS", "search_files top", `top 2 → ${two}, top 5 → ${five}${five > two ? " (cap applied)" : ""}`)
+  }
+
+  // Search folders: a folder that list_drive_items shows as non-empty must not read "0 items" in search.
+  const root = await call("list_drive_items", {})
+  const folder = root.ok
+    ? [...root.text.matchAll(/^- \*\*([^*]+)\*\* \(ID: ([^)]+)\) - Folder \((\d+) items\)/gm)].find(
+        (match) => Number(match[3]) > 0,
+      )
+    : undefined
+  if (!root.ok) {
+    record("FAIL", "search folder line", root.error)
+  } else if (!folder) {
+    record("SKIP", "search folder line", "no non-empty folder at the OneDrive root")
+  } else {
+    const found = await call("search_files", { query: folder[1], top: 25 })
+    const line = found.ok
+      ? found.text.split("\n").find((candidate) => candidate.includes(`(ID: ${folder[2]})`))
+      : undefined
+    if (!found.ok) record("FAIL", "search folder line", found.error)
+    else if (!line) record("SKIP", "search folder line", "search did not return the folder")
+    else if (/Folder \(|0 B/.test(line)) record("FAIL", "search folder line", "still shows a count or size")
+    else record("PASS", "search folder line", `${folder[3]}-item folder shown without a count`)
+  }
+
+  // Events: the body must arrive as text, not the Teams invite's HTML.
+  const events = await call("list_events", { top: 5 })
+  const eventId = events.ok ? events.text.match(/\(ID: ([^)]+)\)$/m)?.[1] : undefined
+  if (!events.ok) {
+    record("FAIL", "get_event text body", events.error)
+  } else if (!eventId) {
+    record("SKIP", "get_event text body", "no events")
+  } else {
+    const event = await call("get_event", { event_id: eventId })
+    const body = event.ok ? (event.text.split("## Body")[1] ?? "") : ""
+    if (!event.ok) record("FAIL", "get_event text body", event.error)
+    else if (/<(html|head|body|div|p|br|span|table|meta)\b/i.test(body))
+      record("FAIL", "get_event text body", "body has HTML tags")
+    else record("PASS", "get_event text body", `${body.trim().length} chars of text`)
+  }
+
   // Files: a .log OneDrive stored with an unknown type must come back as text.
   const files = await call("search_files", { query: "log" })
   if (!files.ok) {

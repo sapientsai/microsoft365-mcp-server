@@ -3,8 +3,9 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { GraphDrive, GraphSite, ODataResponse } from "../types"
+import type { GraphDrive, GraphDriveItem, GraphSite, ODataResponse } from "../types"
 import { formatDriveItemList } from "../utils/formatters"
+import { SEARCH_DEFAULT_TOP } from "./files-tools"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -109,12 +110,23 @@ export const searchSiteFiles = async (params: {
   site_id: string
   query: string
   drive_id?: string
+  top?: number
+  fetch_all_pages?: boolean
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.searchSiteFiles(params.site_id, params.query, params.drive_id)
+  if (params.fetch_all_pages) {
+    const result = await client.searchAllSiteFiles(params.site_id, params.query, params.drive_id)
+    return result
+      .mapLeft((error) => new UserError(`Failed to search site files: ${error.message}`))
+      .map((items) => formatDriveItemList(items as ReadonlyArray<GraphDriveItem>, { fromSearch: true }))
+  }
+
+  const result = await client.searchSiteFiles(params.site_id, params.query, params.drive_id, {
+    $top: params.top ?? SEARCH_DEFAULT_TOP,
+  })
   return result
     .mapLeft((error) => new UserError(`Failed to search site files: ${error.message}`))
-    .map((response) => formatDriveItemList((response as ODataResponse<never>).value))
+    .map((response) => formatDriveItemList((response as ODataResponse<GraphDriveItem>).value, { fromSearch: true }))
 }
