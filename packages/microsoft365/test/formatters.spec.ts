@@ -392,7 +392,7 @@ describe("formatters", () => {
 
     it("keeps a real count and size if search does return them", () => {
       const folder: GraphDriveItem = { id: "f2", name: "Real", folder: { childCount: 3 }, size: 2048 }
-      expect(formatDriveItemList([folder], { fromSearch: true })).toContain("- Folder (3 items) (2 KB)")
+      expect(formatDriveItemList([folder], { fromSearch: true })).toContain("- Folder (3 items) (2.0 KB)")
     })
 
     it("shows a folder's parent on its summary line", () => {
