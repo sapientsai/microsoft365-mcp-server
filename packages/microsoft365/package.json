@@ -74,7 +74,7 @@
     "functype": "^1.12.0",
     "functype-log": "^1.12.0",
     "jsonwebtoken": "^9.0.3",
-    "mammoth": "^1.12.2",
+    "mammoth": "^1.13.0",
     "unpdf": "^1.8.1",
     "zod": "^4.6.5"
   },
