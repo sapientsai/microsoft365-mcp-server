@@ -19,6 +19,8 @@ export type AuthConfig =
       readonly tenantId: string
       readonly clientId: string
       readonly redirectUri?: string
+      /** Skip the browser and go straight to device code (MS365_USE_DEVICE_CODE). */
+      readonly useDeviceCode?: boolean
     }
   | {
       readonly mode: "certificate"
