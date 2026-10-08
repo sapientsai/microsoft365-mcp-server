@@ -246,7 +246,9 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 > The `create_*_draft` tools produce a properly threaded draft (same conversation, full
 > quoted history) for review, then send via `send_draft`. They remain available under
-> `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode.
+> `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode, and `graph_query`
+> refuses requests that send mail without a draft (`sendMail`, and `reply`, `replyAll` or
+> `forward` on a message, including inside a `$batch`).
 
 ### Calendar (7 tools)
 
@@ -398,29 +400,29 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 
 ## Environment Variables
 
-| Variable                  | Description                                                                             | Default             |
-| ------------------------- | --------------------------------------------------------------------------------------- | ------------------- |
-| `MS365_AUTH_MODE`         | Auth mode: `interactive`, `certificate`, `client-secret`, `client-token`, `oauth-proxy` | `interactive`       |
-| `MS365_TENANT_ID`         | Azure AD tenant ID                                                                      | `common`            |
-| `MS365_CLIENT_ID`         | Azure AD application (client) ID                                                        | --                  |
-| `MS365_CLIENT_SECRET`     | Client secret (for `client-secret` and `oauth-proxy` modes)                             | --                  |
-| `MS365_CERT_PATH`         | Certificate path (for `certificate` mode)                                               | --                  |
-| `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                         | --                  |
-| `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                          | --                  |
-| `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                           | --                  |
-| `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                     | `v1.0`              |
-| `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                      | `stdio`             |
-| `PORT`                    | HTTP server port                                                                        | `3000`              |
-| `HOST`                    | HTTP server host                                                                        | `127.0.0.1`         |
-| `MS365_PRESETS`           | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`      | -- (all tools)      |
-| `MS365_EXTRA_SCOPES`      | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)              | --                  |
-| `MS365_MAX_EXTRACT_BYTES` | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.      | -- (per-format)     |
-| `MS365_ENABLED_TOOLS`     | Regex pattern to filter tools                                                           | --                  |
-| `MS365_READ_ONLY`         | Hide write tools                                                                        | `false`             |
-| `MS365_ORG_MODE`          | Enable org-only tools (teams, chats, groups, planner)                                   | `false`             |
-| `MS365_REQUIRE_DRAFT`     | Hide all `send_*` mail tools; force the `create_*_draft` + `send_draft` flow            | `false`             |
-| `TOKEN_STORAGE_PATH`      | Directory for persistent OAuth token storage                                            | `/tmp/ms365-tokens` |
-| `FASTMCP_HOST`            | Bind address for HTTP server (set `0.0.0.0` in containers)                              | `localhost`         |
+| Variable                  | Description                                                                                                               | Default             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `MS365_AUTH_MODE`         | Auth mode: `interactive`, `certificate`, `client-secret`, `client-token`, `oauth-proxy`                                   | `interactive`       |
+| `MS365_TENANT_ID`         | Azure AD tenant ID                                                                                                        | `common`            |
+| `MS365_CLIENT_ID`         | Azure AD application (client) ID                                                                                          | --                  |
+| `MS365_CLIENT_SECRET`     | Client secret (for `client-secret` and `oauth-proxy` modes)                                                               | --                  |
+| `MS365_CERT_PATH`         | Certificate path (for `certificate` mode)                                                                                 | --                  |
+| `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                                                           | --                  |
+| `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                                                            | --                  |
+| `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                                                             | --                  |
+| `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                                                       | `v1.0`              |
+| `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                                                        | `stdio`             |
+| `PORT`                    | HTTP server port                                                                                                          | `3000`              |
+| `HOST`                    | HTTP server host                                                                                                          | `127.0.0.1`         |
+| `MS365_PRESETS`           | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`                                        | -- (all tools)      |
+| `MS365_EXTRA_SCOPES`      | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)                                                | --                  |
+| `MS365_MAX_EXTRACT_BYTES` | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.                                        | -- (per-format)     |
+| `MS365_ENABLED_TOOLS`     | Regex pattern to filter tools                                                                                             | --                  |
+| `MS365_READ_ONLY`         | Hide write tools                                                                                                          | `false`             |
+| `MS365_ORG_MODE`          | Enable org-only tools (teams, chats, groups, planner)                                                                     | `false`             |
+| `MS365_REQUIRE_DRAFT`     | Hide all `send_*` mail tools and block direct sends through `graph_query`; force the `create_*_draft` + `send_draft` flow | `false`             |
+| `TOKEN_STORAGE_PATH`      | Directory for persistent OAuth token storage                                                                              | `/tmp/ms365-tokens` |
+| `FASTMCP_HOST`            | Bind address for HTTP server (set `0.0.0.0` in containers)                                                                | `localhost`         |
 
 ## Claude Desktop (Local Installation)
 

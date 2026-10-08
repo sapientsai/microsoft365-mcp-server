@@ -200,12 +200,16 @@ const unwrapResult = <T>(result: Either<UserError, T>): T =>
   )
 /* eslint-enable functype/prefer-either */
 
+// Read per call, not captured at import, so it matches what filterTools saw at startup and tests
+// can set it. graph_query consults it too: hiding the send_* tools alone leaves raw sendMail open.
+const requireDraftEnabled = (): boolean => process.env.MS365_REQUIRE_DRAFT === "true"
+
 const resolveFilterConfig = (transport: "stdio" | "httpStream"): ToolFilterConfig => ({
   presets: process.env.MS365_PRESETS?.split(",").map((s) => s.trim()),
   enabledPattern: process.env.MS365_ENABLED_TOOLS,
   readOnly: process.env.MS365_READ_ONLY === "true",
   orgMode: process.env.MS365_ORG_MODE === "true",
-  requireDraft: process.env.MS365_REQUIRE_DRAFT === "true",
+  requireDraft: requireDraftEnabled(),
   transport,
 })
 
@@ -1545,7 +1549,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .optional()
         .describe('Extra request headers, e.g. { "If-Match": "<etag>" } for concurrency-controlled writes'),
     }),
-    execute: async (params) => unwrapResult(await graphQuery(params)),
+    execute: async (params) => unwrapResult(await graphQuery(params, { requireDraft: requireDraftEnabled() })),
     domain: "query",
     readOnly: false,
     annotations: { destructiveHint: true, openWorldHint: true },
