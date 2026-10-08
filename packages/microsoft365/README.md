@@ -360,12 +360,23 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 
 ### To Do (4 tools)
 
-| Tool               | Description          |
-| ------------------ | -------------------- |
-| `list_todo_lists`  | List task lists      |
-| `list_todo_tasks`  | List tasks in a list |
-| `create_todo_task` | Create a new task    |
-| `update_todo_task` | Update a task        |
+| Tool               | Description                         |
+| ------------------ | ----------------------------------- |
+| `list_todo_lists`  | List task lists                     |
+| `list_todo_tasks`  | List tasks in a list                |
+| `create_todo_task` | Create a task, optionally repeating |
+| `update_todo_task` | Update a task, or change its repeat |
+
+`create_todo_task` and `update_todo_task` take an optional `recurrence`, mapping to
+Graph's `patternedRecurrence`. Pass a `pattern` of `daily`, `weekly`,
+`absoluteMonthly`, `relativeMonthly`, `absoluteYearly` or `relativeYearly`, with the
+fields that pattern needs — `days_of_week` for weekly, `day_of_month` for
+`absoluteMonthly`, and so on. Quarterly is `absoluteMonthly` with an `interval` of 3.
+
+The repeat runs forever unless `range_type` is `endDate` or `numbered`. A recurring
+task needs a `due_date`: To Do rolls the task forward from it, so without one the
+task repeats but never appears in Today. Pass `clear_recurrence` on an update to
+make a repeating task one-off again.
 
 ### Auth & Utility (5 tools)
 

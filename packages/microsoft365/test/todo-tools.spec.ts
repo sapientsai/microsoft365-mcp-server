@@ -57,6 +57,49 @@ describe("todo-tools", () => {
       })
     })
 
+    it("should attach a recurrence and default its range to the due date", async () => {
+      mockClient.createTodoTask.mockResolvedValue(Right({ id: "t1", title: "Clear the gutters" }))
+      await createTodoTask({
+        list_id: LIST_ID,
+        title: "Clear the gutters",
+        due_date: "2026-10-01T00:00:00",
+        recurrence: { pattern: "absoluteMonthly", interval: 3, day_of_month: 1 },
+      })
+      expect(mockClient.createTodoTask).toHaveBeenCalledWith(LIST_ID, {
+        title: "Clear the gutters",
+        dueDateTime: { dateTime: "2026-10-01T00:00:00", timeZone: "UTC" },
+        recurrence: {
+          pattern: { type: "absoluteMonthly", interval: 3, dayOfMonth: 1 },
+          range: { type: "noEnd", startDate: "2026-10-01" },
+        },
+      })
+    })
+
+    // To Do rolls a recurring task forward from its due date, so without one the
+    // task repeats but never surfaces in Today.
+    it("should refuse a recurring task with no due date", async () => {
+      const result = await createTodoTask({
+        list_id: LIST_ID,
+        title: "Clear the gutters",
+        recurrence: { pattern: "daily" },
+      })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("due_date")
+      expect(mockClient.createTodoTask).not.toHaveBeenCalled()
+    })
+
+    it("should not call Graph when the recurrence is incomplete", async () => {
+      const result = await createTodoTask({
+        list_id: LIST_ID,
+        title: "Bin night",
+        due_date: "2026-10-01T00:00:00",
+        recurrence: { pattern: "weekly" },
+      })
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain("days_of_week")
+      expect(mockClient.createTodoTask).not.toHaveBeenCalled()
+    })
+
     it("should surface a create failure as a UserError", async () => {
       mockClient.createTodoTask.mockResolvedValue(
         (await import("functype/either")).Left({ message: "Requested value 'Text' was not found." }),
@@ -80,6 +123,40 @@ describe("todo-tools", () => {
       mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1", status: "completed" }))
       await updateTodoTask({ list_id: LIST_ID, task_id: "t1", status: "completed" })
       expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { status: "completed" })
+    })
+
+    it("should add a recurrence to an existing task", async () => {
+      mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
+      await updateTodoTask({
+        list_id: LIST_ID,
+        task_id: "t1",
+        recurrence: { pattern: "absoluteYearly", day_of_month: 1, month: 10, start_date: "2026-10-01" },
+      })
+      expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", {
+        recurrence: {
+          pattern: { type: "absoluteYearly", interval: 1, dayOfMonth: 1, month: 10 },
+          range: { type: "noEnd", startDate: "2026-10-01" },
+        },
+      })
+    })
+
+    // Graph only clears a recurrence on an explicit null; omitting it leaves the
+    // existing pattern untouched.
+    it("should clear a recurrence with an explicit null", async () => {
+      mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
+      await updateTodoTask({ list_id: LIST_ID, task_id: "t1", clear_recurrence: true })
+      expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { recurrence: null })
+    })
+
+    it("should reject setting and clearing a recurrence at once", async () => {
+      const result = await updateTodoTask({
+        list_id: LIST_ID,
+        task_id: "t1",
+        clear_recurrence: true,
+        recurrence: { pattern: "daily", start_date: "2026-10-01" },
+      })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
     })
   })
 })

@@ -314,6 +314,29 @@ export type GraphTodoList = {
   readonly wellknownListName?: string
 }
 
+export type GraphRecurrencePattern = {
+  readonly type: string
+  readonly interval: number
+  readonly dayOfMonth?: number
+  readonly daysOfWeek?: ReadonlyArray<string>
+  readonly firstDayOfWeek?: string
+  readonly index?: string
+  readonly month?: number
+}
+
+export type GraphRecurrenceRange = {
+  readonly type: string
+  readonly startDate: string
+  readonly endDate?: string
+  readonly numberOfOccurrences?: number
+  readonly recurrenceTimeZone?: string
+}
+
+export type GraphPatternedRecurrence = {
+  readonly pattern: GraphRecurrencePattern
+  readonly range: GraphRecurrenceRange
+}
+
 export type GraphTodoTask = {
   readonly id: string
   readonly title?: string
@@ -323,6 +346,7 @@ export type GraphTodoTask = {
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly dueDateTime?: { readonly dateTime?: string; readonly timeZone?: string }
   readonly completedDateTime?: { readonly dateTime?: string; readonly timeZone?: string }
+  readonly recurrence?: GraphPatternedRecurrence
   readonly createdDateTime?: string
   readonly lastModifiedDateTime?: string
 }

@@ -5,6 +5,8 @@ import { Left } from "functype/either"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphTodoList, GraphTodoTask, ODataResponse } from "../types"
 import { formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
+import type { RecurrenceInput } from "../utils/recurrence"
+import { buildRecurrence } from "../utils/recurrence"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -55,6 +57,7 @@ export const createTodoTask = async (params: {
   body?: string
   due_date?: string
   importance?: string
+  recurrence?: RecurrenceInput
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -63,6 +66,20 @@ export const createTodoTask = async (params: {
   if (params.body) task.body = { contentType: "text", content: params.body }
   if (params.due_date) task.dueDateTime = { dateTime: params.due_date, timeZone: "UTC" }
   if (params.importance) task.importance = params.importance
+
+  if (params.recurrence) {
+    // To Do rolls a recurring task forward from its due date, so a recurrence with
+    // no due date creates a task that repeats but never appears in Today. Graph
+    // accepts it silently, which makes this worth refusing here rather than
+    // shipping a task the user cannot see.
+    if (!params.due_date) {
+      return Left(new UserError("A recurring task needs a due_date — To Do repeats a task from its due date."))
+    }
+
+    const recurrence = buildRecurrence(params.recurrence, params.due_date)
+    if (typeof recurrence === "string") return Left(new UserError(recurrence))
+    task.recurrence = recurrence
+  }
 
   const result = await client.createTodoTask(params.list_id, task)
   return result
@@ -78,9 +95,15 @@ export const updateTodoTask = async (params: {
   due_date?: string
   importance?: string
   body?: string
+  recurrence?: RecurrenceInput
+  clear_recurrence?: boolean
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.recurrence && params.clear_recurrence) {
+    return Left(new UserError("Pass either recurrence or clear_recurrence, not both."))
+  }
 
   const updates: Record<string, unknown> = {}
   if (params.title) updates.title = params.title
@@ -88,6 +111,16 @@ export const updateTodoTask = async (params: {
   if (params.due_date) updates.dueDateTime = { dateTime: params.due_date, timeZone: "UTC" }
   if (params.importance) updates.importance = params.importance
   if (params.body) updates.body = { contentType: "text", content: params.body }
+
+  // Graph clears a recurrence by an explicit null; omitting the property leaves the
+  // existing pattern in place, so the two cases cannot share a code path.
+  if (params.clear_recurrence) updates.recurrence = null
+
+  if (params.recurrence) {
+    const recurrence = buildRecurrence(params.recurrence, params.due_date)
+    if (typeof recurrence === "string") return Left(new UserError(recurrence))
+    updates.recurrence = recurrence
+  }
 
   const result = await client.updateTodoTask(params.list_id, params.task_id, updates)
   return result

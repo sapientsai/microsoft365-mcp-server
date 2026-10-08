@@ -26,6 +26,7 @@ import type {
   GraphTodoTask,
   GraphUser,
 } from "../types"
+import { describeRecurrence } from "./recurrence"
 
 // Mail
 // The fields formatMessageSummary reads. list_messages $selects exactly these, so a field read here
@@ -617,7 +618,13 @@ export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
       () => "",
       (v) => v,
     )
-  return `- **${task.title ?? "Untitled"}** [${status}]${due} (ID: ${task.id})`
+  const repeats = Option(task.recurrence)
+    .map((r) => ` (Repeats: ${describeRecurrence(r)})`)
+    .fold(
+      () => "",
+      (v) => v,
+    )
+  return `- **${task.title ?? "Untitled"}** [${status}]${due}${repeats} (ID: ${task.id})`
 }
 
 export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
@@ -636,6 +643,10 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
 - Status: ${task.status ?? "notStarted"}
 - Importance: ${task.importance ?? "normal"}
 - Due: ${task.dueDateTime?.dateTime ?? "N/A"}
+- Repeats: ${Option(task.recurrence).fold(
+    () => "No",
+    (r) => describeRecurrence(r),
+  )}
 - Completed: ${task.completedDateTime?.dateTime ?? "N/A"}
 - Reminder: ${task.isReminderOn ? "Yes" : "No"}
 - Created: ${task.createdDateTime ?? ""}
