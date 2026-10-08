@@ -48,13 +48,17 @@ const wirePath = (url: string): string => {
 
 // Decoded before splitting, so an encoded "/" still separates segments. Graph paths are
 // case-insensitive and accept fully qualified (microsoft.graph.reply) and call-style
-// (sendMail()) action names, so all of those are normalized away.
+// (sendMail()) action names, so all of those are normalized away. Case is folded through
+// upper then lower case, after NFKC, so lookalikes such as "ſ" (which .NET uppercases to "S")
+// fold the way Graph's own comparison might.
 const pathSegments = (url: string): ReadonlyArray<string> =>
   safeDecode(wirePath(url))
     .split(/[/\\]/)
     .map((segment) =>
       segment
         .trim()
+        .normalize("NFKC")
+        .toUpperCase()
         .toLowerCase()
         .replace(/^microsoft\.graph\./, "")
         .replace(/\(\)$/, ""),
@@ -68,13 +72,18 @@ const property = (value: unknown, name: string): unknown => {
   return key === undefined ? undefined : (value as Record<string, unknown>)[key]
 }
 
+// GET and HEAD can never send. Every other method is treated as a possible send, so an unknown
+// or missing method (or a method-override header) can't open a gap. Exempting reads keeps a
+// path-addressed drive item named "Forward" or "Reply" readable.
+const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"])
+
 /**
- * True when a request to this URL (a full URL, or a path relative to the Graph version root)
- * would send mail without going through a draft — directly, or as one of the requests inside a
- * JSON $batch. The method is deliberately ignored: none of these actions has a legitimate
- * non-POST use, and ignoring it closes off method-override headers.
+ * True when a request with this method to this URL (a full URL, or a path relative to the Graph
+ * version root) would send mail without going through a draft — directly, or as one of the
+ * requests inside a JSON $batch.
  */
-export const isDirectMailSend = (url: string, body?: unknown): boolean => {
+export const isDirectMailSend = (method: unknown, url: string, body?: unknown): boolean => {
+  if (typeof method === "string" && READ_METHODS.has(method.trim().toUpperCase())) return false
   const action = pathSegments(url).at(-1)
   if (action === undefined) return false
   if (SEND_ACTIONS.has(action)) return true
@@ -84,7 +93,7 @@ export const isDirectMailSend = (url: string, body?: unknown): boolean => {
   if (!Array.isArray(requests)) return false
   return requests.some((request) => {
     const inner = property(request, "url")
-    return typeof inner === "string" && isDirectMailSend(inner, property(request, "body"))
+    return typeof inner === "string" && isDirectMailSend(property(request, "method"), inner, property(request, "body"))
   })
 }
 
@@ -120,9 +129,10 @@ export const graphQuery = async (params: {
   if (parsed.isLeft()) return Left(parsed.value as UserError)
   const body = parsed.value as Record<string, unknown> | undefined
 
-  // Checked on every call, before any client work, against the same URL core will build.
+  // Checked on every call, before any client work, against the URL as core builds it. Core may
+  // substitute MS365_GRAPH_VERSION for a missing version, which only changes a leading segment.
   const url = `${GRAPH_API_BASE}/${version ?? "v1.0"}${params.path}`
-  if (requireDraftEnabled() && isDirectMailSend(url, body)) {
+  if (requireDraftEnabled() && isDirectMailSend(params.method, url, body)) {
     return Left(new UserError(DRAFT_REQUIRED_MESSAGE))
   }
 
