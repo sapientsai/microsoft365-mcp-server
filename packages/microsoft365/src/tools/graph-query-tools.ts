@@ -1,9 +1,10 @@
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
-import { Left } from "functype/either"
+import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiVersion } from "../types"
+import { requireDraftEnabled } from "./tool-registry"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -76,18 +77,28 @@ const DRAFT_REQUIRED_MESSAGE =
   "directly. Create a draft with create_draft, create_reply_draft, create_reply_all_draft or " +
   "create_forward_draft, then send it with send_draft."
 
-export const graphQuery = async (
-  params: {
-    method: string
-    path: string
-    body?: string
-    version?: string
-    headers?: Record<string, string>
-  },
-  options: { readonly requireDraft?: boolean } = {},
-): Promise<Either<UserError, string>> => {
-  const body = params.body ? (JSON.parse(params.body) as Record<string, unknown>) : undefined
-  if (options.requireDraft && isDirectMailSend(params.method, params.path, body)) {
+const parseBody = (raw: string | undefined): Either<UserError, Record<string, unknown> | undefined> => {
+  if (!raw) return Right(undefined)
+  try {
+    return Right(JSON.parse(raw) as Record<string, unknown>)
+  } catch (err) {
+    return Left(new UserError(`body is not valid JSON: ${err instanceof Error ? err.message : String(err)}`))
+  }
+}
+
+export const graphQuery = async (params: {
+  method: string
+  path: string
+  body?: string
+  version?: string
+  headers?: Record<string, string>
+}): Promise<Either<UserError, string>> => {
+  const parsed = parseBody(params.body)
+  if (parsed.isLeft()) return Left(parsed.value as UserError)
+  const body = parsed.value as Record<string, unknown> | undefined
+
+  // Checked on every call, before any client work, so the flag holds whichever way the tool is reached.
+  if (requireDraftEnabled() && isDirectMailSend(params.method, params.path, body)) {
     return Left(new UserError(DRAFT_REQUIRED_MESSAGE))
   }
 

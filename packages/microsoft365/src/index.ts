@@ -107,7 +107,7 @@ import {
   uploadFileFromPath,
 } from "./tools"
 import type { ToolDefinition } from "./tools/tool-definitions"
-import { DOMAIN_DESCRIPTIONS, filterTools, type ToolFilterConfig } from "./tools/tool-registry"
+import { DOMAIN_DESCRIPTIONS, filterTools, requireDraftEnabled, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
@@ -199,10 +199,6 @@ const unwrapResult = <T>(result: Either<UserError, T>): T =>
     (v) => v,
   )
 /* eslint-enable functype/prefer-either */
-
-// Read per call, not captured at import, so it matches what filterTools saw at startup and tests
-// can set it. graph_query consults it too: hiding the send_* tools alone leaves raw sendMail open.
-const requireDraftEnabled = (): boolean => process.env.MS365_REQUIRE_DRAFT === "true"
 
 const resolveFilterConfig = (transport: "stdio" | "httpStream"): ToolFilterConfig => ({
   presets: process.env.MS365_PRESETS?.split(",").map((s) => s.trim()),
@@ -1549,7 +1545,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .optional()
         .describe('Extra request headers, e.g. { "If-Match": "<etag>" } for concurrency-controlled writes'),
     }),
-    execute: async (params) => unwrapResult(await graphQuery(params, { requireDraft: requireDraftEnabled() })),
+    execute: async (params) => unwrapResult(await graphQuery(params)),
     domain: "query",
     readOnly: false,
     annotations: { destructiveHint: true, openWorldHint: true },

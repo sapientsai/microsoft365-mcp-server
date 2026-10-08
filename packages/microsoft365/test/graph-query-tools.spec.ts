@@ -1,6 +1,6 @@
 import { Some } from "functype"
 import { Right } from "functype/either"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../src/client/graph-client", () => ({
   getGraphClient: vi.fn(),
@@ -17,6 +17,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(getGraphClient).mockReturnValue(Some(mockClient as never))
   mockClient.graphQuery.mockResolvedValue(Right({ ok: true }))
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe("isDirectMailSend", () => {
@@ -76,12 +80,12 @@ describe("isDirectMailSend", () => {
   })
 })
 
+// graphQuery reads MS365_REQUIRE_DRAFT itself rather than taking it from the tool definition, so
+// these tests drive the env var: dropping the check anywhere on the path fails them.
 describe("graphQuery", () => {
-  it("should refuse a direct send when requireDraft is on, without calling Graph", async () => {
-    const result = await graphQuery(
-      { method: "POST", path: "/me/sendMail", body: JSON.stringify({ message: {} }) },
-      { requireDraft: true },
-    )
+  it("should refuse a direct send when MS365_REQUIRE_DRAFT is on, without calling Graph", async () => {
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "true")
+    const result = await graphQuery({ method: "POST", path: "/me/sendMail", body: JSON.stringify({ message: {} }) })
 
     expect(result.isLeft()).toBe(true)
     expect(
@@ -93,20 +97,32 @@ describe("graphQuery", () => {
     expect(mockClient.graphQuery).not.toHaveBeenCalled()
   })
 
-  it("should pass a direct send through when requireDraft is off", async () => {
+  it("should pass a direct send through when MS365_REQUIRE_DRAFT is off", async () => {
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "false")
     const result = await graphQuery({ method: "POST", path: "/me/sendMail", body: "{}" })
 
     expect(result.isRight()).toBe(true)
     expect(mockClient.graphQuery).toHaveBeenCalledWith("POST", "/me/sendMail", {}, undefined, undefined)
   })
 
-  it("should allow other writes when requireDraft is on", async () => {
-    const result = await graphQuery(
-      { method: "POST", path: "/me/messages/m1/createReply", body: "{}" },
-      { requireDraft: true },
-    )
+  it("should allow other writes when MS365_REQUIRE_DRAFT is on", async () => {
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "true")
+    const result = await graphQuery({ method: "POST", path: "/me/messages/m1/createReply", body: "{}" })
 
     expect(result.isRight()).toBe(true)
     expect(mockClient.graphQuery).toHaveBeenCalledTimes(1)
+  })
+
+  it("should return an error, not throw, when body is not JSON", async () => {
+    const result = await graphQuery({ method: "POST", path: "/me/messages", body: "{not json" })
+
+    expect(result.isLeft()).toBe(true)
+    expect(
+      result.fold(
+        (e) => e.message,
+        () => "",
+      ),
+    ).toContain("not valid JSON")
+    expect(mockClient.graphQuery).not.toHaveBeenCalled()
   })
 })

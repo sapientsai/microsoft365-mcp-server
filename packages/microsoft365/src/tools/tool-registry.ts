@@ -195,6 +195,10 @@ export type ToolFilterConfig = {
   readonly requireDraft?: boolean
 }
 
+// Read per call, not captured at import, so tests can set it. graph_query reads it too: hiding the
+// send_* tools alone would leave a raw POST /me/sendMail open.
+export const requireDraftEnabled = (): boolean => process.env.MS365_REQUIRE_DRAFT === "true"
+
 const DRAFT_BYPASS_TOOLS: ReadonlySet<string> = new Set([
   "send_message",
   "send_reply",
