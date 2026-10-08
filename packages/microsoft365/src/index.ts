@@ -1539,7 +1539,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       method: z.string().describe("HTTP method: GET, POST, PUT, PATCH, or DELETE"),
       path: z.string().describe("Graph API path (e.g., /me/memberOf)"),
       body: z.string().optional().describe("JSON request body as a string"),
-      version: z.string().optional().describe("API version: v1.0 or beta (default: v1.0)"),
+      version: z.enum(["v1.0", "beta"]).optional().describe("API version: v1.0 or beta (default: v1.0)"),
       headers: z
         .record(z.string(), z.string())
         .optional()
