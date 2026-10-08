@@ -25,58 +25,86 @@ afterEach(() => {
 
 describe("isDirectMailSend", () => {
   it.each([
-    ["POST", "/me/sendMail"],
-    ["POST", "/users/it@civala.com/sendMail"],
-    ["POST", "/me/messages/m1/reply"],
-    ["POST", "/me/messages/m1/replyAll"],
-    ["POST", "/me/messages/m1/forward"],
-    ["POST", "/me/mailFolders/inbox/messages/m1/forward"],
-    ["POST", "/me/messages('m1')/microsoft.graph.reply"],
-    ["post", "/ME/SENDMAIL"],
-    ["POST", "me/sendMail/"],
-    ["POST", "/me/sendMail?foo=bar"],
-    ["POST", "/me/send%4Dail"],
-  ])("should treat %s %s as a direct send", (method, path) => {
-    expect(isDirectMailSend(method, path)).toBe(true)
+    "/me/sendMail",
+    "/users/it@civala.com/sendMail",
+    "/users('it@civala.com')/sendMail",
+    "/me/messages/m1/reply",
+    "/me/messages/m1/replyAll",
+    "/me/messages/m1/forward",
+    "/me/mailFolders/inbox/messages/m1/forward",
+    "/me/messages('m1')/microsoft.graph.reply",
+    "/ME/SENDMAIL",
+    "/me/sendMail/",
+    "/me/sendMail?foo=bar",
+    "/me/send%4Dail",
+    "/me/sendMail()",
+    "/me%2FsendMail",
+    "/groups/g1/threads/t1/reply",
+    "/groups/g1/conversations/c1/threads/t1/reply",
+    "/groups/g1/threads/t1/posts/p1/reply",
+    "/groups/g1/threads/t1/posts/p1/forward",
+    "/me/events/e1/forward",
+    "https://graph.microsoft.com/beta/me/sendMail",
+  ])("should treat %s as a direct send", (path) => {
+    expect(isDirectMailSend(path)).toBe(true)
+  })
+
+  // fetch sends the WHATWG-normalized URL, not the raw string, so each of these goes out as a send.
+  it.each([
+    ["a fragment", "/me/sendMail#x"],
+    ["a tab", "/me/send\tMail"],
+    ["a newline", "/me/send\nMail"],
+    ["a trailing space", "/me/sendMail "],
+    ["a backslash", "/me\\sendMail"],
+    ["a dot-dot segment", "/me/sendMail/x/.."],
+    ["a dot segment", "/me/sendMail/."],
+    ["an encoded dot segment", "/me/sendMail/%2e"],
+    ["a dot-dot after reply", "/me/messages/m1/reply/x/.."],
+  ])("should see through %s", (_label, path) => {
+    expect(isDirectMailSend(`https://graph.microsoft.com/v1.0${path}`)).toBe(true)
   })
 
   it.each([
-    ["GET", "/me/messages"],
-    ["POST", "/me/messages"],
-    ["POST", "/me/messages/m1/createReply"],
-    ["POST", "/me/messages/m1/createReplyAll"],
-    ["POST", "/me/messages/m1/createForward"],
-    ["PATCH", "/me/messages/m1"],
-    ["DELETE", "/me/messages/m1"],
-    ["POST", "/me/events/e1/forward"],
-  ])("should not treat %s %s as a direct send", (method, path) => {
-    expect(isDirectMailSend(method, path)).toBe(false)
+    "/me/messages",
+    "/me/messages/m1",
+    "/me/messages/m1/createReply",
+    "/me/messages/m1/createReplyAll",
+    "/me/messages/m1/createForward",
+    "/teams/t1/channels/c1/messages/m1/replies",
+    "/me/events/e1/accept",
+  ])("should not treat %s as a direct send", (path) => {
+    expect(isDirectMailSend(path)).toBe(false)
   })
 
   // send_draft stays available under MS365_REQUIRE_DRAFT, so sending a draft through
   // graph_query has to stay allowed too. Blocking it would only push callers to the tool.
   it("should allow sending an existing draft", () => {
-    expect(isDirectMailSend("POST", "/me/messages/m1/send")).toBe(false)
+    expect(isDirectMailSend("/me/messages/m1/send")).toBe(false)
   })
 
   it("should catch a send hidden inside a $batch", () => {
     const body = {
       requests: [
         { id: "1", method: "GET", url: "/me/messages" },
-        { id: "2", method: "POST", url: "/me/sendMail", body: {} },
+        { id: "2", method: "POST", url: "me/sendMail", body: {} },
       ],
     }
-    expect(isDirectMailSend("POST", "/$batch", body)).toBe(true)
+    expect(isDirectMailSend("/$batch", body)).toBe(true)
+  })
+
+  it("should read $batch property names case-insensitively", () => {
+    const body = { Requests: [{ Id: "1", Method: "POST", Url: "/me/sendMail#x" }] }
+    expect(isDirectMailSend("/$batch", body)).toBe(true)
   })
 
   it("should allow a $batch with no sends", () => {
     const body = { requests: [{ id: "1", method: "POST", url: "/me/messages/m1/createReply" }] }
-    expect(isDirectMailSend("POST", "/$batch", body)).toBe(false)
+    expect(isDirectMailSend("/$batch", body)).toBe(false)
   })
 
   it("should ignore a $batch body without a requests array", () => {
-    expect(isDirectMailSend("POST", "/$batch", { requests: "nope" })).toBe(false)
-    expect(isDirectMailSend("POST", "/$batch")).toBe(false)
+    expect(isDirectMailSend("/$batch", { requests: "nope" })).toBe(false)
+    expect(isDirectMailSend("/$batch")).toBe(false)
   })
 })
 
@@ -111,6 +139,30 @@ describe("graphQuery", () => {
 
     expect(result.isRight()).toBe(true)
     expect(mockClient.graphQuery).toHaveBeenCalledTimes(1)
+  })
+
+  // The version is spliced into the URL ahead of the path, so it could otherwise smuggle in a
+  // send that the path check never sees.
+  it("should refuse an unknown version before building the URL", async () => {
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "true")
+    const result = await graphQuery({ method: "POST", path: "/me", version: "v1.0/me/sendMail#" })
+
+    expect(result.isLeft()).toBe(true)
+    expect(
+      result.fold(
+        (e) => e.message,
+        () => "",
+      ),
+    ).toContain("version must be one of")
+    expect(mockClient.graphQuery).not.toHaveBeenCalled()
+  })
+
+  it("should refuse a normalized send when MS365_REQUIRE_DRAFT is on", async () => {
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "true")
+    const result = await graphQuery({ method: "POST", path: "/me/sendMail/x/..", version: "beta" })
+
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.graphQuery).not.toHaveBeenCalled()
   })
 
   it("should return an error, not throw, when body is not JSON", async () => {
