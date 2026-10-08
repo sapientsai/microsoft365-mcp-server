@@ -107,7 +107,7 @@ import {
   uploadFileFromPath,
 } from "./tools"
 import type { ToolDefinition } from "./tools/tool-definitions"
-import { DOMAIN_DESCRIPTIONS, filterTools, type ToolFilterConfig } from "./tools/tool-registry"
+import { DOMAIN_DESCRIPTIONS, filterTools, requireDraftEnabled, type ToolFilterConfig } from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
@@ -205,7 +205,7 @@ const resolveFilterConfig = (transport: "stdio" | "httpStream"): ToolFilterConfi
   enabledPattern: process.env.MS365_ENABLED_TOOLS,
   readOnly: process.env.MS365_READ_ONLY === "true",
   orgMode: process.env.MS365_ORG_MODE === "true",
-  requireDraft: process.env.MS365_REQUIRE_DRAFT === "true",
+  requireDraft: requireDraftEnabled(),
   transport,
 })
 
@@ -1539,7 +1539,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       method: z.string().describe("HTTP method: GET, POST, PUT, PATCH, or DELETE"),
       path: z.string().describe("Graph API path (e.g., /me/memberOf)"),
       body: z.string().optional().describe("JSON request body as a string"),
-      version: z.string().optional().describe("API version: v1.0 or beta (default: v1.0)"),
+      version: z.enum(["v1.0", "beta"]).optional().describe("API version: v1.0 or beta (default: v1.0)"),
       headers: z
         .record(z.string(), z.string())
         .optional()
