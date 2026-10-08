@@ -46,7 +46,7 @@ describe("isDirectMailSend", () => {
     "/me/events/e1/forward",
     "https://graph.microsoft.com/beta/me/sendMail",
   ])("should treat %s as a direct send", (path) => {
-    expect(isDirectMailSend(path)).toBe(true)
+    expect(isDirectMailSend("POST", path)).toBe(true)
   })
 
   // fetch sends the WHATWG-normalized URL, not the raw string, so each of these goes out as a send.
@@ -61,7 +61,7 @@ describe("isDirectMailSend", () => {
     ["an encoded dot segment", "/me/sendMail/%2e"],
     ["a dot-dot after reply", "/me/messages/m1/reply/x/.."],
   ])("should see through %s", (_label, path) => {
-    expect(isDirectMailSend(`https://graph.microsoft.com/v1.0${path}`)).toBe(true)
+    expect(isDirectMailSend("POST", `https://graph.microsoft.com/v1.0${path}`)).toBe(true)
   })
 
   it.each([
@@ -73,13 +73,37 @@ describe("isDirectMailSend", () => {
     "/teams/t1/channels/c1/messages/m1/replies",
     "/me/events/e1/accept",
   ])("should not treat %s as a direct send", (path) => {
-    expect(isDirectMailSend(path)).toBe(false)
+    expect(isDirectMailSend("POST", path)).toBe(false)
+  })
+
+  it("should fold Unicode lookalikes the way .NET uppercasing does", () => {
+    expect(isDirectMailSend("POST", "/me/\u017FendMail")).toBe(true)
+  })
+
+  // A drive item addressed by path can be named like a send action; reading it must still work.
+  it.each(["GET", "get", "HEAD"])("should never treat a %s as a send", (method) => {
+    expect(isDirectMailSend(method, "/me/drive/root:/Projects/Forward")).toBe(false)
+    expect(isDirectMailSend(method, "/me/sendMail")).toBe(false)
+  })
+
+  it.each([undefined, "PATCH", "PUT", "DELETE", "MERGE"])(
+    "should treat method %s on a send path as a send",
+    (method) => {
+      expect(isDirectMailSend(method, "/me/sendMail")).toBe(true)
+    },
+  )
+
+  it("should only let GET requests inside a $batch through", () => {
+    expect(isDirectMailSend("POST", "/$batch", { requests: [{ method: "GET", url: "/me/drive/root:/Reply" }] })).toBe(
+      false,
+    )
+    expect(isDirectMailSend("POST", "/$batch", { requests: [{ url: "/me/sendMail" }] })).toBe(true)
   })
 
   // send_draft stays available under MS365_REQUIRE_DRAFT, so sending a draft through
   // graph_query has to stay allowed too. Blocking it would only push callers to the tool.
   it("should allow sending an existing draft", () => {
-    expect(isDirectMailSend("/me/messages/m1/send")).toBe(false)
+    expect(isDirectMailSend("POST", "/me/messages/m1/send")).toBe(false)
   })
 
   it("should catch a send hidden inside a $batch", () => {
@@ -89,22 +113,22 @@ describe("isDirectMailSend", () => {
         { id: "2", method: "POST", url: "me/sendMail", body: {} },
       ],
     }
-    expect(isDirectMailSend("/$batch", body)).toBe(true)
+    expect(isDirectMailSend("POST", "/$batch", body)).toBe(true)
   })
 
   it("should read $batch property names case-insensitively", () => {
     const body = { Requests: [{ Id: "1", Method: "POST", Url: "/me/sendMail#x" }] }
-    expect(isDirectMailSend("/$batch", body)).toBe(true)
+    expect(isDirectMailSend("POST", "/$batch", body)).toBe(true)
   })
 
   it("should allow a $batch with no sends", () => {
     const body = { requests: [{ id: "1", method: "POST", url: "/me/messages/m1/createReply" }] }
-    expect(isDirectMailSend("/$batch", body)).toBe(false)
+    expect(isDirectMailSend("POST", "/$batch", body)).toBe(false)
   })
 
   it("should ignore a $batch body without a requests array", () => {
-    expect(isDirectMailSend("/$batch", { requests: "nope" })).toBe(false)
-    expect(isDirectMailSend("/$batch")).toBe(false)
+    expect(isDirectMailSend("POST", "/$batch", { requests: "nope" })).toBe(false)
+    expect(isDirectMailSend("POST", "/$batch")).toBe(false)
   })
 })
 
