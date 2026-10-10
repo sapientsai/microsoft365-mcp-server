@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AuthStrategy } from "../src/auth-strategy"
 import { createGraphRequest } from "../src/graph-request"
+import { CircuitBreaker, type FetchLike, fetchWithResilience, loadResilienceConfig } from "../src/resilience"
 
 const auth = (token = "TOK"): AuthStrategy => ({ getAccessToken: () => Promise.resolve(Right(token)) })
 
@@ -62,25 +63,47 @@ describe("createGraphRequest", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  // fetchImpl bypasses the resilience wrapper: this asserts the error *mapping*, and
+  // going through the real wrapper would spend the retry budget sleeping first.
   it("maps a 429 to a throttle error with Retry-After", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          res(
-            { error: { message: "slow down", code: "TooManyRequests" } },
-            {
-              ok: false,
-              status: 429,
-              headers: new Headers({ "Retry-After": "30" }),
-            },
-          ),
+    const throttled = vi.fn(() =>
+      Promise.resolve(
+        res(
+          { error: { message: "slow down", code: "TooManyRequests" } },
+          { ok: false, status: 429, headers: new Headers({ "Retry-After": "30" }) },
         ),
       ),
     )
-    const result = await createGraphRequest(auth()).request("GET", "/me")
+    const result = await createGraphRequest(auth(), { fetchImpl: throttled }).request("GET", "/me")
     expect(result.isLeft()).toBe(true)
     const err = result.value as { type: string; status: number; retryAfter?: number }
+    expect(err.type).toBe("throttle")
+    expect(err.retryAfter).toBe(30)
+  })
+
+  it("retries a transient 503 through the resilience wrapper", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(res({}, { ok: false, status: 503 }))
+        .mockResolvedValueOnce(res({ id: "1" })),
+    )
+    const result = await createGraphRequest(auth()).request<{ id: string }>("GET", "/me")
+
+    expect(result.isRight()).toBe(true)
+    expect((result.value as { id: string }).id).toBe("1")
+  })
+
+  it("maps an open circuit onto the throttle error type", async () => {
+    const breaker = new CircuitBreaker(1, 30_000, false)
+    breaker.recordFailure()
+    const viaBreaker: FetchLike = (url, init) =>
+      fetchWithResilience(url, init, loadResilienceConfig(), breaker, () => Promise.resolve())
+
+    const result = await createGraphRequest(auth(), { fetchImpl: viaBreaker }).request("GET", "/me")
+    expect(result.isLeft()).toBe(true)
+    const err = result.value as { type: string; retryAfter?: number }
     expect(err.type).toBe("throttle")
     expect(err.retryAfter).toBe(30)
   })
