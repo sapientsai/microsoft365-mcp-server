@@ -20,7 +20,7 @@ const mockClient = {
   respondToEvent: vi.fn(),
   sendChannelMessage: vi.fn(),
   replyToChannelMessage: vi.fn(),
-  getMe: vi.fn(),
+  getMeAsChatMember: vi.fn(),
   getUserByKey: vi.fn(),
   findUsersByMail: vi.fn(),
   createChat: vi.fn(),
@@ -207,11 +207,11 @@ const DIRECTORY = [
   },
 ]
 
-const useDirectory = (): void => {
-  mockClient.getMe.mockResolvedValue(Right({ ...DIRECTORY[0], userType: "Member" }))
+const useDirectory = (caller: Record<string, unknown> = { ...DIRECTORY[0], userType: "Member" }): void => {
+  mockClient.getMeAsChatMember.mockResolvedValue(Right(caller))
   mockClient.getUserByKey.mockImplementation((key: string) => {
     const user = DIRECTORY.find((u) => u.userPrincipalName.toLowerCase() === key.toLowerCase() || u.id === key)
-    return Promise.resolve(user ? Right(user) : Left({ message: "Resource not found" }))
+    return Promise.resolve(user ? Right(user) : Left({ type: "not_found", status: 404, message: "Resource not found" }))
   })
   mockClient.findUsersByMail.mockImplementation((address: string) =>
     Promise.resolve(Right({ value: DIRECTORY.filter((u) => u.mail.toLowerCase() === address.toLowerCase()) })),
@@ -297,6 +297,47 @@ describe("sendChatMessage", () => {
     const chat = createdChat()
     expect(boundIds(chat)).toEqual(["me-id", "guest-id"])
     expect(chat.members[1]?.roles).toEqual(["guest"])
+  })
+
+  // A consultant signed in as a guest of a client tenant: Graph rejects the chat if the caller is
+  // listed as an owner.
+  it("should give the caller the guest role when they are a guest", async () => {
+    useDirectory({
+      id: "me-id",
+      userPrincipalName: "jordan_sapients.ai#EXT#@civala.onmicrosoft.com",
+      userType: "Guest",
+    })
+    mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
+
+    await sendChatMessage({ to: "ada@civala.com", content: "Hi" })
+
+    const chat = createdChat()
+    expect(boundIds(chat)).toEqual(["me-id", "ada-id"])
+    expect(chat.members[0]?.roles).toEqual(["guest"])
+    expect(chat.members[1]?.roles).toEqual(["owner"])
+  })
+
+  // Falling back to the mail filter after a throttle would turn a transient failure into "no match".
+  it("should report a failed lookup instead of trying the mail field", async () => {
+    useDirectory()
+    mockClient.getUserByKey.mockResolvedValue(Left({ type: "throttle", status: 429, message: "Too many requests" }))
+
+    const result = await sendChatMessage({ to: "ada@civala.com", content: "Hi" })
+
+    expect(message(result)).toBe("Couldn't look up ada@civala.com: Too many requests")
+    expect(mockClient.findUsersByMail).not.toHaveBeenCalled()
+    expect(mockClient.createChat).not.toHaveBeenCalled()
+  })
+
+  it("should try the mail field when the key can't be parsed as a sign-in name", async () => {
+    useDirectory()
+    mockClient.getUserByKey.mockResolvedValue(Left({ type: "api", status: 400, message: "Invalid object identifier" }))
+    mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
+
+    await sendChatMessage({ to: "ada@civala.com", content: "Hi" })
+
+    expect(mockClient.findUsersByMail).toHaveBeenCalledWith("ada@civala.com")
+    expect(boundIds(createdChat())).toEqual(["me-id", "ada-id"])
   })
 
   it("should name a person it can't find, without creating a chat", async () => {

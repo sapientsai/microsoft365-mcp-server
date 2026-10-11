@@ -207,6 +207,14 @@ describe("graph-client AuthStrategy injection", () => {
       expect(decodeURIComponent(requestedUrl())).toContain("$select=id,displayName,mail,userPrincipalName,userType")
     })
 
+    // userType comes back only when selected, and the caller's guest status decides their chat role.
+    it("selects userType when reading the caller for a chat", async () => {
+      stubFetch({ id: "me-id" })
+      await initializeGraphClient(auth).getMeAsChatMember()
+      expect(requestedUrl()).toContain("/me?")
+      expect(decodeURIComponent(requestedUrl())).toContain("$select=id,displayName,mail,userPrincipalName,userType")
+    })
+
     it("doubles a quote in the mail filter", async () => {
       stubFetch({ value: [] })
       await initializeGraphClient(auth).findUsersByMail("o'brien@civala.com")

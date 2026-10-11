@@ -360,6 +360,10 @@ const createGraphClient = (auth: AuthStrategy) => {
   const getUserByKey = (key: string) =>
     request<GraphUser>("GET", `/users/${key.replace(/#/g, "%23")}`, { odataParams: { $select: CHAT_MEMBER_FIELDS } })
 
+  // userType is only returned when selected, and the caller needs it too: an in-tenant guest must
+  // join a chat as a guest, the caller included.
+  const getMeAsChatMember = () => request<GraphUser>("GET", "/me", { odataParams: { $select: CHAT_MEMBER_FIELDS } })
+
   const findUsersByMail = (address: string) =>
     request<ODataResponse<GraphUser>>("GET", "/users", {
       odataParams: { $filter: `mail eq '${address.replace(/'/g, "''")}'`, $select: CHAT_MEMBER_FIELDS },
@@ -601,6 +605,7 @@ const createGraphClient = (auth: AuthStrategy) => {
     listUsers,
     getUser,
     getUserByKey,
+    getMeAsChatMember,
     findUsersByMail,
     listGroups,
     getGroup,

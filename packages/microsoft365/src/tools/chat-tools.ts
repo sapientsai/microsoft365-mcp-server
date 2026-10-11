@@ -217,6 +217,12 @@ const parseChatRecipients = (to: string): ReadonlyArray<string> => [
 const resolveRecipient = async (client: Client, address: string): Promise<Either<UserError, GraphUser>> => {
   const direct = await client.getUserByKey(address)
   if (direct.isRight()) return Right(direct.value as GraphUser)
+  // Only "no such key" means try the mail field. Graph answers 400 for a key it can't parse as an ID
+  // or sign-in name. Anything else (throttling, auth, network) is reported, not read as "no match".
+  const lookupError = direct.value as { type?: string; status?: number; message: string }
+  if (lookupError.type !== "not_found" && lookupError.status !== 400) {
+    return Left(new UserError(`Couldn't look up ${address}: ${lookupError.message}`))
+  }
 
   const byMail = await client.findUsersByMail(address)
   if (byMail.isLeft())
@@ -244,7 +250,7 @@ const findOrCreateChat = async (
   to: string,
   topic: string | undefined,
 ): Promise<Either<UserError, GraphChat>> => {
-  const me = await client.getMe()
+  const me = await client.getMeAsChatMember()
   if (me.isLeft())
     return Left(new UserError(`Failed to read your profile: ${(me.value as { message: string }).message}`))
   const self = me.value as GraphUser
