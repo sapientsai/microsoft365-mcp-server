@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import { describe, expect, it } from "vitest"
 
 import { DOMAIN_DESCRIPTIONS, filterTools, PRESETS, TOOL_METADATA } from "../src/tools/tool-registry"
@@ -44,6 +46,34 @@ describe("tool-registry", () => {
     it("should not include confirm_action", () => {
       const names = TOOL_METADATA.map((m) => m.name)
       expect(names).not.toContain("confirm_action")
+    })
+
+    // registerTools only registers a definition whose name filterTools returns, and filterTools reads
+    // TOOL_METADATA. A tool defined in index.ts but missing here never registers, with no error. The
+    // definitions can't be imported (loading index.ts starts the server), so their names are read from
+    // the source: each definition's name sits at four spaces of indent.
+    it("should list every tool defined in index.ts, and nothing else", () => {
+      const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+      const defined = [...source.matchAll(/^ {4}name: "([a-z_]+)",$/gm)].map((match) => match[1]).sort()
+      const registered = TOOL_METADATA.map((m) => m.name).sort()
+      expect(defined.length).toBeGreaterThan(0)
+      expect(defined).toEqual(registered)
+    })
+
+    it("should keep the domain and readOnly flag of each tool in step with its definition", () => {
+      const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+      const blocks = source.split(/^ {4}name: "/m).slice(1)
+      const fromSource = blocks.map((block) => ({
+        name: block.slice(0, block.indexOf('"')),
+        domain: /^ {4}domain: "([a-z]+)"/m.exec(block)?.[1],
+        readOnly: /^ {4}readOnly: (true|false),$/m.exec(block)?.[1] === "true",
+      }))
+      const fromMetadata = new Map(TOOL_METADATA.map((m) => [m.name, m]))
+      const mismatched = fromSource.filter((tool) => {
+        const meta = fromMetadata.get(tool.name)
+        return meta === undefined || meta.domain !== tool.domain || meta.readOnly !== tool.readOnly
+      })
+      expect(mismatched).toEqual([])
     })
   })
 

@@ -6,6 +6,7 @@ export {
   getEvent,
   listCalendarView,
   listEvents,
+  respondToEvent,
   updateEvent,
 } from "./calendar-tools"
 export { listChatMessages, listChats, sendChatMessage } from "./chat-tools"
@@ -28,6 +29,7 @@ export {
   createForwardDraft,
   createReplyAllDraft,
   createReplyDraft,
+  deleteDraft,
   getMessage,
   listAttachments,
   listMailFolders,
@@ -40,6 +42,7 @@ export {
   sendMessage,
   sendReply,
   sendReplyAll,
+  updateDraft,
 } from "./mail-tools"
 export { getMeetingTranscript, listMeetingTranscripts } from "./meetings-tools"
 export {

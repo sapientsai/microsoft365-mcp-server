@@ -173,6 +173,40 @@ export const deleteEvent = async (params: { event_id: string }): Promise<Either<
     .map(() => "Event deleted successfully.")
 }
 
+const EVENT_RESPONSE_ACTIONS = {
+  accept: "accept",
+  decline: "decline",
+  tentative: "tentativelyAccept",
+} as const
+
+const EVENT_RESPONSE_WORDS = {
+  accept: "Accepted",
+  decline: "Declined",
+  tentative: "Tentatively accepted",
+} as const
+
+export const respondToEvent = async (params: {
+  event_id: string
+  response: keyof typeof EVENT_RESPONSE_ACTIONS
+  comment?: string
+  send_response?: boolean
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const sendResponse = params.send_response ?? true
+  const body = params.comment === undefined ? { sendResponse } : { comment: params.comment, sendResponse }
+  const result = await client.respondToEvent(params.event_id, EVENT_RESPONSE_ACTIONS[params.response], body)
+  return result
+    .mapLeft((error) => new UserError(`Failed to respond to event: ${error.message}`))
+    .map(
+      () =>
+        `${EVENT_RESPONSE_WORDS[params.response]}. ${
+          sendResponse ? "A response was sent to the organizer." : "No response was sent to the organizer."
+        }`,
+    )
+}
+
 export const findMeetingAvailability = async (params: {
   participants: string[]
   after_date_time: string

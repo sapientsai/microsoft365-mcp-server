@@ -478,7 +478,7 @@ export const formatChannelMessageSummary = (msg: GraphChannelMessage): string =>
       () => "",
       (v) => v,
     )
-  return `- **${from}** (${msg.createdDateTime ?? ""}): ${content}`
+  return `- **${from}** (${msg.createdDateTime ?? ""}): ${content} (ID: ${msg.id})`
 }
 
 export const formatChannelMessageList = (msgs: ReadonlyArray<GraphChannelMessage>): string =>

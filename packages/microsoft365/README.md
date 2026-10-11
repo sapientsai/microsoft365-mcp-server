@@ -223,7 +223,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 ## Available Tools
 
-### Mail (17 tools)
+### Mail (19 tools)
 
 | Tool                     | Description                                                              |
 | ------------------------ | ------------------------------------------------------------------------ |
@@ -240,6 +240,8 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `create_reply_all_draft` | Create a reply-all draft — threaded, with the original quoted underneath |
 | `create_forward_draft`   | Create a forward draft — original quoted, recipients you specify         |
 | `send_draft`             | Send an existing email draft                                             |
+| `update_draft`           | Edit a draft's subject, body or recipients (refuses non-drafts)          |
+| `delete_draft`           | Delete a draft (refuses non-drafts)                                      |
 | `list_attachments`       | List a message's attachments, with a read_document path for file ones    |
 | `list_mail_folders`      | List top-level mail folders with item, unread and subfolder counts       |
 | `move_message`           | Move a message to a well-known folder, a folder name, or a folder ID     |
@@ -256,7 +258,7 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 > quoted history) for review, then send via `send_draft`. They remain available under
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode.
 
-### Calendar (7 tools)
+### Calendar (8 tools)
 
 | Tool                        | Description                                                     |
 | --------------------------- | --------------------------------------------------------------- |
@@ -267,6 +269,7 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 | `create_event`              | Create a new event                                              |
 | `update_event`              | Update an existing event                                        |
 | `delete_event`              | Delete an event                                                 |
+| `respond_to_event`          | Accept, decline or tentatively accept an invitation             |
 
 ### Contacts (4 tools)
 
@@ -302,20 +305,24 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 
 ### Chats (3 tools, org mode)
 
-| Tool                 | Description                                            |
-| -------------------- | ------------------------------------------------------ |
-| `list_chats`         | List Teams chats by latest message, named              |
-| `list_chat_messages` | List chat messages as text, with flags and `since`     |
-| `send_chat_message`  | Send a message in a chat. Use `48:notes` for self-chat |
+| Tool                 | Description                                                                |
+| -------------------- | -------------------------------------------------------------------------- |
+| `list_chats`         | List Teams chats by latest message, named                                  |
+| `list_chat_messages` | List chat messages as text, with flags and `since`                         |
+| `send_chat_message`  | Send in a chat, or to people by email (`to`). Use `48:notes` for self-chat |
+
+> With `to`, one person reuses (or starts) your one-on-one chat with them. Two or more people
+> start a new group chat on every call, because Graph doesn't deduplicate group chats, so reuse
+> the returned chat ID for follow-ups.
 
 ### Teams (4 tools, org mode)
 
-| Tool                    | Description                  |
-| ----------------------- | ---------------------------- |
-| `list_teams`            | List joined teams            |
-| `list_channels`         | List channels in a team      |
-| `list_channel_messages` | List recent channel messages |
-| `send_channel_message`  | Send a message to a channel  |
+| Tool                    | Description                                                               |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `list_teams`            | List joined teams                                                         |
+| `list_channels`         | List channels in a team                                                   |
+| `list_channel_messages` | List recent channel messages, with their IDs                              |
+| `send_channel_message`  | Send a message to a channel, or reply in a thread (`reply_to_message_id`) |
 
 ### Meeting Transcripts (2 tools, org mode)
 

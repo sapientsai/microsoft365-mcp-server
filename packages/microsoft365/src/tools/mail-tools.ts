@@ -491,6 +491,94 @@ export const sendDraft = async (params: { message_id: string }): Promise<Either<
     .map(() => "Draft sent successfully.")
 }
 
+// Graph lets subject, body and recipients change only while a message is a draft, but DELETE works
+// on any message. Checking isDraft first keeps the draft tools from touching received or sent mail.
+const fetchDraft = async (
+  client: NonNullable<ReturnType<typeof requireClient>>,
+  messageId: string,
+): Promise<Either<UserError, GraphMessage>> => {
+  const result = await client.getDraftState(messageId)
+  if (result.isLeft())
+    return Left(new UserError(`Failed to read message: ${(result.value as { message: string }).message}`))
+  const message = result.value as GraphMessage
+  if (message.isDraft !== true) {
+    return Left(
+      new UserError(
+        `Message ${messageId} is not a draft. Only drafts can be edited or deleted; find drafts with ` +
+          "list_messages in the drafts folder.",
+      ),
+    )
+  }
+  return Right(message)
+}
+
+// Undefined leaves the list alone; an empty string clears it.
+const replacementRecipients = (
+  value: string | undefined,
+): ReadonlyArray<{ emailAddress: { address: string } }> | undefined =>
+  value === undefined ? undefined : (parseRecipients(value) ?? [])
+
+const draftChanges = (params: {
+  subject?: string
+  body?: string
+  content_type?: string
+  to?: string
+  cc?: string
+  bcc?: string
+}): Record<string, unknown> =>
+  Object.fromEntries(
+    [
+      ["subject", params.subject],
+      [
+        "body",
+        params.body === undefined ? undefined : { contentType: params.content_type ?? "Text", content: params.body },
+      ],
+      ["toRecipients", replacementRecipients(params.to)],
+      ["ccRecipients", replacementRecipients(params.cc)],
+      ["bccRecipients", replacementRecipients(params.bcc)],
+    ].filter(([, value]) => value !== undefined),
+  )
+
+export const updateDraft = async (params: {
+  message_id: string
+  subject?: string
+  body?: string
+  content_type?: string
+  to?: string
+  cc?: string
+  bcc?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const changes = draftChanges(params)
+  if (Object.keys(changes).length === 0) {
+    return Left(new UserError("Nothing to change. Pass at least one of subject, body, to, cc or bcc."))
+  }
+
+  const draft = await fetchDraft(client, params.message_id)
+  if (draft.isLeft()) return Left(draft.value as UserError)
+
+  const result = await client.updateMessage(params.message_id, changes)
+  return result
+    .mapLeft((error) => new UserError(`Failed to update draft: ${error.message}`))
+    .map((message) => `Draft updated. Send it with send_draft when ready.\n\n${formatMessageDetail(message)}`)
+}
+
+export const deleteDraft = async (params: { message_id: string }): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const draft = await fetchDraft(client, params.message_id)
+  if (draft.isLeft()) return Left(draft.value as UserError)
+  const subject = (draft.value as GraphMessage).subject ?? "(no subject)"
+
+  const result = await client.deleteMessage(params.message_id)
+  return result
+    .mapLeft((error) => new UserError(`Failed to delete draft: ${error.message}`))
+    .map(() => `Draft "${subject}" deleted.`)
+}
+
 export const searchMessages = async (params: { query: string; top?: number }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))

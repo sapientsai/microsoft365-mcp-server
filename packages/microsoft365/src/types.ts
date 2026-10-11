@@ -78,6 +78,7 @@ export type GraphMessage = {
   readonly bodyPreview?: string
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly importance?: string
+  readonly isDraft?: boolean
 }
 
 export type GraphMailFolder = {

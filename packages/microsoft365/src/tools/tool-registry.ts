@@ -42,13 +42,13 @@ export type ToolMeta = {
  */
 export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   auth: "Authentication: Check auth status and manage tokens",
-  mail: "Mail: List, read, send, reply, search, and draft email messages",
-  calendar: "Calendar: List, view, create, update, and delete events",
+  mail: "Mail: List, read, send, reply, search, and draft email messages; edit and delete drafts",
+  calendar: "Calendar: List, view, create, update, and delete events; accept or decline invitations",
   contacts: "Contacts: List, view, create, and search contacts",
   files:
     "Files: List, view, search, download OneDrive files; create folders; upload files (see Upload workflows below)",
-  chats: "Chats: List Teams chats and messages; send chat messages",
-  teams: "Teams: List teams, channels, and messages; send channel messages",
+  chats: "Chats: List Teams chats and messages; send chat messages, starting a chat by email if needed",
+  teams: "Teams: List teams, channels, and messages; send channel messages and thread replies",
   meetings: "Meetings: List Teams meeting transcripts and read their text",
   users: "Users: View profiles and list users",
   groups: "Groups: List groups and group members",
@@ -107,6 +107,8 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "create_reply_all_draft", domain: "mail", readOnly: false, orgOnly: false },
   { name: "create_forward_draft", domain: "mail", readOnly: false, orgOnly: false },
   { name: "send_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "update_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "delete_draft", domain: "mail", readOnly: false, orgOnly: false },
   // Calendar
   { name: "list_events", domain: "calendar", readOnly: true, orgOnly: false },
   { name: "list_calendar_view", domain: "calendar", readOnly: true, orgOnly: false },
@@ -115,6 +117,7 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "create_event", domain: "calendar", readOnly: false, orgOnly: false },
   { name: "update_event", domain: "calendar", readOnly: false, orgOnly: false },
   { name: "delete_event", domain: "calendar", readOnly: false, orgOnly: false },
+  { name: "respond_to_event", domain: "calendar", readOnly: false, orgOnly: false },
   // Contacts
   { name: "list_contacts", domain: "contacts", readOnly: true, orgOnly: false },
   { name: "get_contact", domain: "contacts", readOnly: true, orgOnly: false },

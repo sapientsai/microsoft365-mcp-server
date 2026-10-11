@@ -3,7 +3,7 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { GraphChat, GraphChatMessage, ODataResponse } from "../types"
+import type { GraphChat, GraphChatMessage, GraphUser, ODataResponse } from "../types"
 import { formatChatList, formatChatMessageList, isReadableChatMessage } from "../utils/formatters"
 
 const requireClient = () => {
@@ -194,15 +194,88 @@ export const listChatMessages = async (params: {
     .map((response) => formatChatMessageList((response as ODataResponse<GraphChatMessage>).value, options))
 }
 
+// OData string literals escape a quote by doubling it, so an address like o'brien@x binds correctly.
+const userBind = (user: string): Record<string, unknown> => ({
+  "@odata.type": "#microsoft.graph.aadUserConversationMember",
+  roles: ["owner"],
+  "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${user.replace(/'/g, "''")}')`,
+})
+
+const parseChatRecipients = (to: string): ReadonlyArray<string> => [
+  ...new Map(
+    to
+      .split(",")
+      .map((address) => address.trim())
+      .filter((address) => address.length > 0)
+      .map((address) => [address.toLowerCase(), address] as const),
+  ).values(),
+]
+
+// Every member, the caller included, has to be listed when a chat is created. Graph hands back the
+// existing chat for a one-on-one pair, but creates a new group chat on every call.
+const findOrCreateChat = async (
+  client: Client,
+  to: string,
+  topic: string | undefined,
+): Promise<Either<UserError, GraphChat>> => {
+  const me = await client.getMe()
+  if (me.isLeft())
+    return Left(new UserError(`Failed to read your profile: ${(me.value as { message: string }).message}`))
+  const self = me.value as GraphUser
+  const selfAddresses = new Set([self.mail, self.userPrincipalName].flatMap((a) => (a ? [a.toLowerCase()] : [])))
+
+  const recipients = parseChatRecipients(to).filter((address) => !selfAddresses.has(address.toLowerCase()))
+  if (recipients.length === 0) {
+    return Left(new UserError("Name at least one other person in 'to'. To message yourself, use chat_id '48:notes'."))
+  }
+
+  const oneOnOne = recipients.length === 1
+  if (oneOnOne && topic !== undefined) {
+    return Left(new UserError("A topic can only be set on a group chat, which needs two or more people in 'to'."))
+  }
+
+  const chat = {
+    chatType: oneOnOne ? "oneOnOne" : "group",
+    members: [userBind(self.id), ...recipients.map(userBind)],
+    ...(topic === undefined ? {} : { topic }),
+  }
+  const result = await client.createChat(chat)
+  return result.mapLeft((error) => new UserError(`Failed to start chat: ${error.message}`))
+}
+
 export const sendChatMessage = async (params: {
-  chat_id: string
+  chat_id?: string
+  to?: string
+  topic?: string
   content: string
 }): Promise<Either<UserError, string>> => {
+  if ((params.chat_id === undefined) === (params.to === undefined)) {
+    return Left(new UserError("Pass exactly one of chat_id (an existing chat) or to (people to message)."))
+  }
+  if (params.chat_id !== undefined && params.topic !== undefined) {
+    return Left(new UserError("topic only applies when starting a group chat with 'to'."))
+  }
+
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.sendChatMessage(params.chat_id, params.content)
-  return result
-    .mapLeft((error) => new UserError(`Failed to send chat message: ${error.message}`))
-    .map(() => "Chat message sent.")
+  if (params.chat_id !== undefined) {
+    const result = await client.sendChatMessage(params.chat_id, params.content)
+    return result
+      .mapLeft((error) => new UserError(`Failed to send chat message: ${error.message}`))
+      .map(() => "Chat message sent.")
+  }
+
+  const chat = await findOrCreateChat(client, params.to as string, params.topic)
+  if (chat.isLeft()) return Left(chat.value as UserError)
+  const { id, chatType } = chat.value as GraphChat
+
+  const sent = await client.sendChatMessage(id, params.content)
+  const where =
+    chatType === "group"
+      ? `Started a new group chat (chat ID: ${id}). Use this chat_id for follow-ups; 'to' would start another one.`
+      : `Chat ID: ${id}.`
+  return sent
+    .mapLeft((error) => new UserError(`Chat is ready (chat ID: ${id}), but sending failed: ${error.message}`))
+    .map(() => `Chat message sent. ${where}`)
 }

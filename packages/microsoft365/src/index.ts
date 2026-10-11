@@ -37,6 +37,7 @@ import {
   createReplyAllDraft,
   createReplyDraft,
   createTodoTask,
+  deleteDraft,
   deleteEvent,
   deleteOnenotePage,
   deleteTodoTask,
@@ -86,6 +87,7 @@ import {
   listUsers,
   moveMessage,
   readDocument,
+  respondToEvent,
   scanMessages,
   searchContacts,
   searchFiles,
@@ -100,6 +102,7 @@ import {
   sendReplyAll,
   setAccessTokenTool,
   switchAccountTool,
+  updateDraft,
   updateEvent,
   updateOnenotePageContent,
   updatePlannerTask,
@@ -553,6 +556,42 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     readOnly: false,
     annotations: { destructiveHint: true },
   },
+  {
+    name: "update_draft",
+    description:
+      "Edit an unsent draft: its subject, body or recipients. Only fields you pass change. Refuses any " +
+      "message that is not a draft. Send it afterward with send_draft.",
+    parameters: z.object({
+      message_id: z.string().describe("The draft's message ID"),
+      subject: z.string().optional().describe("New subject"),
+      body: z.string().optional().describe("New body; replaces the whole body, including any quoted history"),
+      content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
+      to: z.string().optional().describe("Comma-separated email addresses; replaces the current To list when provided"),
+      cc: z
+        .string()
+        .optional()
+        .describe("Comma-separated email addresses; replaces the current CC list. Empty string clears it"),
+      bcc: z
+        .string()
+        .optional()
+        .describe("Comma-separated email addresses; replaces the current BCC list. Empty string clears it"),
+    }),
+    execute: async (params) => unwrapResult(await updateDraft(params)),
+    domain: "mail",
+    readOnly: false,
+    annotations: { destructiveHint: true },
+  },
+  {
+    name: "delete_draft",
+    description: "Delete an unsent draft. Refuses any message that is not a draft.",
+    parameters: z.object({
+      message_id: z.string().describe("The draft's message ID"),
+    }),
+    execute: async (params) => unwrapResult(await deleteDraft(params)),
+    domain: "mail",
+    readOnly: false,
+    annotations: { destructiveHint: true },
+  },
 
   // === Calendar Tools ===
   {
@@ -695,6 +734,25 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       event_id: z.string().describe("The event ID to delete"),
     }),
     execute: async (params) => unwrapResult(await deleteEvent(params)),
+    domain: "calendar",
+    readOnly: false,
+    annotations: { destructiveHint: true },
+  },
+  {
+    name: "respond_to_event",
+    description:
+      "Accept, decline or tentatively accept a meeting invitation. By default the organizer gets the " +
+      "response by email, with the comment if one is given.",
+    parameters: z.object({
+      event_id: z.string().describe("The event ID of the invitation"),
+      response: z.enum(["accept", "decline", "tentative"]).describe("How to respond"),
+      comment: z.string().optional().describe("Note to include in the response"),
+      send_response: z
+        .boolean()
+        .optional()
+        .describe("Send the response to the organizer (default: true). False updates only your calendar."),
+    }),
+    execute: async (params) => unwrapResult(await respondToEvent(params)),
     domain: "calendar",
     readOnly: false,
     annotations: { destructiveHint: true },
@@ -1060,9 +1118,22 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "send_chat_message",
     description:
-      "Send a message in a Teams chat. Use chat_id '48:notes' to send to the user's self-chat (notes to self).",
+      "Send a Teams chat message, either in an existing chat (chat_id) or to people by email (to). With " +
+      "to, one person reuses your one-on-one chat with them, or starts it; two or more start a new group " +
+      "chat every call, so reuse the returned chat_id for follow-ups. Use chat_id '48:notes' to send to " +
+      "the user's self-chat (notes to self).",
     parameters: z.object({
-      chat_id: z.string().describe("Chat ID. Use '48:notes' for the user's self-chat."),
+      chat_id: z
+        .string()
+        .optional()
+        .describe("Chat ID of an existing chat. Use '48:notes' for the user's self-chat. Pass this or to."),
+      to: z
+        .string()
+        .optional()
+        .describe(
+          "Comma-separated email addresses or user principal names of the people to message. Pass this or chat_id.",
+        ),
+      topic: z.string().optional().describe("Title for a new group chat (two or more people in to)"),
       content: z.string().describe("Message content"),
     }),
     execute: async (params) => unwrapResult(await sendChatMessage(params)),
@@ -1111,11 +1182,17 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "send_channel_message",
-    description: "Send a message to a Teams channel",
+    description: "Send a message to a Teams channel, or reply in a thread with reply_to_message_id",
     parameters: z.object({
       team_id: z.string().describe("Team ID"),
       channel_id: z.string().describe("Channel ID"),
       content: z.string().describe("Message content"),
+      reply_to_message_id: z
+        .string()
+        .optional()
+        .describe(
+          "ID of a top-level channel message to reply to, from list_channel_messages. Omit to start a new thread.",
+        ),
     }),
     execute: async (params) => unwrapResult(await sendChannelMessage(params)),
     domain: "teams",

@@ -79,9 +79,22 @@ export const sendChannelMessage = async (params: {
   team_id: string
   channel_id: string
   content: string
+  reply_to_message_id?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.reply_to_message_id !== undefined) {
+    const reply = await client.replyToChannelMessage(
+      params.team_id,
+      params.channel_id,
+      params.reply_to_message_id,
+      params.content,
+    )
+    return reply
+      .mapLeft((error) => new UserError(`Failed to reply in thread: ${error.message}`))
+      .map(() => "Reply posted in the thread.")
+  }
 
   const result = await client.sendChannelMessage(params.team_id, params.channel_id, params.content)
   return result
