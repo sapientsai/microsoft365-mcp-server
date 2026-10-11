@@ -68,6 +68,7 @@ describe("tool-registry", () => {
         domain: /^ {4}domain: "([a-z]+)"/m.exec(block)?.[1],
         readOnly: /^ {4}readOnly: (true|false),$/m.exec(block)?.[1] === "true",
       }))
+      expect(fromSource.length).toBe(TOOL_METADATA.length)
       const fromMetadata = new Map(TOOL_METADATA.map((m) => [m.name, m]))
       const mismatched = fromSource.filter((tool) => {
         const meta = fromMetadata.get(tool.name)

@@ -352,6 +352,19 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const getUser = (id: string) => request<GraphUser>("GET", `/users/${id}`)
 
+  // /users/{key} accepts an ID or a user principal name, not an email address, so an address that
+  // differs from the UPN needs the mail filter below. A guest UPN contains "#EXT#", and "#" would
+  // otherwise end the path.
+  const CHAT_MEMBER_FIELDS = ["id", "displayName", "mail", "userPrincipalName", "userType"]
+
+  const getUserByKey = (key: string) =>
+    request<GraphUser>("GET", `/users/${key.replace(/#/g, "%23")}`, { odataParams: { $select: CHAT_MEMBER_FIELDS } })
+
+  const findUsersByMail = (address: string) =>
+    request<ODataResponse<GraphUser>>("GET", "/users", {
+      odataParams: { $filter: `mail eq '${address.replace(/'/g, "''")}'`, $select: CHAT_MEMBER_FIELDS },
+    })
+
   const listGroups = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphGroup>>("GET", "/groups", { odataParams })
 
@@ -587,6 +600,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     getMe,
     listUsers,
     getUser,
+    getUserByKey,
+    findUsersByMail,
     listGroups,
     getGroup,
     listGroupMembers,

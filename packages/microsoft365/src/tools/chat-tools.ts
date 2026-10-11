@@ -194,11 +194,12 @@ export const listChatMessages = async (params: {
     .map((response) => formatChatMessageList((response as ODataResponse<GraphChatMessage>).value, options))
 }
 
-// OData string literals escape a quote by doubling it, so an address like o'brien@x binds correctly.
-const userBind = (user: string): Record<string, unknown> => ({
+// Members bind by directory ID. In-tenant guests must carry the "guest" role and everyone else
+// "owner", per Graph's create-chat rules.
+const memberBind = (user: GraphUser): Record<string, unknown> => ({
   "@odata.type": "#microsoft.graph.aadUserConversationMember",
-  roles: ["owner"],
-  "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${user.replace(/'/g, "''")}')`,
+  roles: [user.userType === "Guest" ? "guest" : "owner"],
+  "user@odata.bind": `https://graph.microsoft.com/v1.0/users('${user.id}')`,
 })
 
 const parseChatRecipients = (to: string): ReadonlyArray<string> => [
@@ -211,6 +212,31 @@ const parseChatRecipients = (to: string): ReadonlyArray<string> => [
   ).values(),
 ]
 
+// A sign-in name resolves directly; an email address that differs from it (or an alias held in
+// mail) needs the filter. Only people in the caller's directory, guests included, can be found.
+const resolveRecipient = async (client: Client, address: string): Promise<Either<UserError, GraphUser>> => {
+  const direct = await client.getUserByKey(address)
+  if (direct.isRight()) return Right(direct.value as GraphUser)
+
+  const byMail = await client.findUsersByMail(address)
+  if (byMail.isLeft())
+    return Left(new UserError(`Couldn't look up ${address}: ${(byMail.value as { message: string }).message}`))
+  const match = (byMail.value as ODataResponse<GraphUser>).value.at(0)
+  return match === undefined
+    ? Left(new UserError(`No one in your organization matches ${address}. Use their work email or sign-in name.`))
+    : Right(match)
+}
+
+const resolveRecipients = async (
+  client: Client,
+  addresses: ReadonlyArray<string>,
+): Promise<Either<UserError, ReadonlyArray<GraphUser>>> => {
+  const resolved = await Promise.all(addresses.map((address) => resolveRecipient(client, address)))
+  const failed = resolved.find((result) => result.isLeft())
+  if (failed !== undefined) return Left(failed.value as UserError)
+  return Right(resolved.map((result) => result.value as GraphUser))
+}
+
 // Every member, the caller included, has to be listed when a chat is created. Graph hands back the
 // existing chat for a one-on-one pair, but creates a new group chat on every call.
 const findOrCreateChat = async (
@@ -222,21 +248,27 @@ const findOrCreateChat = async (
   if (me.isLeft())
     return Left(new UserError(`Failed to read your profile: ${(me.value as { message: string }).message}`))
   const self = me.value as GraphUser
-  const selfAddresses = new Set([self.mail, self.userPrincipalName].flatMap((a) => (a ? [a.toLowerCase()] : [])))
 
-  const recipients = parseChatRecipients(to).filter((address) => !selfAddresses.has(address.toLowerCase()))
-  if (recipients.length === 0) {
+  const looked = await resolveRecipients(client, parseChatRecipients(to))
+  if (looked.isLeft()) return Left(looked.value as UserError)
+  // Matched by ID, so the caller's own aliases and two spellings of one person both collapse.
+  const others = [
+    ...new Map(
+      (looked.value as ReadonlyArray<GraphUser>).filter((user) => user.id !== self.id).map((user) => [user.id, user]),
+    ).values(),
+  ]
+  if (others.length === 0) {
     return Left(new UserError("Name at least one other person in 'to'. To message yourself, use chat_id '48:notes'."))
   }
 
-  const oneOnOne = recipients.length === 1
+  const oneOnOne = others.length === 1
   if (oneOnOne && topic !== undefined) {
     return Left(new UserError("A topic can only be set on a group chat, which needs two or more people in 'to'."))
   }
 
   const chat = {
     chatType: oneOnOne ? "oneOnOne" : "group",
-    members: [userBind(self.id), ...recipients.map(userBind)],
+    members: [memberBind(self), ...others.map(memberBind)],
     ...(topic === undefined ? {} : { topic }),
   }
   const result = await client.createChat(chat)

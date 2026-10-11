@@ -566,7 +566,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       subject: z.string().optional().describe("New subject"),
       body: z.string().optional().describe("New body; replaces the whole body, including any quoted history"),
       content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
-      to: z.string().optional().describe("Comma-separated email addresses; replaces the current To list when provided"),
+      to: z
+        .string()
+        .optional()
+        .describe("Comma-separated email addresses; replaces the current To list. Empty string clears it"),
       cc: z
         .string()
         .optional()
@@ -1131,7 +1134,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "Comma-separated email addresses or user principal names of the people to message. Pass this or chat_id.",
+          "Comma-separated work email addresses or sign-in names of people in your organization (guests " +
+            "included) to message. Pass this or chat_id.",
         ),
       topic: z.string().optional().describe("Title for a new group chat (two or more people in to)"),
       content: z.string().describe("Message content"),

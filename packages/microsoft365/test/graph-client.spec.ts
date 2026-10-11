@@ -194,4 +194,23 @@ describe("graph-client AuthStrategy injection", () => {
       expect(requestedUrl()).toContain("/me/mailFolders/sentitems/messages")
     })
   })
+
+  describe("chat member lookup", () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    const requestedUrl = () => (vi.mocked(fetch).mock.calls[0] as [string, RequestInit])[0]
+
+    // A guest's sign-in name contains "#EXT#"; unencoded, "#" ends the path and the lookup 404s.
+    it("encodes # in a guest's sign-in name", async () => {
+      stubFetch({ id: "guest-id" })
+      await initializeGraphClient(auth).getUserByKey("pat_vendor.com#EXT#@civala.onmicrosoft.com")
+      expect(requestedUrl()).toContain("/users/pat_vendor.com%23EXT%23@civala.onmicrosoft.com?")
+      expect(decodeURIComponent(requestedUrl())).toContain("$select=id,displayName,mail,userPrincipalName,userType")
+    })
+
+    it("doubles a quote in the mail filter", async () => {
+      stubFetch({ value: [] })
+      await initializeGraphClient(auth).findUsersByMail("o'brien@civala.com")
+      expect(decodeURIComponent(requestedUrl())).toContain("$filter=mail eq 'o''brien@civala.com'")
+    })
+  })
 })

@@ -57,6 +57,7 @@ export type GraphUser = {
   readonly displayName?: string
   readonly mail?: string
   readonly userPrincipalName?: string
+  readonly userType?: string
   readonly jobTitle?: string
   readonly department?: string
   readonly officeLocation?: string

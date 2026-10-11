@@ -21,6 +21,8 @@ const mockClient = {
   sendChannelMessage: vi.fn(),
   replyToChannelMessage: vi.fn(),
   getMe: vi.fn(),
+  getUserByKey: vi.fn(),
+  findUsersByMail: vi.fn(),
   createChat: vi.fn(),
   sendChatMessage: vi.fn(),
 }
@@ -191,6 +193,43 @@ describe("formatChannelMessageSummary", () => {
   })
 })
 
+// A directory keyed by sign-in name, plus mail addresses that differ from it. getUserByKey answers
+// only a sign-in name or an ID, as Graph's /users/{key} does; findUsersByMail answers the mail field.
+const DIRECTORY = [
+  { id: "me-id", userPrincipalName: "jordan@civala.onmicrosoft.com", mail: "jordan@civala.com" },
+  { id: "ada-id", userPrincipalName: "ada@civala.onmicrosoft.com", mail: "ada@civala.com" },
+  { id: "bo-id", userPrincipalName: "bo@civala.onmicrosoft.com", mail: "bo@civala.com" },
+  {
+    id: "guest-id",
+    userPrincipalName: "pat_vendor.com#EXT#@civala.onmicrosoft.com",
+    mail: "pat@vendor.com",
+    userType: "Guest",
+  },
+]
+
+const useDirectory = (): void => {
+  mockClient.getMe.mockResolvedValue(Right({ ...DIRECTORY[0], userType: "Member" }))
+  mockClient.getUserByKey.mockImplementation((key: string) => {
+    const user = DIRECTORY.find((u) => u.userPrincipalName.toLowerCase() === key.toLowerCase() || u.id === key)
+    return Promise.resolve(user ? Right(user) : Left({ message: "Resource not found" }))
+  })
+  mockClient.findUsersByMail.mockImplementation((address: string) =>
+    Promise.resolve(Right({ value: DIRECTORY.filter((u) => u.mail.toLowerCase() === address.toLowerCase()) })),
+  )
+  mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
+}
+
+type ChatBody = {
+  chatType: string
+  topic?: string
+  members: ReadonlyArray<{ roles: ReadonlyArray<string>; "user@odata.bind": string }>
+}
+
+const createdChat = (): ChatBody => mockClient.createChat.mock.calls[0]?.[0] as ChatBody
+
+const boundIds = (chat: ChatBody): ReadonlyArray<string> =>
+  chat.members.map((m) => /users\('([^']+)'\)/.exec(m["user@odata.bind"])?.[1] ?? "")
+
 describe("sendChatMessage", () => {
   it("should send in an existing chat with chat_id", async () => {
     mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
@@ -212,12 +251,11 @@ describe("sendChatMessage", () => {
     },
   )
 
-  it("should start or reuse a one-on-one chat for one person, listing the caller first", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
+  it("should bind members by directory ID, the caller first, as owners", async () => {
+    useDirectory()
     mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
-    mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
 
-    const result = await sendChatMessage({ to: "ada@civala.com", content: "Hi" })
+    const result = await sendChatMessage({ to: "ada@civala.onmicrosoft.com", content: "Hi" })
 
     expect(mockClient.createChat).toHaveBeenCalledWith({
       chatType: "oneOnOne",
@@ -230,7 +268,7 @@ describe("sendChatMessage", () => {
         {
           "@odata.type": "#microsoft.graph.aadUserConversationMember",
           roles: ["owner"],
-          "user@odata.bind": "https://graph.microsoft.com/v1.0/users('ada@civala.com')",
+          "user@odata.bind": "https://graph.microsoft.com/v1.0/users('ada-id')",
         },
       ],
     })
@@ -238,21 +276,58 @@ describe("sendChatMessage", () => {
     expect(message(result)).toBe("Chat message sent. Chat ID: 19:pair.")
   })
 
-  // Listing the caller twice fails the create, and a group of "me plus one" should be a 1:1.
-  it("should drop the caller's own address and duplicates from to", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
+  // /users/{key} rejects an email address that differs from the sign-in name, the common case.
+  it("should find a person by email when it differs from their sign-in name", async () => {
+    useDirectory()
     mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
-    mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
 
-    await sendChatMessage({ to: "Jordan@Civala.com, ada@civala.com, ADA@civala.com", content: "Hi" })
+    await sendChatMessage({ to: "ada@civala.com", content: "Hi" })
 
-    const chat = mockClient.createChat.mock.calls[0]?.[0] as { chatType: string; members: ReadonlyArray<unknown> }
+    expect(mockClient.findUsersByMail).toHaveBeenCalledWith("ada@civala.com")
+    expect(boundIds(createdChat())).toEqual(["me-id", "ada-id"])
+  })
+
+  // In-tenant guests must carry the guest role, or Graph rejects the whole chat.
+  it("should give an in-tenant guest the guest role", async () => {
+    useDirectory()
+    mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
+
+    await sendChatMessage({ to: "pat@vendor.com", content: "Hi" })
+
+    const chat = createdChat()
+    expect(boundIds(chat)).toEqual(["me-id", "guest-id"])
+    expect(chat.members[1]?.roles).toEqual(["guest"])
+  })
+
+  it("should name a person it can't find, without creating a chat", async () => {
+    useDirectory()
+
+    const result = await sendChatMessage({ to: "ada@civala.com, nobody@civala.com", content: "Hi" })
+
+    expect(message(result)).toBe(
+      "No one in your organization matches nobody@civala.com. Use their work email or sign-in name.",
+    )
+    expect(mockClient.createChat).not.toHaveBeenCalled()
+  })
+
+  // Listing the caller twice fails the create, and "me plus one" should be a one-on-one chat. Matching
+  // by ID catches the caller's own aliases and two spellings of one person.
+  it("should drop the caller and duplicate people, however they are spelled", async () => {
+    useDirectory()
+    mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
+
+    await sendChatMessage({
+      to: "Jordan@Civala.com, jordan@civala.onmicrosoft.com, ada@civala.com, ada@civala.onmicrosoft.com",
+      content: "Hi",
+    })
+
+    const chat = createdChat()
     expect(chat.chatType).toBe("oneOnOne")
-    expect(chat.members).toHaveLength(2)
+    expect(boundIds(chat)).toEqual(["me-id", "ada-id"])
   })
 
   it("should point the caller at the self-chat when to names only themselves", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
+    useDirectory()
 
     const result = await sendChatMessage({ to: "jordan@civala.com", content: "note" })
 
@@ -261,22 +336,21 @@ describe("sendChatMessage", () => {
   })
 
   it("should start a group chat with a topic and say to reuse its ID", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
+    useDirectory()
     mockClient.createChat.mockResolvedValue(Right({ id: "19:group", chatType: "group" }))
-    mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
 
     const result = await sendChatMessage({ to: "ada@civala.com, bo@civala.com", topic: "Launch", content: "Hi all" })
 
-    const chat = mockClient.createChat.mock.calls[0]?.[0] as { chatType: string; topic?: string; members: unknown[] }
+    const chat = createdChat()
     expect(chat.chatType).toBe("group")
     expect(chat.topic).toBe("Launch")
-    expect(chat.members).toHaveLength(3)
+    expect(boundIds(chat)).toEqual(["me-id", "ada-id", "bo-id"])
     expect(message(result)).toContain("Started a new group chat (chat ID: 19:group)")
     expect(message(result)).toContain("Use this chat_id for follow-ups")
   })
 
   it("should refuse a topic on a one-on-one chat", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
+    useDirectory()
 
     const result = await sendChatMessage({ to: "ada@civala.com", topic: "Launch", content: "Hi" })
 
@@ -291,20 +365,9 @@ describe("sendChatMessage", () => {
     expect(mockClient.sendChatMessage).not.toHaveBeenCalled()
   })
 
-  it("should escape a quote in an address for the OData bind", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
-    mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
-    mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
-
-    await sendChatMessage({ to: "o'brien@civala.com", content: "Hi" })
-
-    const chat = mockClient.createChat.mock.calls[0]?.[0] as { members: ReadonlyArray<Record<string, unknown>> }
-    expect(chat.members[1]?.["user@odata.bind"]).toBe("https://graph.microsoft.com/v1.0/users('o''brien@civala.com')")
-  })
-
   // A retry with 'to' would make a second group chat, so the ID must survive a failed send.
   it("should report the chat ID when the chat was created but the send failed", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
+    useDirectory()
     mockClient.createChat.mockResolvedValue(Right({ id: "19:group", chatType: "group" }))
     mockClient.sendChatMessage.mockResolvedValue(Left({ message: "Forbidden" }))
 
@@ -314,12 +377,12 @@ describe("sendChatMessage", () => {
   })
 
   it("should pass Graph's error through when the chat can't be created", async () => {
-    mockClient.getMe.mockResolvedValue(Right(ME))
-    mockClient.createChat.mockResolvedValue(Left({ message: "User not found" }))
+    useDirectory()
+    mockClient.createChat.mockResolvedValue(Left({ message: "Chat creation blocked by policy" }))
 
-    const result = await sendChatMessage({ to: "nobody@civala.com", content: "Hi" })
+    const result = await sendChatMessage({ to: "ada@civala.com", content: "Hi" })
 
-    expect(message(result)).toBe("Failed to start chat: User not found")
+    expect(message(result)).toBe("Failed to start chat: Chat creation blocked by policy")
     expect(mockClient.sendChatMessage).not.toHaveBeenCalled()
   })
 })
