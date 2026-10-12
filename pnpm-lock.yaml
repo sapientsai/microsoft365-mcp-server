@@ -76,8 +76,8 @@ importers:
         specifier: ^1.12.0
         version: 1.12.0
       somamcp:
-        specifier: ^1.4.0
-        version: 1.4.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
+        specifier: ^1.4.1
+        version: 1.4.1(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -146,10 +146,6 @@ importers:
 
 packages:
 
-  '@apidevtools/json-schema-ref-parser@14.0.1':
-    resolution: {integrity: sha512-Oc96zvmxx1fqoSEdUmfmvvb59/KDOnUoJ7s2t7bISyAn0XEz57LCCw8k2Y4Pf3mwKaZLMciESALORLgfe2frCw==}
-    engines: {node: '>= 16'}
-
   '@apidevtools/json-schema-ref-parser@16.0.3':
     resolution: {integrity: sha512-7lZp4XCTZhU/AgiGpIG+j4uJeWPdGbpQ+8wqXrzuHy+tboKsjSacjGH9/kNThRDIFhMWHF3ba+ejS8J3PeSI1Q==}
     engines: {node: '>=22.19.0'}
@@ -162,11 +158,6 @@ packages:
 
   '@apidevtools/swagger-methods@3.0.2':
     resolution: {integrity: sha512-QAkD5kK2b1WfjDS/UQn/qQkbwF31uqRjPTrsCs5ZG9BQGAkjwvqGFjjPqAuzac/IYzpPtRzjCP1WrTuAIjMrXg==}
-
-  '@apidevtools/swagger-parser@12.1.0':
-    resolution: {integrity: sha512-e5mJoswsnAX0jG+J09xHFYQXb/bUc5S3pLpMxUuRUA2H8T2kni3yEoyz2R3Dltw5f4A6j6rPNMpWTK+iVDFlng==}
-    peerDependencies:
-      openapi-types: '>=7'
 
   '@apidevtools/swagger-parser@13.1.0':
     resolution: {integrity: sha512-dkCuqCWh5U7u0aurmmc/qvel2KeKDxHTwVtUdYonndIpD7mXV6AVaWNdvaja2HAy628z7FT/Qdz8sCgzwhgwKg==}
@@ -543,6 +534,16 @@ packages:
 
   '@modelcontextprotocol/sdk@1.30.0':
     resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@cfworker/json-schema': ^4.1.1
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@cfworker/json-schema':
+        optional: true
+
+  '@modelcontextprotocol/sdk@1.32.1':
+    resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -1674,21 +1675,6 @@ packages:
   fast-uri@3.1.5:
     resolution: {integrity: sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw==}
 
-  fastmcp@4.20.2:
-    resolution: {integrity: sha512-XWiEsTBnQqzZ8TqzMKXmN+rpesP8OHjVvXk6iPotTZWBF2VH2vVR6uBabHDQN7p6988rpU22MBTKGJH0OzPYzA==}
-    hasBin: true
-    peerDependencies:
-      ajv: ^8.0.0
-      ajv-formats: ^3.0.0
-      jose: ^5.0.0 || ^6.0.0
-    peerDependenciesMeta:
-      ajv:
-        optional: true
-      ajv-formats:
-        optional: true
-      jose:
-        optional: true
-
   fastmcp@4.22.1:
     resolution: {integrity: sha512-/cvc5uTD7XfMUU2jhcnMFJvdGILwYvx2KsNwtmEkFn9gJmCVmNcHWDBHc1oYQpwru3570kgjoGqM/i25uOWFNQ==}
     hasBin: true
@@ -1787,12 +1773,6 @@ packages:
 
   functype-log@1.12.0:
     resolution: {integrity: sha512-6MaYd4sXx3mHJyp0DYB8U+KKZ3QxWt6HyyIBF3tYqYTqHpEoZrvGBw2ylMyE2y2GpsqIShghtY+vW5D1g3XLUA==}
-    engines: {node: '>=18.17.0'}
-    peerDependencies:
-      functype: '>=0.60.0'
-
-  functype-log@1.9.0:
-    resolution: {integrity: sha512-7kPzsTJNMVkW4y07twevl/2M/hNxx49eLOyxbpHOZSoBhBBJ3s8lJIUDF7RqlIj+nTKRKgtJ2vzhzUMDhPj0WA==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
       functype: '>=0.60.0'
@@ -2169,10 +2149,6 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  mcp-proxy@6.7.13:
-    resolution: {integrity: sha512-C7Ijy3hIHCaja7HJNf0ltwsGZMGvCm2hzJjyoN7ETM3gY7Js76r1Kfrzqhkb5dn6Y9TwJo4k4lElkujZUIEEFw==}
-    hasBin: true
-
   mcp-proxy@6.7.19:
     resolution: {integrity: sha512-Nbfjj4VwVka1yAR/0fdD2G8borGOfjHEmfUzPFCH2nfQUNjWIij6s3gXMUhi2GUYE3FpUu8iFKE75ZQe/g1n8Q==}
     hasBin: true
@@ -2536,8 +2512,8 @@ packages:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
 
-  somamcp@1.4.0:
-    resolution: {integrity: sha512-5p33vCLbV1Pd8eC+gLGwzrnb5mB+ynVOxw4xBKBv7brIAwDEHJ2XCkMUPNkchkXpEl18PCSulze/aGaruoxpng==}
+  somamcp@1.4.1:
+    resolution: {integrity: sha512-v8ubAUJig6F1WU9qXc4/kwNxPlp6FvQCY8CodJS4P3sELjmm3t5Gvtszjnq4zORrdp8sCA0Epyx9dLjnw94UVQ==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -2984,11 +2960,6 @@ packages:
 
 snapshots:
 
-  '@apidevtools/json-schema-ref-parser@14.0.1':
-    dependencies:
-      '@types/json-schema': 7.0.15
-      js-yaml: 4.3.2
-
   '@apidevtools/json-schema-ref-parser@16.0.3(@types/json-schema@7.0.15)':
     dependencies:
       '@types/json-schema': 7.0.15
@@ -2998,16 +2969,6 @@ snapshots:
   '@apidevtools/openapi-schemas@2.1.0': {}
 
   '@apidevtools/swagger-methods@3.0.2': {}
-
-  '@apidevtools/swagger-parser@12.1.0(openapi-types@12.1.3)':
-    dependencies:
-      '@apidevtools/json-schema-ref-parser': 14.0.1
-      '@apidevtools/openapi-schemas': 2.1.0
-      '@apidevtools/swagger-methods': 3.0.2
-      ajv: 8.20.0
-      ajv-draft-04: 1.0.0(ajv@8.20.0)
-      call-me-maybe: 1.0.2
-      openapi-types: 12.1.3
 
   '@apidevtools/swagger-parser@13.1.0(openapi-types@12.1.3)':
     dependencies:
@@ -3360,6 +3321,28 @@ snapshots:
       zod: 4.6.5
 
   '@modelcontextprotocol/sdk@1.30.0(supports-color@7.2.0)(zod@4.6.5)':
+    dependencies:
+      '@hono/node-server': 2.1.1(hono@4.13.12)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.1
+      express: 5.2.1(supports-color@7.2.0)
+      express-rate-limit: 8.7.0(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)
+      hono: 4.13.12
+      jose: 6.2.10
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.6.5
+      zod-to-json-schema: 3.25.2(zod@4.6.5)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@modelcontextprotocol/sdk@1.32.1(supports-color@7.2.0)(zod@4.6.5)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.12)
       ajv: 8.20.0
@@ -4394,35 +4377,6 @@ snapshots:
 
   fast-uri@3.1.5: {}
 
-  fastmcp@4.20.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0):
-    dependencies:
-      '@apidevtools/swagger-parser': 12.1.0(openapi-types@12.1.3)
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.6.5)
-      '@standard-schema/spec': 1.1.0
-      execa: 9.6.1
-      file-type: 21.3.4(supports-color@7.2.0)
-      fuse.js: 7.5.0
-      hono: 4.13.12
-      mcp-proxy: 6.7.13(supports-color@7.2.0)
-      strict-event-emitter-types: 2.0.0
-      uri-templates: 0.2.0
-      xsschema: 0.4.4(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
-      yargs: 18.1.0
-      zod: 4.6.5
-      zod-to-json-schema: 3.25.2(zod@4.6.5)
-    optionalDependencies:
-      ajv: 8.20.0
-      ajv-formats: 3.0.1(ajv@8.20.0)
-      jose: 6.2.10
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - '@valibot/to-json-schema'
-      - arktype
-      - effect
-      - openapi-types
-      - supports-color
-      - sury
-
   fastmcp@4.22.1(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0):
     dependencies:
       '@apidevtools/swagger-parser': 13.1.0(openapi-types@12.1.3)
@@ -4534,11 +4488,6 @@ snapshots:
   function-bind@1.1.2: {}
 
   functype-log@1.12.0(functype@1.12.0):
-    dependencies:
-      functype: 1.12.0
-      loglayer: 9.4.0
-
-  functype-log@1.9.0(functype@1.12.0):
     dependencies:
       functype: 1.12.0
       loglayer: 9.4.0
@@ -4922,14 +4871,6 @@ snapshots:
       xmlbuilder: 10.1.1
 
   math-intrinsics@1.1.0: {}
-
-  mcp-proxy@6.7.13(supports-color@7.2.0):
-    dependencies:
-      '@modelcontextprotocol/client': 2.0.0
-      '@modelcontextprotocol/server': 2.0.0
-      pipenet: 1.4.2(supports-color@7.2.0)
-    transitivePeerDependencies:
-      - supports-color
 
   mcp-proxy@6.7.19(supports-color@7.2.0):
     dependencies:
@@ -5324,12 +5265,12 @@ snapshots:
       mrmime: 2.0.1
       totalist: 3.0.1
 
-  somamcp@1.4.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0):
+  somamcp@1.4.1(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0):
     dependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.6.5)
-      fastmcp: 4.20.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
+      '@modelcontextprotocol/sdk': 1.32.1(supports-color@7.2.0)(zod@4.6.5)
+      fastmcp: 4.22.1(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
       functype: 1.12.0
-      functype-log: 1.9.0(functype@1.12.0)
+      functype-log: 1.12.0(functype@1.12.0)
       hono: 4.13.12
       zod: 4.6.5
     transitivePeerDependencies:
