@@ -35,7 +35,7 @@
     "functype": "^1.12.0"
   },
   "devDependencies": {
-    "@types/node": "^24.19.1",
+    "@types/node": "^24.19.2",
     "ts-builds": "^4.0.0",
     "tsdown": "^0.23.0"
   },
