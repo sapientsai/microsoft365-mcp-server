@@ -20,8 +20,8 @@ importers:
   packages/core:
     dependencies:
       functype:
-        specifier: ^1.12.0
-        version: 1.12.0
+        specifier: ^1.14.0
+        version: 1.14.0
     devDependencies:
       '@types/node':
         specifier: ^24.19.1
@@ -39,8 +39,8 @@ importers:
         specifier: ^4.4.0
         version: 4.4.0
       functype:
-        specifier: ^1.12.0
-        version: 1.12.0
+        specifier: ^1.14.0
+        version: 1.14.0
       mammoth:
         specifier: ^1.13.0
         version: 1.13.0
@@ -73,8 +73,8 @@ importers:
         specifier: ^18.0.5
         version: 18.0.5
       functype:
-        specifier: ^1.12.0
-        version: 1.12.0
+        specifier: ^1.14.0
+        version: 1.14.0
       somamcp:
         specifier: ^1.4.0
         version: 1.4.0(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
@@ -107,11 +107,11 @@ importers:
         specifier: ^4.22.1
         version: 4.22.1(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
       functype:
-        specifier: ^1.12.0
-        version: 1.12.0
+        specifier: ^1.14.0
+        version: 1.14.0
       functype-log:
         specifier: ^1.12.0
-        version: 1.12.0(functype@1.12.0)
+        version: 1.12.0(functype@1.14.0)
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
@@ -1803,8 +1803,8 @@ packages:
     peerDependencies:
       functype: '>=0.60.0'
 
-  functype@1.12.0:
-    resolution: {integrity: sha512-jdLYgh0P+Xm6ZvBBKK6LEHi9pUtuHKNy6sHkE/EYx66q8R7dAvSEzkFr57javpM65qiGjl8x3BHzMkXzrJdRyQ==}
+  functype@1.14.0:
+    resolution: {integrity: sha512-GllVQylE6hyx/aEDCl9UQ+USlrPu+YU/bMr1c36AUrtorudoQ2n0jwPzVCpem3aJ5NT7rebiv4I+e565/zUt/w==}
     hasBin: true
 
   fuse.js@7.5.0:
@@ -4533,21 +4533,21 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  functype-log@1.12.0(functype@1.12.0):
+  functype-log@1.12.0(functype@1.14.0):
     dependencies:
-      functype: 1.12.0
+      functype: 1.14.0
       loglayer: 9.4.0
 
-  functype-log@1.9.0(functype@1.12.0):
+  functype-log@1.9.0(functype@1.14.0):
     dependencies:
-      functype: 1.12.0
+      functype: 1.14.0
       loglayer: 9.4.0
 
-  functype-os@1.9.0(functype@1.12.0):
+  functype-os@1.9.0(functype@1.14.0):
     dependencies:
-      functype: 1.12.0
+      functype: 1.14.0
 
-  functype@1.12.0: {}
+  functype@1.14.0: {}
 
   fuse.js@7.5.0: {}
 
@@ -5328,8 +5328,8 @@ snapshots:
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@7.2.0)(zod@4.6.5)
       fastmcp: 4.20.2(ajv-formats@3.0.1(ajv@8.20.0))(ajv@8.20.0)(jose@6.2.10)(openapi-types@12.1.3)(supports-color@7.2.0)
-      functype: 1.12.0
-      functype-log: 1.9.0(functype@1.12.0)
+      functype: 1.14.0
+      functype-log: 1.9.0(functype@1.14.0)
       hono: 4.13.12
       zod: 4.6.5
     transitivePeerDependencies:
@@ -5450,8 +5450,8 @@ snapshots:
       eslint-plugin-functype: 2.112.0(eslint@10.12.0(supports-color@7.2.0))
       eslint-plugin-prettier: 5.5.6(eslint-config-prettier@10.1.8(eslint@10.12.0(supports-color@7.2.0)))(eslint@10.12.0(supports-color@7.2.0))(prettier@3.9.9)
       eslint-plugin-simple-import-sort: 14.0.0(eslint@10.12.0(supports-color@7.2.0))
-      functype: 1.12.0
-      functype-os: 1.9.0(functype@1.12.0)
+      functype: 1.14.0
+      functype-os: 1.9.0(functype@1.14.0)
       globals: 17.12.0
       prettier: 3.9.9
       ts-node: 10.9.2(@types/node@24.19.1)(typescript@6.0.3)
