@@ -1640,7 +1640,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
 
   {
     name: "delete_todo_task",
-    description: "Delete a To Do task permanently. To Do has no recycle bin — this cannot be undone",
+    description:
+      "Delete a To Do task. There is no API to restore it, so treat it as permanent. Deleting a repeating task ends the whole series and needs force: true.",
     parameters: z.object({
       list_id: z.string().describe("To Do list ID"),
       task_id: z.string().describe("Task ID"),

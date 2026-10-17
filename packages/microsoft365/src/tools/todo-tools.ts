@@ -97,8 +97,9 @@ export const deleteTodoTask = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   // Read before deleting. A task id addresses the whole recurring series, not one
-  // occurrence, so deleting one ends the series — and To Do has no recycle bin or
-  // restore, which makes this the last chance to say so.
+  // occurrence, so deleting one ends the series — and Graph has no restore. Microsoft
+  // documents a manual recovery from Outlook's Deleted Items, unverified for API
+  // deletes, so this is the last reliable chance to say so.
   const existing = await client.getTodoTask(params.list_id, params.task_id)
   if (existing.isLeft()) {
     return Left(new UserError(`Failed to read the task before deleting: ${(existing.value as GraphApiError).message}`))
@@ -111,7 +112,7 @@ export const deleteTodoTask = async (params: {
     return Left(
       new UserError(
         `"${title}" repeats ${describeRecurrence(task.recurrence)}. Deleting it ends the whole series, ` +
-          `not just this occurrence, and To Do has no undo. Pass force: true to go ahead, or use ` +
+          `not just this occurrence, and this tool can't undo it. Pass force: true to go ahead, or use ` +
           `clear_recurrence on update_todo_task to keep the task but stop it repeating.`,
       ),
     )

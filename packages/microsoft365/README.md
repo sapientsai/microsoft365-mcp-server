@@ -383,7 +383,7 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 | `list_todo_tasks`  | List tasks in a list                |
 | `create_todo_task` | Create a task, optionally repeating |
 | `update_todo_task` | Update a task, or change its repeat |
-| `delete_todo_task` | Delete a task permanently           |
+| `delete_todo_task` | Delete a task (no API undo)         |
 
 `create_todo_task` and `update_todo_task` take an optional `recurrence`, mapping to
 Graph's `patternedRecurrence`. Pass a `pattern` of `daily`, `weekly`,
@@ -402,8 +402,9 @@ completed occurrence becomes a _separate_ task with a new id. The task id you ho
 therefore refers to the live series, not one occurrence, and `update_todo_task` says
 so in its result rather than reporting a bare "Task updated" over a `notStarted` task.
 
-`delete_todo_task` is permanent — To Do has no recycle bin and Graph offers no
-restore. Because an id addresses the series, deleting a repeating task ends the whole
+`delete_todo_task` has no undo through the API. Microsoft documents restoring a deleted
+task by hand from Outlook's Deleted Items folder, but that hasn't been checked for tasks
+deleted through Graph, so treat a delete as permanent. Because an id addresses the series, deleting a repeating task ends the whole
 series; that requires `force: true`, and the refusal points at `clear_recurrence` for
 the usual case of wanting the task to stop repeating without losing it.
 

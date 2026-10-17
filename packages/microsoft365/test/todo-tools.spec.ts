@@ -203,8 +203,8 @@ describe("todo-tools", () => {
       expect(mockClient.deleteTodoTask).toHaveBeenCalledWith(LIST_ID, "t1")
     })
 
-    // A task id addresses the whole series, not one occurrence, and To Do has no
-    // recycle bin — so this refusal is the only thing standing between a routine
+    // A task id addresses the whole series, not one occurrence, and Graph has no
+    // restore — so this refusal is the only thing standing between a routine
     // tidy-up and silently destroying a recurring chore.
     it("should refuse a recurring task without force", async () => {
       mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", title: "Clear the gutters", recurrence: QUARTERLY }))
