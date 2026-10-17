@@ -15,7 +15,8 @@
 // or the shell; MS365_ORG_MODE=true is needed for the meeting tools.
 //
 // Data-dependent checks SKIP rather than fail when the account has nothing to test with. Set
-// SMOKE_MEETING_ID to page through that meeting's first transcript.
+// SMOKE_MEETING_ID to page through that meeting's first transcript, and SMOKE_PDF_ID (a OneDrive item
+// ID) to choose which PDF read_document extracts instead of the first one search finds.
 //
 // Output is tool names, pass/fail/skip and counts only. Tool output can hold mail and file contents
 // and lands wherever this is run (an agent transcript included), so it is never printed; nor is the
@@ -360,6 +361,10 @@ const main = async () => {
     }
   }
 
+  // PDFs: unpdf bundles PDF.js, so a dependency bump can change extraction with every unit test
+  // still green (they never read a real PDF). Extract one, and report only page and character counts.
+  await checkPdf()
+
   // Transcripts: page through until the last part, following each marker's offset.
   const meetingId = process.env.SMOKE_MEETING_ID
   if (!meetingId) {
@@ -386,6 +391,35 @@ const main = async () => {
     offset = Number(next[1])
   }
   record("FAIL", "transcript paging", "no end marker after 20 parts")
+}
+
+async function checkPdf() {
+  const pinned = process.env.SMOKE_PDF_ID
+  const itemId = pinned ?? (await findPdf())
+  if (itemId === undefined) return
+
+  const read = await call("read_document", { path: `/me/drive/items/${itemId}/content`, max_chars: 4000 })
+  if (!read.ok) return record("FAIL", "read_document .pdf", read.error)
+  const header = read.text.match(/\[PDF: (\d+) pages?\]\n\n/)
+  if (!header) return record("FAIL", "read_document .pdf", "no [PDF: n pages] header; not extracted as a PDF")
+  // read_document appends a "[truncated at N chars ...]" note past max_chars; it isn't document text.
+  const body = read.text.slice((header.index ?? 0) + header[0].length)
+  const truncated = /\n\n\[truncated at [^\]]*\]$/.test(body)
+  const chars = body.replace(/\n\n\[truncated at [^\]]*\]$/, "").trim().length
+  const pages = `${header[1]} page(s)`
+  if (chars === 0) return record("SKIP", "read_document .pdf", `${pages}, no text layer (a scan?); set SMOKE_PDF_ID`)
+  record("PASS", "read_document .pdf", `${pages}, ${chars}${truncated ? "+" : ""} chars of text`)
+}
+
+async function findPdf() {
+  const found = await call("search_files", { query: "pdf" })
+  if (!found.ok) {
+    record("FAIL", "search_files pdf", found.error)
+    return undefined
+  }
+  const pdf = found.text.match(/^- \*\*[^*]+\.pdf\*\* \(ID: ([^)]+)\)/im)
+  if (!pdf) record("SKIP", "read_document .pdf", "no PDF found; set SMOKE_PDF_ID")
+  return pdf?.[1]
 }
 
 try {
