@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs"
 
 import { describe, expect, it } from "vitest"
 
-import { DOMAIN_DESCRIPTIONS, filterTools, PRESETS, TOOL_METADATA } from "../src/tools/tool-registry"
+import {
+  annotationsFor,
+  DOMAIN_DESCRIPTIONS,
+  filterTools,
+  PRESETS,
+  TOOL_METADATA,
+  toolAnnotations,
+} from "../src/tools/tool-registry"
 
 describe("tool-registry", () => {
   describe("PRESETS", () => {
@@ -76,6 +83,81 @@ describe("tool-registry", () => {
         return meta === undefined || meta.domain !== tool.domain || meta.readOnly !== tool.readOnly
       })
       expect(mismatched).toEqual([])
+    })
+  })
+
+  // Anthropic's connector review asks every tool for a title and the applicable hint; Claude uses the
+  // hints to decide when to confirm a call. They are built from TOOL_METADATA alone.
+  describe("annotations", () => {
+    it("gives every tool a distinct, non-empty title", () => {
+      const titles = TOOL_METADATA.map((m) => m.title.trim())
+      expect(titles.filter((t) => t.length === 0)).toEqual([])
+      expect(new Set(titles).size).toBe(titles.length)
+    })
+
+    it("marks every read-only tool readOnlyHint: true, with no destructive hint", () => {
+      const wrong = TOOL_METADATA.filter((m) => m.readOnly).filter((m) => {
+        const a = toolAnnotations(m)
+        return a.readOnlyHint !== true || a.destructiveHint !== undefined
+      })
+      expect(wrong.map((m) => m.name)).toEqual([])
+    })
+
+    it("gives every write an explicit destructive hint, true unless it is additive", () => {
+      const writes = TOOL_METADATA.filter((m) => !m.readOnly)
+      const wrong = writes.filter((m) => {
+        const a = toolAnnotations(m)
+        return a.readOnlyHint !== false || a.destructiveHint !== (m.additive !== true)
+      })
+      expect(wrong.map((m) => m.name)).toEqual([])
+    })
+
+    it("never marks a read-only tool additive", () => {
+      expect(TOOL_METADATA.filter((m) => m.readOnly && m.additive).map((m) => m.name)).toEqual([])
+    })
+
+    // destructiveHint: false may let a client run a tool without asking, so the set is kept small
+    // and changes to it should be deliberate.
+    it("limits additive writes to ones that only create something private", () => {
+      expect(
+        TOOL_METADATA.filter((m) => m.additive)
+          .map((m) => m.name)
+          .sort(),
+      ).toEqual([
+        "copy_onenote_page",
+        "create_contact",
+        "create_draft",
+        "create_folder",
+        "create_forward_draft",
+        "create_onenote_notebook",
+        "create_onenote_page",
+        "create_onenote_section",
+        "create_reply_all_draft",
+        "create_reply_draft",
+        "create_todo_task",
+        "get_upload_config",
+      ])
+    })
+
+    it("keeps every send, update, delete and move destructive", () => {
+      const risky = TOOL_METADATA.filter((m) => /^(send|update|delete|move|batch_move|respond)_/.test(m.name))
+      expect(risky.length).toBeGreaterThan(10)
+      expect(risky.filter((m) => toolAnnotations(m).destructiveHint !== true).map((m) => m.name)).toEqual([])
+    })
+
+    it("flags graph_query as open-world and destructive", () => {
+      expect(annotationsFor("graph_query")).toEqual({
+        title: "Raw Microsoft Graph Request",
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      })
+    })
+
+    // A second source of hints is how they drift apart; registerTools reads only the registry.
+    it("leaves annotations out of the tool definitions in index.ts", () => {
+      const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
+      expect(source.match(/^ {4}annotations:/gm) ?? []).toEqual([])
     })
   })
 
