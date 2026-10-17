@@ -1,4 +1,3 @@
-import dotenv from "dotenv"
 import type { UserError } from "fastmcp"
 import { FastMCP } from "fastmcp"
 // AzureSession shape: { accessToken: string; scopes: string[]; refreshToken?: string; upn?: string }
@@ -7,6 +6,7 @@ import {
   decodeBase64Upload,
   describeFetchError,
   filenameFromPath,
+  loadEnvFileIfPresent,
   MAX_UPLOAD_SIZE,
   resolveUploadContentType,
   sessionUpload,
@@ -118,7 +118,7 @@ import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
 import { DAYS_OF_WEEK, RECURRENCE_PATTERN_TYPES, RECURRENCE_RANGE_TYPES, WEEK_INDEXES } from "./utils/recurrence"
 
-dotenv.config({ quiet: true })
+loadEnvFileIfPresent()
 
 declare const __VERSION__: string
 const VERSION = (typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev") as `${number}.${number}.${number}`

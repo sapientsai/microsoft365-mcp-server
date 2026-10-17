@@ -1,5 +1,4 @@
-import { type AuthStrategy, createGraphRequest } from "@sapientsai/ms-graph-core"
-import dotenv from "dotenv"
+import { type AuthStrategy, createGraphRequest, loadEnvFileIfPresent } from "@sapientsai/ms-graph-core"
 import { createServer, type SomaServerInstance } from "somamcp"
 import { z } from "zod"
 
@@ -14,7 +13,7 @@ import { buildSharePointSearchTool } from "./tools/sharepoint-search"
 import { buildGetUploadConfigTool } from "./tools/upload-config"
 import { buildUploadRoute } from "./upload/upload-route"
 
-dotenv.config({ quiet: true })
+loadEnvFileIfPresent()
 
 declare const __VERSION__: string
 const VERSION = (typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.0.0-dev") as `${number}.${number}.${number}`

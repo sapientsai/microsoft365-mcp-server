@@ -69,9 +69,6 @@ importers:
       '@sapientsai/ms-graph-core':
         specifier: workspace:*
         version: link:../core
-      dotenv:
-        specifier: ^18.0.5
-        version: 18.0.5
       functype:
         specifier: ^1.16.0
         version: 1.16.0
@@ -97,9 +94,6 @@ importers:
       '@azure/identity':
         specifier: ^4.14.0
         version: 4.14.0(supports-color@7.2.0)
-      dotenv:
-        specifier: ^18.0.5
-        version: 18.0.5
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -1349,11 +1343,6 @@ packages:
 
   dingbat-to-unicode@1.0.1:
     resolution: {integrity: sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w==}
-
-  dotenv@18.0.5:
-    resolution: {integrity: sha512-aBrGvt6KhjxbEnatqMWOMidftwsrCiCvqh1yNIGB9QyF0J+VcWkKDMsvYOEm7ZS82oiV+BT1sTOtIlAmUlTpwQ==}
-    engines: {node: '>=12'}
-    hasBin: true
 
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
@@ -3952,8 +3941,6 @@ snapshots:
   diff@4.0.4: {}
 
   dingbat-to-unicode@1.0.1: {}
-
-  dotenv@18.0.5: {}
 
   dts-resolver@3.0.0: {}
 
