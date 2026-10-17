@@ -23,6 +23,17 @@ export type ToolMeta = {
   readonly readOnly: boolean
   readonly orgOnly: boolean
   readonly transportOnly?: TransportMode
+  /** Shown to people in tool lists and permission prompts, so brand names keep their casing. */
+  readonly title: string
+  /**
+   * A write that only creates something new in the user's own space and notifies nobody, such as
+   * a draft. It is advertised with destructiveHint: false, which may let a client skip asking.
+   * Absent on every other write: updates, deletes, sends, moves, and anything that reaches other
+   * people, such as invites and assignments.
+   */
+  readonly additive?: true
+  /** Reaches beyond this server's own tool set; advertised as openWorldHint: true. */
+  readonly openWorld?: true
 }
 
 /**
@@ -85,110 +96,281 @@ export const PRESETS: Record<string, ReadonlyArray<ToolDomain>> = {
 
 export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   // Auth
-  { name: "get_auth_status", domain: "auth", readOnly: true, orgOnly: false },
-  { name: "list_accounts", domain: "auth", readOnly: true, orgOnly: false },
-  { name: "switch_account", domain: "auth", readOnly: false, orgOnly: false },
-  { name: "set_access_token", domain: "auth", readOnly: false, orgOnly: false },
+  { name: "get_auth_status", title: "Get Sign-in Status", domain: "auth", readOnly: true, orgOnly: false },
+  { name: "list_accounts", title: "List Signed-in Accounts", domain: "auth", readOnly: true, orgOnly: false },
+  { name: "switch_account", title: "Switch Account", domain: "auth", readOnly: false, orgOnly: false },
+  { name: "set_access_token", title: "Set Access Token", domain: "auth", readOnly: false, orgOnly: false },
   // Mail
-  { name: "list_messages", domain: "mail", readOnly: true, orgOnly: false },
-  { name: "scan_messages", domain: "mail", readOnly: true, orgOnly: false },
-  { name: "get_message", domain: "mail", readOnly: true, orgOnly: false },
-  { name: "list_mail_folders", domain: "mail", readOnly: true, orgOnly: false },
-  { name: "move_message", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "list_attachments", domain: "mail", readOnly: true, orgOnly: false },
-  { name: "batch_move_messages", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "send_message", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "send_reply", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "send_reply_all", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "send_forward", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "search_messages", domain: "mail", readOnly: true, orgOnly: false },
-  { name: "create_draft", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "create_reply_draft", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "create_reply_all_draft", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "create_forward_draft", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "send_draft", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "update_draft", domain: "mail", readOnly: false, orgOnly: false },
-  { name: "delete_draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "list_messages", title: "List Email Messages", domain: "mail", readOnly: true, orgOnly: false },
+  { name: "scan_messages", title: "Scan Email Headers", domain: "mail", readOnly: true, orgOnly: false },
+  { name: "get_message", title: "Read Email Message", domain: "mail", readOnly: true, orgOnly: false },
+  { name: "list_mail_folders", title: "List Mail Folders", domain: "mail", readOnly: true, orgOnly: false },
+  { name: "move_message", title: "Move Email Message", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "list_attachments", title: "List Email Attachments", domain: "mail", readOnly: true, orgOnly: false },
+  {
+    name: "batch_move_messages",
+    title: "Move Email Messages in Bulk",
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "send_message", title: "Send Email", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_reply", title: "Send Email Reply", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_reply_all", title: "Send Email Reply to All", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "send_forward", title: "Forward Email", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "search_messages", title: "Search Email", domain: "mail", readOnly: true, orgOnly: false },
+  {
+    name: "create_draft",
+    title: "Create Email Draft",
+    additive: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "create_reply_draft",
+    title: "Create Reply Draft",
+    additive: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "create_reply_all_draft",
+    title: "Create Reply-All Draft",
+    additive: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "create_forward_draft",
+    title: "Create Forward Draft",
+    additive: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "send_draft", title: "Send Email Draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "update_draft", title: "Edit Email Draft", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "delete_draft", title: "Delete Email Draft", domain: "mail", readOnly: false, orgOnly: false },
   // Calendar
-  { name: "list_events", domain: "calendar", readOnly: true, orgOnly: false },
-  { name: "list_calendar_view", domain: "calendar", readOnly: true, orgOnly: false },
-  { name: "find_meeting_availability", domain: "calendar", readOnly: true, orgOnly: false },
-  { name: "get_event", domain: "calendar", readOnly: true, orgOnly: false },
-  { name: "create_event", domain: "calendar", readOnly: false, orgOnly: false },
-  { name: "update_event", domain: "calendar", readOnly: false, orgOnly: false },
-  { name: "delete_event", domain: "calendar", readOnly: false, orgOnly: false },
-  { name: "respond_to_event", domain: "calendar", readOnly: false, orgOnly: false },
+  { name: "list_events", title: "List Calendar Events", domain: "calendar", readOnly: true, orgOnly: false },
+  {
+    name: "list_calendar_view",
+    title: "List Calendar Events in a Date Range",
+    domain: "calendar",
+    readOnly: true,
+    orgOnly: false,
+  },
+  {
+    name: "find_meeting_availability",
+    title: "Find Meeting Times",
+    domain: "calendar",
+    readOnly: true,
+    orgOnly: false,
+  },
+  { name: "get_event", title: "Read Calendar Event", domain: "calendar", readOnly: true, orgOnly: false },
+  { name: "create_event", title: "Create Calendar Event", domain: "calendar", readOnly: false, orgOnly: false },
+  { name: "update_event", title: "Update Calendar Event", domain: "calendar", readOnly: false, orgOnly: false },
+  { name: "delete_event", title: "Delete Calendar Event", domain: "calendar", readOnly: false, orgOnly: false },
+  {
+    name: "respond_to_event",
+    title: "Respond to Meeting Invitation",
+    domain: "calendar",
+    readOnly: false,
+    orgOnly: false,
+  },
   // Contacts
-  { name: "list_contacts", domain: "contacts", readOnly: true, orgOnly: false },
-  { name: "get_contact", domain: "contacts", readOnly: true, orgOnly: false },
-  { name: "create_contact", domain: "contacts", readOnly: false, orgOnly: false },
-  { name: "search_contacts", domain: "contacts", readOnly: true, orgOnly: false },
+  { name: "list_contacts", title: "List Contacts", domain: "contacts", readOnly: true, orgOnly: false },
+  { name: "get_contact", title: "Read Contact", domain: "contacts", readOnly: true, orgOnly: false },
+  {
+    name: "create_contact",
+    title: "Create Contact",
+    additive: true,
+    domain: "contacts",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "search_contacts", title: "Search Contacts", domain: "contacts", readOnly: true, orgOnly: false },
   // Files
-  { name: "list_drive_items", domain: "files", readOnly: true, orgOnly: false },
-  { name: "get_drive_item", domain: "files", readOnly: true, orgOnly: false },
-  { name: "search_files", domain: "files", readOnly: true, orgOnly: false },
-  { name: "download_file", domain: "files", readOnly: true, orgOnly: false },
-  { name: "create_folder", domain: "files", readOnly: false, orgOnly: false },
-  { name: "upload_file", domain: "files", readOnly: false, orgOnly: false },
-  { name: "get_upload_config", domain: "files", readOnly: false, orgOnly: false, transportOnly: "httpStream" },
-  { name: "upload_file_from_path", domain: "files", readOnly: false, orgOnly: false, transportOnly: "stdio" },
+  { name: "list_drive_items", title: "List OneDrive Files", domain: "files", readOnly: true, orgOnly: false },
+  { name: "get_drive_item", title: "Get OneDrive File Details", domain: "files", readOnly: true, orgOnly: false },
+  { name: "search_files", title: "Search OneDrive Files", domain: "files", readOnly: true, orgOnly: false },
+  { name: "download_file", title: "Download OneDrive File", domain: "files", readOnly: true, orgOnly: false },
+  {
+    name: "create_folder",
+    title: "Create OneDrive Folder",
+    additive: true,
+    domain: "files",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "upload_file", title: "Upload Text File to OneDrive", domain: "files", readOnly: false, orgOnly: false },
+  {
+    name: "get_upload_config",
+    title: "Get File Upload Link",
+    additive: true,
+    domain: "files",
+    readOnly: false,
+    orgOnly: false,
+    transportOnly: "httpStream",
+  },
+  {
+    name: "upload_file_from_path",
+    title: "Upload Local File to OneDrive",
+    domain: "files",
+    readOnly: false,
+    orgOnly: false,
+    transportOnly: "stdio",
+  },
   // SharePoint
-  { name: "list_sites", domain: "files", readOnly: true, orgOnly: true },
-  { name: "get_site", domain: "files", readOnly: true, orgOnly: true },
-  { name: "list_site_drives", domain: "files", readOnly: true, orgOnly: true },
-  { name: "list_site_items", domain: "files", readOnly: true, orgOnly: true },
-  { name: "search_site_files", domain: "files", readOnly: true, orgOnly: true },
+  { name: "list_sites", title: "List SharePoint Sites", domain: "files", readOnly: true, orgOnly: true },
+  { name: "get_site", title: "Get SharePoint Site", domain: "files", readOnly: true, orgOnly: true },
+  {
+    name: "list_site_drives",
+    title: "List SharePoint Document Libraries",
+    domain: "files",
+    readOnly: true,
+    orgOnly: true,
+  },
+  { name: "list_site_items", title: "List SharePoint Files", domain: "files", readOnly: true, orgOnly: true },
+  { name: "search_site_files", title: "Search SharePoint Files", domain: "files", readOnly: true, orgOnly: true },
   // Chats
-  { name: "list_chats", domain: "chats", readOnly: true, orgOnly: true },
-  { name: "list_chat_messages", domain: "chats", readOnly: true, orgOnly: true },
-  { name: "send_chat_message", domain: "chats", readOnly: false, orgOnly: true },
+  { name: "list_chats", title: "List Teams Chats", domain: "chats", readOnly: true, orgOnly: true },
+  { name: "list_chat_messages", title: "Read Teams Chat Messages", domain: "chats", readOnly: true, orgOnly: true },
+  { name: "send_chat_message", title: "Send Teams Chat Message", domain: "chats", readOnly: false, orgOnly: true },
   // Teams
-  { name: "list_teams", domain: "teams", readOnly: true, orgOnly: true },
-  { name: "list_channels", domain: "teams", readOnly: true, orgOnly: true },
-  { name: "list_channel_messages", domain: "teams", readOnly: true, orgOnly: true },
-  { name: "send_channel_message", domain: "teams", readOnly: false, orgOnly: true },
+  { name: "list_teams", title: "List Teams", domain: "teams", readOnly: true, orgOnly: true },
+  { name: "list_channels", title: "List Teams Channels", domain: "teams", readOnly: true, orgOnly: true },
+  {
+    name: "list_channel_messages",
+    title: "Read Teams Channel Messages",
+    domain: "teams",
+    readOnly: true,
+    orgOnly: true,
+  },
+  {
+    name: "send_channel_message",
+    title: "Post Teams Channel Message",
+    domain: "teams",
+    readOnly: false,
+    orgOnly: true,
+  },
   // Meetings (transcripts). Needs admin-consent scopes that are NOT in the defaults — see
   // MS365_EXTRA_SCOPES in the README. Both tools are reachable but will 403 without the grant.
-  { name: "list_meeting_transcripts", domain: "meetings", readOnly: true, orgOnly: true },
-  { name: "get_meeting_transcript", domain: "meetings", readOnly: true, orgOnly: true },
+  {
+    name: "list_meeting_transcripts",
+    title: "List Meeting Transcripts",
+    domain: "meetings",
+    readOnly: true,
+    orgOnly: true,
+  },
+  {
+    name: "get_meeting_transcript",
+    title: "Read Meeting Transcript",
+    domain: "meetings",
+    readOnly: true,
+    orgOnly: true,
+  },
   // Users
-  { name: "get_me", domain: "users", readOnly: true, orgOnly: false },
-  { name: "list_users", domain: "users", readOnly: true, orgOnly: true },
-  { name: "get_user", domain: "users", readOnly: true, orgOnly: true },
+  { name: "get_me", title: "Get My Profile", domain: "users", readOnly: true, orgOnly: false },
+  { name: "list_users", title: "List People in Organization", domain: "users", readOnly: true, orgOnly: true },
+  { name: "get_user", title: "Get Person's Profile", domain: "users", readOnly: true, orgOnly: true },
   // Groups
-  { name: "list_groups", domain: "groups", readOnly: true, orgOnly: true },
-  { name: "get_group", domain: "groups", readOnly: true, orgOnly: true },
-  { name: "list_group_members", domain: "groups", readOnly: true, orgOnly: true },
+  { name: "list_groups", title: "List Groups", domain: "groups", readOnly: true, orgOnly: true },
+  { name: "get_group", title: "Get Group", domain: "groups", readOnly: true, orgOnly: true },
+  { name: "list_group_members", title: "List Group Members", domain: "groups", readOnly: true, orgOnly: true },
   // Planner
-  { name: "list_plans", domain: "planner", readOnly: true, orgOnly: true },
-  { name: "list_planner_buckets", domain: "planner", readOnly: true, orgOnly: true },
-  { name: "create_planner_bucket", domain: "planner", readOnly: false, orgOnly: true },
-  { name: "list_planner_tasks", domain: "planner", readOnly: true, orgOnly: true },
-  { name: "get_planner_task", domain: "planner", readOnly: true, orgOnly: true },
-  { name: "create_planner_task", domain: "planner", readOnly: false, orgOnly: true },
-  { name: "update_planner_task", domain: "planner", readOnly: false, orgOnly: true },
-  { name: "update_planner_task_details", domain: "planner", readOnly: false, orgOnly: true },
+  { name: "list_plans", title: "List Planner Plans", domain: "planner", readOnly: true, orgOnly: true },
+  { name: "list_planner_buckets", title: "List Planner Buckets", domain: "planner", readOnly: true, orgOnly: true },
+  { name: "create_planner_bucket", title: "Create Planner Bucket", domain: "planner", readOnly: false, orgOnly: true },
+  { name: "list_planner_tasks", title: "List Planner Tasks", domain: "planner", readOnly: true, orgOnly: true },
+  { name: "get_planner_task", title: "Read Planner Task", domain: "planner", readOnly: true, orgOnly: true },
+  { name: "create_planner_task", title: "Create Planner Task", domain: "planner", readOnly: false, orgOnly: true },
+  { name: "update_planner_task", title: "Update Planner Task", domain: "planner", readOnly: false, orgOnly: true },
+  {
+    name: "update_planner_task_details",
+    title: "Update Planner Task Details",
+    domain: "planner",
+    readOnly: false,
+    orgOnly: true,
+  },
   // OneNote
-  { name: "list_onenote_notebooks", domain: "onenote", readOnly: true, orgOnly: false },
-  { name: "list_onenote_sections", domain: "onenote", readOnly: true, orgOnly: false },
-  { name: "list_onenote_pages", domain: "onenote", readOnly: true, orgOnly: false },
-  { name: "get_onenote_page_content", domain: "onenote", readOnly: true, orgOnly: false },
-  { name: "create_onenote_page", domain: "onenote", readOnly: false, orgOnly: false },
-  { name: "update_onenote_page_content", domain: "onenote", readOnly: false, orgOnly: false },
-  { name: "create_onenote_section", domain: "onenote", readOnly: false, orgOnly: false },
-  { name: "create_onenote_notebook", domain: "onenote", readOnly: false, orgOnly: false },
-  { name: "copy_onenote_page", domain: "onenote", readOnly: false, orgOnly: false },
-  { name: "delete_onenote_page", domain: "onenote", readOnly: false, orgOnly: false },
+  {
+    name: "list_onenote_notebooks",
+    title: "List OneNote Notebooks",
+    domain: "onenote",
+    readOnly: true,
+    orgOnly: false,
+  },
+  { name: "list_onenote_sections", title: "List OneNote Sections", domain: "onenote", readOnly: true, orgOnly: false },
+  { name: "list_onenote_pages", title: "List OneNote Pages", domain: "onenote", readOnly: true, orgOnly: false },
+  { name: "get_onenote_page_content", title: "Read OneNote Page", domain: "onenote", readOnly: true, orgOnly: false },
+  {
+    name: "create_onenote_page",
+    title: "Create OneNote Page",
+    additive: true,
+    domain: "onenote",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "update_onenote_page_content",
+    title: "Update OneNote Page",
+    domain: "onenote",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "create_onenote_section",
+    title: "Create OneNote Section",
+    additive: true,
+    domain: "onenote",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "create_onenote_notebook",
+    title: "Create OneNote Notebook",
+    additive: true,
+    domain: "onenote",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "copy_onenote_page",
+    title: "Copy OneNote Page",
+    additive: true,
+    domain: "onenote",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "delete_onenote_page", title: "Delete OneNote Page", domain: "onenote", readOnly: false, orgOnly: false },
   // To Do
-  { name: "list_todo_lists", domain: "todo", readOnly: true, orgOnly: false },
-  { name: "list_todo_tasks", domain: "todo", readOnly: true, orgOnly: false },
-  { name: "create_todo_task", domain: "todo", readOnly: false, orgOnly: false },
-  { name: "update_todo_task", domain: "todo", readOnly: false, orgOnly: false },
-  { name: "delete_todo_task", domain: "todo", readOnly: false, orgOnly: false },
+  { name: "list_todo_lists", title: "List To Do Lists", domain: "todo", readOnly: true, orgOnly: false },
+  { name: "list_todo_tasks", title: "List To Do Tasks", domain: "todo", readOnly: true, orgOnly: false },
+  {
+    name: "create_todo_task",
+    title: "Create To Do Task",
+    additive: true,
+    domain: "todo",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "update_todo_task", title: "Update To Do Task", domain: "todo", readOnly: false, orgOnly: false },
+  { name: "delete_todo_task", title: "Delete To Do Task", domain: "todo", readOnly: false, orgOnly: false },
   // Query
-  { name: "graph_query", domain: "query", readOnly: false, orgOnly: false },
+  {
+    name: "graph_query",
+    title: "Raw Microsoft Graph Request",
+    openWorld: true,
+    domain: "query",
+    readOnly: false,
+    orgOnly: false,
+  },
   // RAG
-  { name: "read_document", domain: "rag", readOnly: true, orgOnly: false },
+  { name: "read_document", title: "Read Document Text", domain: "rag", readOnly: true, orgOnly: false },
 ]
 
 export type ToolFilterConfig = {
@@ -199,6 +381,32 @@ export type ToolFilterConfig = {
   readonly transport?: TransportMode
   readonly requireDraft?: boolean
 }
+
+export type ToolAnnotations = {
+  readonly title: string
+  readonly readOnlyHint: boolean
+  readonly destructiveHint?: boolean
+  readonly openWorldHint?: true
+}
+
+/**
+ * The MCP annotations a tool is advertised with. Claude reads them to decide when to ask: a
+ * read-only tool can run without confirmation, and a destructive one always prompts. They are
+ * built here from TOOL_METADATA, the one place each tool's title and kind is declared, so no
+ * definition can claim a hint its metadata contradicts.
+ */
+export const toolAnnotations = (meta: ToolMeta): ToolAnnotations => ({
+  title: meta.title,
+  readOnlyHint: meta.readOnly,
+  ...(meta.readOnly ? {} : { destructiveHint: meta.additive !== true }),
+  ...(meta.openWorld ? { openWorldHint: true } : {}),
+})
+
+const ANNOTATIONS_BY_NAME: ReadonlyMap<string, ToolAnnotations> = new Map(
+  TOOL_METADATA.map((meta) => [meta.name, toolAnnotations(meta)]),
+)
+
+export const annotationsFor = (name: string): ToolAnnotations | undefined => ANNOTATIONS_BY_NAME.get(name)
 
 // Read per call, not captured at import, so tests can set it. graph_query reads it too: hiding the
 // send_* tools alone would leave a raw POST /me/sendMail open.

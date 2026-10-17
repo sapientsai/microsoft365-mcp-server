@@ -112,7 +112,13 @@ import {
   uploadFileFromPath,
 } from "./tools"
 import type { ToolDefinition } from "./tools/tool-definitions"
-import { DOMAIN_DESCRIPTIONS, filterTools, requireDraftEnabled, type ToolFilterConfig } from "./tools/tool-registry"
+import {
+  annotationsFor,
+  DOMAIN_DESCRIPTIONS,
+  filterTools,
+  requireDraftEnabled,
+  type ToolFilterConfig,
+} from "./tools/tool-registry"
 import type { AuthConfig } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
@@ -263,7 +269,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async () => unwrapResult(await getAuthStatusTool()),
     domain: "auth",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_accounts",
@@ -272,7 +277,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async () => unwrapResult(await listAccountsTool()),
     domain: "auth",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "switch_account",
@@ -332,7 +336,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listMessages(params)),
     domain: "mail",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "scan_messages",
@@ -356,7 +359,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await scanMessages(params)),
     domain: "mail",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_message",
@@ -372,7 +374,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getMessage(params)),
     domain: "mail",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_mail_folders",
@@ -384,7 +385,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listMailFolders(params)),
     domain: "mail",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_attachments",
@@ -396,7 +396,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listAttachments(params)),
     domain: "mail",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "move_message",
@@ -411,7 +410,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await moveMessage(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "batch_move_messages",
@@ -426,7 +424,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await batchMoveMessages(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "send_message",
@@ -440,7 +437,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendMessage(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "send_reply",
@@ -453,7 +449,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendReply(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "send_reply_all",
@@ -466,7 +461,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendReplyAll(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "send_forward",
@@ -480,7 +474,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendForward(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "create_reply_draft",
@@ -529,7 +522,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await searchMessages(params)),
     domain: "mail",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_draft",
@@ -555,7 +547,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendDraft(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "update_draft",
@@ -583,7 +574,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await updateDraft(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "delete_draft",
@@ -594,7 +584,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await deleteDraft(params)),
     domain: "mail",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
 
   // === Calendar Tools ===
@@ -611,7 +600,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listEvents(params)),
     domain: "calendar",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_calendar_view",
@@ -626,7 +614,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listCalendarView(params)),
     domain: "calendar",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "find_meeting_availability",
@@ -657,7 +644,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await findMeetingAvailability(params)),
     domain: "calendar",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_event",
@@ -674,7 +660,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getEvent(params)),
     domain: "calendar",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_event",
@@ -740,7 +725,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await deleteEvent(params)),
     domain: "calendar",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
   {
     name: "respond_to_event",
@@ -759,7 +743,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await respondToEvent(params)),
     domain: "calendar",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
 
   // === Contacts Tools ===
@@ -774,7 +757,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listContacts(params)),
     domain: "contacts",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_contact",
@@ -785,7 +767,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getContact(params)),
     domain: "contacts",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_contact",
@@ -812,7 +793,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await searchContacts(params)),
     domain: "contacts",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
 
   // === Files Tools ===
@@ -827,7 +807,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listDriveItems(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_drive_item",
@@ -838,7 +817,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getDriveItem(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "search_files",
@@ -857,7 +835,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await searchFiles(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "download_file",
@@ -876,7 +853,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await downloadFile(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "read_document",
@@ -901,7 +877,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await readDocument(params)),
     domain: "rag",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_folder",
@@ -994,7 +969,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listSites(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_site",
@@ -1005,7 +979,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getSite(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_site_drives",
@@ -1016,7 +989,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listSiteDrives(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_site_items",
@@ -1030,7 +1002,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listSiteItems(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "search_site_files",
@@ -1051,7 +1022,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await searchSiteFiles(params)),
     domain: "files",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
 
   // === Chat Tools ===
@@ -1085,7 +1055,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listChats(params)),
     domain: "chats" as const,
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_chat_messages",
@@ -1117,7 +1086,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listChatMessages(params)),
     domain: "chats" as const,
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "send_chat_message",
@@ -1144,7 +1112,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendChatMessage(params)),
     domain: "chats" as const,
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
 
   // === Teams Tools ===
@@ -1157,7 +1124,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listTeams(params)),
     domain: "teams",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_channels",
@@ -1169,7 +1135,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listChannels(params)),
     domain: "teams",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_channel_messages",
@@ -1183,7 +1148,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listChannelMessages(params)),
     domain: "teams",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "send_channel_message",
@@ -1202,7 +1166,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await sendChannelMessage(params)),
     domain: "teams",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
 
   // === Meeting Transcript Tools ===
@@ -1226,7 +1189,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listMeetingTranscripts(params)),
     domain: "meetings",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_meeting_transcript",
@@ -1264,7 +1226,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getMeetingTranscript(params)),
     domain: "meetings",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
 
   // === Users & Groups Tools ===
@@ -1275,7 +1236,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async () => unwrapResult(await getMe()),
     domain: "users",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_users",
@@ -1288,7 +1248,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listUsers(params)),
     domain: "users",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_user",
@@ -1299,7 +1258,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getUser(params)),
     domain: "users",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_groups",
@@ -1312,7 +1270,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listGroups(params)),
     domain: "groups",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_group",
@@ -1323,7 +1280,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getGroup(params)),
     domain: "groups",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_group_members",
@@ -1335,7 +1291,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listGroupMembers(params)),
     domain: "groups",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
 
   // === Planner Tools ===
@@ -1346,7 +1301,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async () => unwrapResult(await listPlans()),
     domain: "planner",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_planner_tasks",
@@ -1358,7 +1312,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listPlannerTasks(params)),
     domain: "planner",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_planner_task",
@@ -1369,7 +1322,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getPlannerTask(params)),
     domain: "planner",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_planner_buckets",
@@ -1380,7 +1332,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listPlannerBuckets(params)),
     domain: "planner",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_planner_bucket",
@@ -1472,7 +1423,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listOnenoteNotebooks(params)),
     domain: "onenote",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_onenote_sections",
@@ -1484,7 +1434,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listOnenoteSections(params)),
     domain: "onenote",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_onenote_pages",
@@ -1496,7 +1445,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listOnenotePages(params)),
     domain: "onenote",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "get_onenote_page_content",
@@ -1507,7 +1455,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await getOnenotePageContent(params)),
     domain: "onenote",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_onenote_page",
@@ -1578,7 +1525,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await deleteOnenotePage(params)),
     domain: "onenote",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
 
   // === To Do Tools ===
@@ -1591,7 +1537,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listTodoLists(params)),
     domain: "todo",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "list_todo_tasks",
@@ -1603,7 +1548,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await listTodoTasks(params)),
     domain: "todo",
     readOnly: true,
-    annotations: { readOnlyHint: true },
   },
   {
     name: "create_todo_task",
@@ -1657,7 +1601,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await deleteTodoTask(params)),
     domain: "todo",
     readOnly: false,
-    annotations: { destructiveHint: true },
   },
 
   // === Graph Query (Escape Hatch) ===
@@ -1677,7 +1620,6 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     execute: async (params) => unwrapResult(await graphQuery(params)),
     domain: "query",
     readOnly: false,
-    annotations: { destructiveHint: true, openWorldHint: true },
   },
 ]
 
@@ -1720,7 +1662,7 @@ const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: bo
       description: tool.description,
       parameters: tool.parameters,
       execute: wrapExecute(tool, oauthMode),
-      annotations: tool.annotations,
+      annotations: annotationsFor(tool.name),
     })
   })
 

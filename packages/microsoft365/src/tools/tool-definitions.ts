@@ -9,9 +9,4 @@ export type ToolDefinition = {
   readonly execute: (...args: ReadonlyArray<never>) => Promise<string>
   readonly domain: ToolDomain
   readonly readOnly: boolean
-  readonly annotations?: {
-    readonly readOnlyHint?: boolean
-    readonly destructiveHint?: boolean
-    readonly openWorldHint?: boolean
-  }
 }
