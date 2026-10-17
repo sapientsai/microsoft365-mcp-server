@@ -390,7 +390,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description:
       "List a message's attachments with name, content type and size. Returns a read_document path for file attachments so their text can be extracted (PDF, Office, etc); cloud links and embedded Outlook items are marked as not readable that way.",
     parameters: z.object({
-      message_id: z.string().describe("The message ID whose attachments to list"),
+      message_id: z.string().describe("The message ID, or a short ref from scan_messages, whose attachments to list"),
     }),
     execute: async (params) => unwrapResult(await listAttachments(params)),
     domain: "mail",
@@ -402,7 +402,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description:
       "Move a message to another mail folder. Destination accepts a well-known name (archive, deleteditems, inbox, junkemail), a top-level folder display name, or a folder ID. A well-known name always wins over a custom folder of the same name, and the confirmation says which was used. Subfolders cannot be resolved by name — pass their ID. Moving to deleteditems is recoverable; use list_mail_folders to see what exists.",
     parameters: z.object({
-      message_id: z.string().describe("The message ID to move"),
+      message_id: z.string().describe("The message ID, or a short ref from scan_messages, to move"),
       destination: z
         .string()
         .describe("Destination folder: well-known name (e.g. archive), display name, or folder ID"),
@@ -417,7 +417,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description:
       "Move several messages to the same folder in one call. Resolves the destination once and returns a single summary instead of one result per message. Reports any failures individually.",
     parameters: z.object({
-      message_ids: z.array(z.string()).describe("Message IDs to move (max 50)"),
+      message_ids: z.array(z.string()).describe("Message IDs or scan_messages refs to move (max 50)"),
       destination: z
         .string()
         .describe("Destination folder: well-known name (e.g. archive), display name, or folder ID"),

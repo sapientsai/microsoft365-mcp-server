@@ -45,6 +45,20 @@ describe("message refs", () => {
     expect(Number(afterClear)).toBeGreaterThan(Number(second))
   })
 
+  // The prefix is what protects a restart: there the counter starts over too, so the
+  // same number comes back and only the prefix tells the two refs apart.
+  it("does not resolve the old prefix with a number that is live in the new process", () => {
+    clearMessageRefs("aaaa")
+    rememberMessageId("id-old")
+
+    clearMessageRefs("bbbb")
+    const [newPrefix, number] = rememberMessageId("id-new").split("-")
+
+    expect(newPrefix).toBe("bbbb")
+    expect(resolveMessageIdOrRef(`aaaa-${number}`)).toBeUndefined()
+    expect(resolveMessageIdOrRef(`bbbb-${number}`)).toBe("id-new")
+  })
+
   it("round-trips a ref back to its message id, ignoring case and spaces", () => {
     const ref = rememberMessageId("id-a")
     expect(resolveMessageRef(ref)).toBe("id-a")
@@ -65,8 +79,9 @@ describe("message refs", () => {
   })
 
   // Numbering used to come from the map's size and restart at 1 with the process, so a
-  // ref held across a restart opened whichever message took its number next.
-  it("does not resolve a ref from before a restart to a newer message", () => {
+  // ref held across a restart opened whichever message took its number next. This only
+  // clears the maps; the test above covers the prefix change a real restart brings.
+  it("does not resolve a ref from before a clear to a newer message", () => {
     const before = rememberMessageId("id-old")
     clearMessageRefs()
     rememberMessageId("id-new")

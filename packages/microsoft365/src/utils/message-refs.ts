@@ -56,10 +56,10 @@ export const resolveMessageIdOrRef = (idOrRef: string): string | undefined => {
 
 export const messageRefCount = (): number => refToId.size
 
-// Test seam only — refs are process-scoped in normal use. A fresh prefix stands in for
-// a server restart.
-export const clearMessageRefs = (): void => {
+// Test seam only — refs are process-scoped in normal use. A new prefix stands in for a
+// server restart; tests pass one so two random prefixes can never collide.
+export const clearMessageRefs = (prefix: string = newPrefix()): void => {
   refToId.clear()
   idToRef.clear()
-  state.prefix = newPrefix()
+  state.prefix = prefix
 }
