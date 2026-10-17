@@ -54,7 +54,7 @@ export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   groups: "Groups: List groups and group members",
   planner: "Planner: List plans and tasks; create and update tasks",
   onenote: "OneNote: List notebooks, sections, pages; read page content",
-  todo: "To Do: List task lists and tasks; create and update tasks",
+  todo: "To Do: List task lists and tasks; create, update, and delete tasks, including repeating ones",
   query: "Graph Query: Execute arbitrary Microsoft Graph API queries",
   rag: "Documents: Extract readable text from PDF, DOCX, XLSX and text files — in OneDrive, SharePoint, or attached to a message",
 }
