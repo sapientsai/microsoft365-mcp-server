@@ -49,12 +49,13 @@ describe("tool-registry", () => {
     })
 
     // registerTools only registers a definition whose name filterTools returns, and filterTools reads
-    // TOOL_METADATA. A tool defined in index.ts but missing here never registers, with no error. The
+    // TOOL_METADATA. A tool defined in index.ts but missing here never registers, with no error; that
+    // is how scan_messages first shipped invisible, defined and built but filtered out. The
     // definitions can't be imported (loading index.ts starts the server), so their names are read from
     // the source: each definition's name sits at four spaces of indent.
     it("should list every tool defined in index.ts, and nothing else", () => {
       const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8")
-      const defined = [...source.matchAll(/^ {4}name: "([a-z_]+)",$/gm)].map((match) => match[1]).sort()
+      const defined = [...source.matchAll(/^ {4}name: "([a-z0-9_]+)",$/gm)].map((match) => match[1]).sort()
       const registered = TOOL_METADATA.map((m) => m.name).sort()
       expect(defined.length).toBeGreaterThan(0)
       expect(defined).toEqual(registered)
@@ -224,29 +225,5 @@ describe("tool-registry", () => {
       expect(ragTools).toContain("read_document")
       expect(DOMAIN_DESCRIPTIONS.rag.toLowerCase()).toContain("text")
     })
-  })
-})
-
-// A tool absent from TOOL_METADATA can never be exposed: filterTools derives the
-// allowed set from the registry alone, so a tool defined in index.ts but not
-// registered here is silently dropped at startup with no error. That is exactly how
-// scan_messages shipped invisible — defined, built, and filtered out.
-describe("registry covers every defined tool", () => {
-  it("registers every tool declared in index.ts", async () => {
-    const { readFileSync } = await import("node:fs")
-    const { fileURLToPath } = await import("node:url")
-    const { dirname, join } = await import("node:path")
-
-    const here = dirname(fileURLToPath(import.meta.url))
-    const source = readFileSync(join(here, "../src/index.ts"), "utf8")
-
-    // Tool definitions are object literals whose first key is `name:`.
-    const defined = [...source.matchAll(/^\s{4}name: "([a-z0-9_]+)",$/gm)].map((m) => m[1]!)
-    expect(defined.length, "found no tool definitions to check").toBeGreaterThan(20)
-
-    const registered = new Set(TOOL_METADATA.map((m) => m.name))
-    const missing = defined.filter((name) => !registered.has(name))
-
-    expect(missing, `defined in index.ts but missing from TOOL_METADATA: ${missing.join(", ")}`).toEqual([])
   })
 })
