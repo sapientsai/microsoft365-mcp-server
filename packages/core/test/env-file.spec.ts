@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -39,8 +39,38 @@ describe("loadEnvFileIfPresent", () => {
     expect(process.env.ENV_FILE_TEST_C).toBe("from_shell")
   })
 
-  it("still reports a .env path it can't read for another reason", () => {
-    expect(() => loadEnvFileIfPresent(dir)).toThrow()
+  it("keeps a variable already set to an empty string", () => {
+    const file = join(dir, "empty.env")
+    writeFileSync(file, "ENV_FILE_TEST_D=from_file\n")
+    vi.stubEnv("ENV_FILE_TEST_D", "")
+
+    loadEnvFileIfPresent(file)
+
+    expect(process.env.ENV_FILE_TEST_D).toBe("")
+  })
+
+  // Windows editors can save a byte-order mark, which would otherwise become part of the first key.
+  it("reads the first variable of a file that starts with a byte-order mark", () => {
+    const file = join(dir, "bom.env")
+    writeFileSync(file, "\uFEFFENV_FILE_TEST_E=first\n")
+    vi.stubEnv("ENV_FILE_TEST_E", undefined)
+
+    loadEnvFileIfPresent(file)
+
+    expect(process.env.ENV_FILE_TEST_E).toBe("first")
+  })
+
+  // Only a missing file is normal. A .env that is there but can't be read is a setup mistake.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("reports a .env it can't read", () => {
+    const file = join(dir, "locked.env")
+    writeFileSync(file, "ENV_FILE_TEST_F=x\n")
+    chmodSync(file, 0o000)
+
+    expect(() => loadEnvFileIfPresent(file)).toThrow(expect.objectContaining({ code: "EACCES" }))
+  })
+
+  it("reports a .env path that is a directory", () => {
+    expect(() => loadEnvFileIfPresent(dir)).toThrow(expect.objectContaining({ code: "EISDIR" }))
   })
 })
 
