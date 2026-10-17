@@ -14,7 +14,10 @@ const cursorFrom = (output: unknown) => {
   return match![1]!
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
 
 describe("scan pagination through the Graph client", () => {
   it.each([{ filter: "hasAttachments eq true" }, { search: "invoice" }])(
@@ -56,9 +59,11 @@ describe("scan pagination through the Graph client", () => {
     },
   )
 
-  // A 500, not a 503: the shared request layer retries 503/504 on reads by itself, so a 503
-  // here would succeed on the retry and never reach scanMessages as a failure.
+  // The shared request layer retries some failures on reads by itself, so a retried status
+  // would succeed on the retry and never reach scanMessages as a failure. A 500 isn't retried
+  // today; turning retries off as well keeps the test valid if that list ever changes.
   it("keeps a failed continuation retryable", async () => {
+    vi.stubEnv("MS365_GRAPH_MAX_RETRIES", "0")
     const nextLink = "https://graph.microsoft.com/v1.0/me/messages?$skip=37"
     const fetchSpy = vi
       .fn()
@@ -73,6 +78,7 @@ describe("scan pagination through the Graph client", () => {
     expect((await scanMessages({ cursor })).isRight()).toBe(true)
     expect(fetchSpy.mock.calls[1]![0]).toBe(nextLink)
     expect(fetchSpy.mock.calls[2]![0]).toBe(nextLink)
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
   })
 
   it("rejects unknown cursors and parameter changes without making a request", async () => {
