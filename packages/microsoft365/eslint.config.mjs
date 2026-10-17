@@ -4,7 +4,7 @@ export default [
   ...baseConfig,
   {
     // Calibration — packages/microsoft365 is the adapter / imperative shell over the functional core
-    // (@sapientsai/ms-graph-core): it does IO, external-SDK glue (Azure Identity, jsonwebtoken), MCP
+    // (@sapientsai/ms-graph-core): it does IO, external-SDK glue (Azure Identity), MCP
     // framework wiring, and native Set/Map interop (filterTools returns a native Set consumed via
     // .has()). Nullable / throw / native-collection is the honest contract at this layer, so these
     // functype nudges are scoped off for this package. The Either discipline (prefer-either /
