@@ -121,7 +121,7 @@ describe("scan pagination through the Graph client", () => {
     initializeGraphClient(auth)
     const result = await scanMessages({ top: 1000 })
     expect(new URL(fetchSpy.mock.calls[0]![0] as string).searchParams.get("$top")).toBe("1000")
-    const ref = /\n(\d+)\|/.exec(String(result.value))![1]!
+    const ref = /\n([a-z0-9]{4}-\d+)\|/.exec(String(result.value))![1]!
     expect((await getMessage({ message_id: ref })).isRight()).toBe(true)
     expect(fetchSpy.mock.calls[1]![0]).toBe("https://graph.microsoft.com/v1.0/me/messages/graph-id")
   })

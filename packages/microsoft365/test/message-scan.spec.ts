@@ -32,13 +32,23 @@ describe("message refs", () => {
     expect(messageRefCount()).toBe(2)
   })
 
-  it("starts refs at 1 so a ref is never falsy", () => {
-    expect(rememberMessageId("id-a")).toBe(1)
+  it("issues refs as a per-process prefix plus a number that only goes up", () => {
+    const [prefix, first] = rememberMessageId("id-a").split("-")
+    const [samePrefix, second] = rememberMessageId("id-b").split("-")
+
+    expect(prefix).toMatch(/^[a-z0-9]{4}$/)
+    expect(samePrefix).toBe(prefix)
+    expect(Number(second)).toBe(Number(first) + 1)
+
+    clearMessageRefs()
+    const [, afterClear] = rememberMessageId("id-c").split("-")
+    expect(Number(afterClear)).toBeGreaterThan(Number(second))
   })
 
-  it("round-trips a ref back to its message id", () => {
+  it("round-trips a ref back to its message id, ignoring case and spaces", () => {
     const ref = rememberMessageId("id-a")
     expect(resolveMessageRef(ref)).toBe("id-a")
+    expect(resolveMessageIdOrRef(` ${ref.toUpperCase()} `)).toBe("id-a")
   })
 
   it("passes a full Graph id straight through", () => {
@@ -46,46 +56,58 @@ describe("message refs", () => {
     expect(resolveMessageIdOrRef(graphId)).toBe(graphId)
   })
 
-  it("resolves a numeric string as a ref", () => {
-    rememberMessageId("id-a")
-    expect(resolveMessageIdOrRef("1")).toBe("id-a")
-  })
-
   // The dangerous failure is resolving to the wrong message rather than to nothing,
   // so an unknown ref must come back undefined for the caller to turn into an error.
   it("returns undefined for a ref that was never issued", () => {
-    expect(resolveMessageIdOrRef("999")).toBeUndefined()
+    const ref = rememberMessageId("id-a")
+    const prefix = ref.split("-")[0]!
+    expect(resolveMessageIdOrRef(`${prefix}-999`)).toBeUndefined()
+  })
+
+  // Numbering used to come from the map's size and restart at 1 with the process, so a
+  // ref held across a restart opened whichever message took its number next.
+  it("does not resolve a ref from before a restart to a newer message", () => {
+    const before = rememberMessageId("id-old")
+    clearMessageRefs()
+    rememberMessageId("id-new")
+
+    expect(resolveMessageIdOrRef(before)).toBeUndefined()
+  })
+
+  it("treats a bare number as a stale ref, never as a message id", () => {
+    rememberMessageId("id-a")
+    expect(resolveMessageIdOrRef("1")).toBeUndefined()
   })
 })
 
 describe("formatMessageScanRow", () => {
   it("emits ref, minute-precision date, sender, subject and flags", () => {
-    expect(formatMessageScanRow(message(), 7)).toBe("7|2026-01-15T10:30|John|Test Subject|")
+    expect(formatMessageScanRow(message(), "k7q2-7")).toBe("k7q2-7|2026-01-15T10:30|John|Test Subject|")
   })
 
   it("marks unread and attachments", () => {
-    const row = formatMessageScanRow(message({ isRead: false, hasAttachments: true }), 1)
+    const row = formatMessageScanRow(message({ isRead: false, hasAttachments: true }), "k7q2-1")
     expect(row.endsWith("|UA")).toBe(true)
   })
 
   it("falls back to the address when the sender has no display name", () => {
-    const row = formatMessageScanRow(message({ from: { emailAddress: { address: "a@b.com" } } }), 1)
+    const row = formatMessageScanRow(message({ from: { emailAddress: { address: "a@b.com" } } }), "k7q2-1")
     expect(row).toContain("|a@b.com|")
   })
 
   // A subject containing a pipe or newline would otherwise forge extra columns or rows.
   it("strips delimiters out of the subject", () => {
-    const row = formatMessageScanRow(message({ subject: "a|b\nc" }), 1)
+    const row = formatMessageScanRow(message({ subject: "a|b\nc" }), "k7q2-1")
     expect(row.split("|")).toHaveLength(5)
   })
 
   it("truncates a runaway subject", () => {
-    const row = formatMessageScanRow(message({ subject: "x".repeat(500) }), 1)
+    const row = formatMessageScanRow(message({ subject: "x".repeat(500) }), "k7q2-1")
     expect(row.length).toBeLessThan(200)
   })
 
   it("handles a message with no subject", () => {
-    expect(formatMessageScanRow(message({ subject: undefined }), 1)).toContain("(No Subject)")
+    expect(formatMessageScanRow(message({ subject: undefined }), "k7q2-1")).toContain("(No Subject)")
   })
 })
 
@@ -95,7 +117,7 @@ describe("formatMessageScan", () => {
   })
 
   it("names the scanned folder and explains the ref column", () => {
-    const out = formatMessageScan([message()], [1], { folder: "archive" })
+    const out = formatMessageScan([message()], ["k7q2-1"], { folder: "archive" })
 
     expect(out).toContain("1 in archive")
     expect(out).toContain("ref|received|from|subject|flags")
@@ -103,14 +125,14 @@ describe("formatMessageScan", () => {
   })
 
   it("tells the caller how to fetch the next page", () => {
-    const out = formatMessageScan([message()], [1], { nextCursor: "next-page" })
+    const out = formatMessageScan([message()], ["k7q2-1"], { nextCursor: "next-page" })
     expect(out).toContain('cursor: "next-page"')
   })
 
   // The whole point of the format is that scanning stays affordable in bulk.
   it("stays far cheaper per row than the markdown list format", () => {
     const many = Array.from({ length: 100 }, () => message())
-    const refs = many.map((_, i) => i + 1)
+    const refs = many.map((_, i) => `k7q2-${i + 1}`)
 
     const perRow = formatMessageScan(many, refs, {}).length / 100
     expect(perRow).toBeLessThan(100)
@@ -125,7 +147,7 @@ describe("scan coverage honesty", () => {
   })
 
   it("warns about the search cap even on the final page", () => {
-    const out = formatMessageScan([message()], [1], { searched: true })
+    const out = formatMessageScan([message()], ["k7q2-1"], { searched: true })
     expect(out).toContain("1,000")
     expect(out).toContain("does not establish mailbox coverage")
     expect(out).toContain("filter")
@@ -133,14 +155,14 @@ describe("scan coverage honesty", () => {
   })
 
   it("offers the same cursor continuation for search", () => {
-    const out = formatMessageScan([message()], [1], { searched: true, nextCursor: "next-page" })
+    const out = formatMessageScan([message()], ["k7q2-1"], { searched: true, nextCursor: "next-page" })
     expect(out).toContain("INCOMPLETE")
     expect(out).toContain('cursor: "next-page"')
     expect(out).not.toContain("skip:")
   })
 
   it("marks the end only when there is no continuation", () => {
-    const out = formatMessageScan([message()], [1], {})
+    const out = formatMessageScan([message()], ["k7q2-1"], {})
     expect(out).not.toContain("INCOMPLETE")
     expect(out).toContain("End of results for this query")
   })

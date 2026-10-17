@@ -818,7 +818,7 @@ ${status.scopes.length > 0 ? status.scopes.map((s) => `- ${s}`).join("\n") : "No
 // between scanning a 15,000-message archive and giving up on it.
 //
 // The `ref` is a short session-local handle (see message-refs), not a Graph ID.
-export const formatMessageScanRow = (msg: GraphMessage, ref: number): string => {
+export const formatMessageScanRow = (msg: GraphMessage, ref: string): string => {
   const from = Option(msg.from?.emailAddress.name).fold(
     () => msg.from?.emailAddress.address ?? "Unknown",
     (v) => v,
@@ -839,7 +839,7 @@ export const formatMessageScanRow = (msg: GraphMessage, ref: number): string => 
 
 export const formatMessageScan = (
   messages: ReadonlyArray<GraphMessage>,
-  refs: ReadonlyArray<number>,
+  refs: ReadonlyArray<string>,
   meta: {
     readonly folder?: string
     readonly nextCursor?: string
@@ -854,7 +854,7 @@ export const formatMessageScan = (
           `# Message scan — ${messages.length}${scope}`,
           "",
           "ref|received|from|subject|flags   (flags: U=unread, A=has attachments)",
-          "Pass a ref to get_message or list_attachments in place of the message ID.",
+          "Pass a ref to get_message, list_attachments, move_message or batch_move_messages in place of the message ID.",
           "",
         ].join("\n")
   const rows = messages.map((msg, i) => formatMessageScanRow(msg, refs[i]!)).join("\n")
