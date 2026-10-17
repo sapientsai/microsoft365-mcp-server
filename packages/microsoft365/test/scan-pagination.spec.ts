@@ -56,12 +56,14 @@ describe("scan pagination through the Graph client", () => {
     },
   )
 
+  // A 500, not a 503: the shared request layer retries 503/504 on reads by itself, so a 503
+  // here would succeed on the retry and never reach scanMessages as a failure.
   it("keeps a failed continuation retryable", async () => {
     const nextLink = "https://graph.microsoft.com/v1.0/me/messages?$skip=37"
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce(json({ value: [], "@odata.nextLink": nextLink }))
-      .mockResolvedValueOnce(json({ error: { message: "try again" } }, 503))
+      .mockResolvedValueOnce(json({ error: { message: "try again" } }, 500))
       .mockResolvedValueOnce(json({ value: [] }))
     vi.stubGlobal("fetch", fetchSpy)
     initializeGraphClient(auth)
