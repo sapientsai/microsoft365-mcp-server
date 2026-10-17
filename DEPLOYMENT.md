@@ -13,7 +13,7 @@ Deploy microsoft365-mcp-server as a remote MCP server with OAuth authentication.
 ## Prerequisites
 
 - An Azure AD (Entra ID) app registration ([setup guide](#azure-ad-app-setup))
-- Docker (or Node.js 22+ for bare metal)
+- Docker (or Node.js 22.16+ for bare metal)
 - A public URL with HTTPS (for the OAuth callback)
 
 ## Quick Start with Docker Compose
