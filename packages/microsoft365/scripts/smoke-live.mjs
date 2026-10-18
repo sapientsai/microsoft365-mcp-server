@@ -403,24 +403,35 @@ const main = async () => {
   record("FAIL", "transcript paging", "no end marker after 20 parts")
 }
 
-// Page 1 must hand back a cursor (top: 2 makes one likely), and page 2 must load with new refs.
+// Page 1 must hand back a cursor (top: 2 makes one likely). Following cursors must reach a page with
+// new refs. A filtered page can be empty and still carry a cursor, so empty pages are skipped over.
+const MAX_CURSOR_PAGES = 5
+
+const scanRefs = (text) =>
+  text
+    .split("\n")
+    .filter((line) => /^[a-z0-9]{4}-\d+\|/.test(line))
+    .map((line) => line.split("|")[0])
+
+const scanCursor = (text) => text.match(/cursor: "([^"]+)"/)?.[1]
+
 async function scanCursorCase(label, args) {
   const first = await call("scan_messages", { ...args, top: 2 })
   if (!first.ok) return record("FAIL", label, `page 1: ${first.error}`)
-  const cursor = first.text.match(/cursor: "([^"]+)"/)?.[1]
+  const seen = new Set(scanRefs(first.text))
+  let cursor = scanCursor(first.text)
   if (!cursor) return record("SKIP", label, "page 1 was the only page")
-  const second = await call("scan_messages", { cursor })
-  if (!second.ok) return record("FAIL", label, `page 2: ${second.error}`)
-  const refs = (text) =>
-    text
-      .split("\n")
-      .filter((line) => /^[a-z0-9]{4}-\d+\|/.test(line))
-      .map((line) => line.split("|")[0])
-  const seen = new Set(refs(first.text))
-  const next = refs(second.text)
-  if (next.length === 0) return record("FAIL", label, "page 2 has no messages")
-  if (next.some((ref) => seen.has(ref))) return record("FAIL", label, "page 2 repeats page 1")
-  record("PASS", label, `page 2 has ${next.length} new message(s)`)
+
+  for (let page = 2; page <= MAX_CURSOR_PAGES + 1; page++) {
+    const next = await call("scan_messages", { cursor })
+    if (!next.ok) return record("FAIL", label, `page ${page}: ${next.error}`)
+    const refs = scanRefs(next.text)
+    if (refs.some((ref) => seen.has(ref))) return record("FAIL", label, `page ${page} repeats an earlier page`)
+    if (refs.length > 0) return record("PASS", label, `page ${page} has ${refs.length} new message(s)`)
+    cursor = scanCursor(next.text)
+    if (!cursor) return record("SKIP", label, `page ${page} was empty and the last page`)
+  }
+  record("FAIL", label, `${MAX_CURSOR_PAGES} empty pages in a row`)
 }
 
 async function checkPdf() {
