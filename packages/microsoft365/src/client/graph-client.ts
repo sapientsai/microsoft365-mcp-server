@@ -71,9 +71,11 @@ const createGraphClient = (auth: AuthStrategy) => {
     request<ODataResponse<GraphMailFolder>>("GET", "/me/mailFolders", { odataParams })
 
   // Only follow Graph-issued mail collection links; never send a bearer token to another host.
+  // Graph writes a folder-scoped nextLink in OData key form, /me/mailFolders('<id>')/messages, not
+  // the /mailFolders/<id>/ form the first request used (confirmed live; 1.2.14 rejected it).
   const nextMessageScanPage = (nextLink: string) => {
     const url = URL.canParse(nextLink) ? new URL(nextLink) : undefined
-    const match = /^\/(v1\.0|beta)(\/me\/(?:mailFolders\/[^/]+\/)?messages)$/.exec(url?.pathname ?? "")
+    const match = /^\/(v1\.0|beta)(\/me\/(?:mailFolders(?:\/[^/]+|\('[^'/]+'\))\/)?messages)$/.exec(url?.pathname ?? "")
     if (url?.origin !== GRAPH_API_BASE || url.username || url.password || url.hash || !match) {
       return Promise.resolve(
         Left<GraphApiError, ODataResponse<GraphMessage>>({

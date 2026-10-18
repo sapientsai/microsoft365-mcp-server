@@ -23,9 +23,10 @@ describe("scan pagination through the Graph client", () => {
   it.each([{ filter: "hasAttachments eq true" }, { search: "invoice" }])(
     "follows every nextLink without dropping messages for %j",
     async (query) => {
+      // The shape Graph actually returns for a folder: OData key form, not the /mailFolders/<id>/ path.
       const nextLink =
-        "https://graph.microsoft.com/v1.0/me/mailFolders/archive/messages?$skiptoken=opaque%2Btoken%3D&$top=2"
-      const thirdLink = "https://graph.microsoft.com/v1.0/me/mailFolders/archive/messages?$skiptoken=last%2Fpage"
+        "https://graph.microsoft.com/v1.0/me/mailFolders('AAMkAGI2THVSAAA%3D')/messages?$select=id&$top=2&$skip=2"
+      const thirdLink = "https://graph.microsoft.com/v1.0/me/mailFolders('AAMkAGI2THVSAAA%3D')/messages?$skip=4"
       const fetchSpy = vi
         .fn()
         .mockResolvedValueOnce(json({ value: [message("a")], "@odata.nextLink": nextLink }))
@@ -127,10 +128,28 @@ describe("scan pagination through the Graph client", () => {
   })
 
   it.each([
+    "https://graph.microsoft.com/v1.0/me/messages?$select=id&$top=2&$skip=2",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/messages?$filter=isRead+eq+false&$skip=2",
+    "https://graph.microsoft.com/beta/me/mailFolders/inbox/messages?$skiptoken=opaque",
+  ])("follows a Graph continuation URL %s", async (nextLink) => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(json({ value: [], "@odata.nextLink": nextLink }))
+      .mockResolvedValueOnce(json({ value: [message("next")] }))
+    vi.stubGlobal("fetch", fetchSpy)
+    initializeGraphClient(auth)
+    const first = await scanMessages({ folder: "inbox", filter: "isRead eq false" })
+    expect((await scanMessages({ cursor: cursorFrom(first.value) })).isRight()).toBe(true)
+    expect(fetchSpy.mock.calls[1]![0]).toBe(nextLink)
+  })
+
+  it.each([
     "not a URL",
     "https://evil.example/v1.0/me/messages?$skip=2",
     "https://graph.microsoft.com/v1.0/me/sendMail",
     "https://graph.microsoft.com/v1.0/users/someone/messages",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('inbox')/sendMail",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('a/b')/messages",
   ])("rejects an unexpected continuation URL %s", async (nextLink) => {
     const fetchSpy = vi.fn().mockResolvedValue(json({ value: [], "@odata.nextLink": nextLink }))
     vi.stubGlobal("fetch", fetchSpy)

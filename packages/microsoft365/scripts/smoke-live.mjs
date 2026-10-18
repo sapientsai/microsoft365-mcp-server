@@ -365,6 +365,16 @@ const main = async () => {
   // still green (they never read a real PDF). Extract one, and report only page and character counts.
   await checkPdf()
 
+  // Scan cursors: each one wraps Graph's nextLink, which the client re-checks before following it.
+  // The fake Graph in the unit suite only emits links the tests wrote, so only a real link shows
+  // whether that check accepts what Graph sends. 1.2.14 rejected every folder-scoped cursor.
+  await scanCursorCase("scan_messages cursor, no folder", {})
+  await scanCursorCase("scan_messages cursor, folder", { folder: "inbox" })
+  await scanCursorCase("scan_messages cursor, folder + filter", {
+    folder: "inbox",
+    filter: "receivedDateTime ge 2000-01-01T00:00:00Z",
+  })
+
   // Transcripts: page through until the last part, following each marker's offset.
   const meetingId = process.env.SMOKE_MEETING_ID
   if (!meetingId) {
@@ -391,6 +401,26 @@ const main = async () => {
     offset = Number(next[1])
   }
   record("FAIL", "transcript paging", "no end marker after 20 parts")
+}
+
+// Page 1 must hand back a cursor (top: 2 makes one likely), and page 2 must load with new refs.
+async function scanCursorCase(label, args) {
+  const first = await call("scan_messages", { ...args, top: 2 })
+  if (!first.ok) return record("FAIL", label, `page 1: ${first.error}`)
+  const cursor = first.text.match(/cursor: "([^"]+)"/)?.[1]
+  if (!cursor) return record("SKIP", label, "page 1 was the only page")
+  const second = await call("scan_messages", { cursor })
+  if (!second.ok) return record("FAIL", label, `page 2: ${second.error}`)
+  const refs = (text) =>
+    text
+      .split("\n")
+      .filter((line) => /^[a-z0-9]{4}-\d+\|/.test(line))
+      .map((line) => line.split("|")[0])
+  const seen = new Set(refs(first.text))
+  const next = refs(second.text)
+  if (next.length === 0) return record("FAIL", label, "page 2 has no messages")
+  if (next.some((ref) => seen.has(ref))) return record("FAIL", label, "page 2 repeats page 1")
+  record("PASS", label, `page 2 has ${next.length} new message(s)`)
 }
 
 async function checkPdf() {
