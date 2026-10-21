@@ -30,6 +30,7 @@ export {
   createReplyAllDraft,
   createReplyDraft,
   deleteDraft,
+  getAttachmentUploadConfig,
   getMessage,
   listAttachments,
   listMailFolders,

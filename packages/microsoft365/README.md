@@ -231,35 +231,43 @@ MS365_REQUIRE_DRAFT=true              # hide all send_* mail tools; force the cr
 
 The HTTP `/upload` endpoint is mounted only when `get_upload_config` survives these
 filters. Read-only mode, a preset without files, or a tool pattern that excludes
-`get_upload_config` also disables the upload endpoint.
+`get_upload_config` also disables the upload endpoint. The `/upload/attachment`
+endpoint follows `get_attachment_upload_config` the same way: read-only mode, a
+preset without mail, or a pattern that excludes the tool disables it.
+
+Both endpoints accept the same upload ticket: an opaque stand-in for the caller's own
+Graph token that expires after about 10 minutes. It is not tied to one file or draft,
+so it carries the caller's own access for that window, no more. The attachment
+endpoint re-checks on every request that the target is a draft.
 
 Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listing. Without it, these tools are hidden to prevent 403 errors on personal accounts.
 
 ## Available Tools
 
-### Mail (19 tools)
+### Mail (20 tools)
 
-| Tool                     | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `list_messages`          | List messages, all folders or one (`folder`), with optional filtering    |
-| `scan_messages`          | Scan compact headers with session refs and nextLink cursors              |
-| `get_message`            | Get a specific message with full body                                    |
-| `search_messages`        | Search messages by query                                                 |
-| `send_message`           | Send a new email                                                         |
-| `send_reply`             | Reply to the sender and send now (threaded, original quoted)             |
-| `send_reply_all`         | Reply to all recipients and send now (threaded, original quoted)         |
-| `send_forward`           | Forward a message to new recipients and send now (original quoted)       |
-| `create_draft`           | Create a new email draft in the Drafts folder                            |
-| `create_reply_draft`     | Create a reply draft — threaded, with the original quoted underneath     |
-| `create_reply_all_draft` | Create a reply-all draft — threaded, with the original quoted underneath |
-| `create_forward_draft`   | Create a forward draft — original quoted, recipients you specify         |
-| `send_draft`             | Send an existing email draft                                             |
-| `update_draft`           | Edit a draft's subject, body or recipients (refuses non-drafts)          |
-| `delete_draft`           | Delete a draft (refuses non-drafts)                                      |
-| `list_attachments`       | List a message's attachments, with a read_document path for file ones    |
-| `list_mail_folders`      | List top-level mail folders with item, unread and subfolder counts       |
-| `move_message`           | Move a message to a well-known folder, a folder name, or a folder ID     |
-| `batch_move_messages`    | Move up to 50 messages to one folder in a single call                    |
+| Tool                           | Description                                                               |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `list_messages`                | List messages, all folders or one (`folder`), with optional filtering     |
+| `scan_messages`                | Scan compact headers with session refs and nextLink cursors               |
+| `get_message`                  | Get a specific message with full body                                     |
+| `search_messages`              | Search messages by query                                                  |
+| `send_message`                 | Send a new email                                                          |
+| `send_reply`                   | Reply to the sender and send now (threaded, original quoted)              |
+| `send_reply_all`               | Reply to all recipients and send now (threaded, original quoted)          |
+| `send_forward`                 | Forward a message to new recipients and send now (original quoted)        |
+| `create_draft`                 | Create a new email draft in the Drafts folder                             |
+| `create_reply_draft`           | Create a reply draft — threaded, with the original quoted underneath      |
+| `create_reply_all_draft`       | Create a reply-all draft — threaded, with the original quoted underneath  |
+| `create_forward_draft`         | Create a forward draft — original quoted, recipients you specify          |
+| `send_draft`                   | Send an existing email draft                                              |
+| `update_draft`                 | Edit a draft's subject, body or recipients (refuses non-drafts)           |
+| `delete_draft`                 | Delete a draft (refuses non-drafts)                                       |
+| `get_attachment_upload_config` | Relay URL to attach a file to a draft, up to 150 MB (HTTP transport only) |
+| `list_attachments`             | List a message's attachments, with a read_document path for file ones     |
+| `list_mail_folders`            | List top-level mail folders with item, unread and subfolder counts        |
+| `move_message`                 | Move a message to a well-known folder, a folder name, or a folder ID      |
+| `batch_move_messages`          | Move up to 50 messages to one folder in a single call                     |
 
 `scan_messages` returns a compact list of message headers. If there’s another page,
 it includes a `cursor` — pass that back on its own to continue the same scan, even if

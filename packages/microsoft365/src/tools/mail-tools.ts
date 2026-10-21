@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 
+import { formatBytes, MAX_ATTACHMENT_SIZE, resolveUploadContentType } from "@sapientsai/ms-graph-core"
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
@@ -15,6 +16,7 @@ import {
   MESSAGE_SUMMARY_FIELDS,
 } from "../utils/formatters"
 import { rememberMessageId, resolveMessageIdOrRef } from "../utils/message-refs"
+import { relayAuthHeader, relayCurl, resolveUploadBaseUrl } from "./files-tools"
 
 // scan_messages hands back short refs instead of 152-character Graph IDs. Every tool
 // used in the scan-then-act loop resolves refs before calling Graph.
@@ -577,6 +579,66 @@ export const deleteDraft = async (params: { message_id: string }): Promise<Eithe
   return result
     .mapLeft((error) => new UserError(`Failed to delete draft: ${error.message}`))
     .map(() => `Draft "${subject}" deleted.`)
+}
+
+// A sandbox such as claude.ai's can reach this server but not Outlook, where a large attachment's
+// upload session lives. The relay takes the bytes instead, and the server attaches them, so the
+// file never passes through the model or needs a sandbox network rule.
+export const getAttachmentUploadConfig = async (params: {
+  message_id: string
+  name: string
+  localFile?: string
+  contentType?: string
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const name = params.name.trim()
+  if (!name) return Left(new UserError("name is required: the file name the attachment will show, e.g. report.pdf"))
+
+  const messageId = resolveMessageId(params.message_id)
+  if (messageId.isLeft()) return messageId as Either<UserError, string>
+  const id = messageId.orThrow()
+
+  const draft = await fetchDraft(client, id)
+  if (draft.isLeft()) return Left(draft.value as UserError)
+
+  const baseUrl = resolveUploadBaseUrl()
+  if (!baseUrl) {
+    return Left(
+      new UserError(
+        "Upload endpoint base URL not configured. Set MS365_PUBLIC_BASE_URL (or MS365_OAUTH_BASE_URL in oauth-proxy mode), or run with TRANSPORT_TYPE=httpStream.",
+      ),
+    )
+  }
+
+  const contentType = resolveUploadContentType(params.contentType, name)
+  const query = new URLSearchParams({ messageId: id, name, contentType, encoding: "base64" })
+  const uploadUrl = `${baseUrl}/upload/attachment?${query.toString()}`
+  const authHeader = await relayAuthHeader()
+
+  return Right(
+    JSON.stringify(
+      {
+        uploadUrl,
+        method: "POST",
+        contentType,
+        maxSize: formatBytes(MAX_ATTACHMENT_SIZE),
+        encoding: "base64",
+        ...(authHeader ? { authHeader } : {}),
+        curl: relayCurl(params.localFile ?? "{local_file_path}", uploadUrl, authHeader),
+        notes: [
+          "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
+          "The server attaches the file to the draft itself: inline under 3 MB, through an Outlook upload session up to 150 MB. Only this server's host needs to be reachable.",
+          "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not your Graph token.",
+          "Each POST adds one attachment. If the curl fails or times out, run list_attachments on the draft before retrying: a large upload can finish after the client gives up, and a retry would attach the file twice.",
+          "Send the draft with send_draft once the attachment is on it.",
+        ],
+      },
+      null,
+      2,
+    ),
+  )
 }
 
 export const searchMessages = async (params: { query: string; top?: number }): Promise<Either<UserError, string>> => {

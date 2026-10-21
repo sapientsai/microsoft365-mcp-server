@@ -210,6 +210,32 @@ export const uploadFile = async (params: {
     .map((item) => `File uploaded.\n\n${formatDriveItemDetail(item)}`)
 }
 
+// Resolve the real Graph token server-side and hand back an opaque, short-lived
+// ticket instead — the raw delegated JWT must never land in the tool transcript.
+// Falls back to the shared upload secret for non-OAuth deployments.
+export const relayAuthHeader = async (): Promise<string | undefined> => {
+  const graphToken =
+    getContextToken() ??
+    (await getAccessToken()).fold<string | undefined>(
+      () => undefined,
+      (value) => value as string,
+    )
+  const uploadCredential = graphToken ? mintUploadTicket(graphToken) : process.env.MS365_UPLOAD_TOKEN
+  return uploadCredential ? `Authorization: Bearer ${uploadCredential}` : undefined
+}
+
+export const relayCurl = (localFile: string, relayUrl: string, authHeader: string | undefined): string =>
+  [
+    `base64 "${localFile}" | tr -d '\\n'`,
+    "| curl -X POST",
+    authHeader ? `-H "${authHeader}"` : undefined,
+    `-H "Content-Type: text/plain"`,
+    `--data-binary @-`,
+    `"${relayUrl}"`,
+  ]
+    .filter(Boolean)
+    .join(" \\\n  ")
+
 export const getUploadConfig = async (params: {
   path: string
   localFile?: string
@@ -242,31 +268,9 @@ export const getUploadConfig = async (params: {
     encoding: "base64",
   })
   const uploadUrl = `${baseUrl}/upload?${query.toString()}`
-
-  // Resolve the real Graph token server-side and hand back an opaque, short-lived
-  // ticket instead — the raw delegated JWT must never land in the tool transcript.
-  // Falls back to the shared upload secret for non-OAuth deployments.
-  const graphToken =
-    getContextToken() ??
-    (await getAccessToken()).fold<string | undefined>(
-      () => undefined,
-      (value) => value as string,
-    )
-  const uploadCredential = graphToken ? mintUploadTicket(graphToken) : process.env.MS365_UPLOAD_TOKEN
-  const authHeader = uploadCredential ? `Authorization: Bearer ${uploadCredential}` : undefined
-
+  const authHeader = await relayAuthHeader()
   const reachability = await probeGraphReachability()
-
-  const curlParts = [
-    `base64 "${localFile}" | tr -d '\\n'`,
-    "| curl -X POST",
-    authHeader ? `-H "${authHeader}"` : undefined,
-    `-H "Content-Type: text/plain"`,
-    `--data-binary @-`,
-    `"${uploadUrl}"`,
-  ]
-    .filter(Boolean)
-    .join(" \\\n  ")
+  const curlParts = relayCurl(localFile, uploadUrl, authHeader)
 
   const payload = {
     uploadUrl,
@@ -370,7 +374,7 @@ const probeGraphReachability = async (): Promise<{ ok: boolean; detail: string }
   }
 }
 
-const resolveUploadBaseUrl = (): string | undefined => {
+export const resolveUploadBaseUrl = (): string | undefined => {
   const explicit = process.env.MS365_PUBLIC_BASE_URL ?? process.env.MS365_OAUTH_BASE_URL
   if (explicit) return explicit.replace(/\/$/, "")
 

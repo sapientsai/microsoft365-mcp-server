@@ -3,11 +3,14 @@ import { FastMCP } from "fastmcp"
 // AzureSession shape: { accessToken: string; scopes: string[]; refreshToken?: string; upn?: string }
 type OAuthSessionContext = { accessToken?: string }
 import {
+  attachFile,
   decodeBase64Upload,
   describeFetchError,
   filenameFromPath,
   loadEnvFileIfPresent,
+  MAX_ATTACHMENT_SIZE,
   MAX_UPLOAD_SIZE,
+  requireDraftMessage,
   resolveUploadContentType,
   sessionUpload,
   SIMPLE_UPLOAD_LIMIT,
@@ -44,6 +47,7 @@ import {
   deleteTodoTask,
   downloadFile,
   findMeetingAvailability,
+  getAttachmentUploadConfig,
   getAuthStatusTool,
   getContact,
   getDriveItem,
@@ -583,6 +587,26 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       message_id: z.string().describe("The draft's message ID"),
     }),
     execute: async (params) => unwrapResult(await deleteDraft(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "get_attachment_upload_config",
+    description:
+      "Get an authenticated upload URL + curl command for attaching a file (PDF, image, any binary) to an existing draft. " +
+      "Pipe base64 file contents to the returned URL via POST; this server attaches the file itself (inline under 3 MB, " +
+      "Outlook upload session up to 150 MB), so the bytes never pass through the conversation and no sandbox access to " +
+      "Outlook is needed. Refuses any message that is not a draft. Create the draft first, then send it with send_draft.",
+    parameters: z.object({
+      message_id: z.string().describe("The draft's message ID, or a ref from scan_messages"),
+      name: z.string().describe("File name the attachment will show, e.g. expense-report.pdf"),
+      localFile: z
+        .string()
+        .optional()
+        .describe("Local file path to include in the curl example. If omitted, a placeholder is used."),
+      contentType: z.string().optional().describe("MIME type override. Auto-detected from the name if omitted."),
+    }),
+    execute: async (params) => unwrapResult(await getAttachmentUploadConfig(params)),
     domain: "mail",
     readOnly: false,
   },
@@ -1706,8 +1730,11 @@ const buildInstructions = (allowedTools: Set<string>): string => {
   const capabilities = [...domains].map((d) => `- ${DOMAIN_DESCRIPTIONS[d]}`).join("\n")
 
   const uploadSection = domains.has("files") ? buildUploadWorkflow(allowedTools) : ""
+  const attachmentSection = allowedTools.has("get_attachment_upload_config")
+    ? "\n\nMail attachments:\n- Attach a file to a draft → get_attachment_upload_config returns an authenticated URL + curl command; execute the curl in a shell. The server attaches the file (up to 150 MB), so the sandbox only needs to reach this server, never Outlook."
+    : ""
 
-  return `A Microsoft 365 MCP server via Microsoft Graph API.\n\nAvailable capabilities:\n${capabilities}${uploadSection}`
+  return `A Microsoft 365 MCP server via Microsoft Graph API.\n\nAvailable capabilities:\n${capabilities}${uploadSection}${attachmentSection}`
 }
 
 type UploadRequestContext = {
@@ -1716,50 +1743,117 @@ type UploadRequestContext = {
   arrayBuffer: () => Promise<ArrayBuffer>
 }
 
-const handleUpload = async (
+type RelayResponse = { status: number; body: unknown }
+
+const relayAuth = async (req: UploadRequestContext, oauthMode: boolean): Promise<Either<RelayResponse, string>> => {
+  const authHeader = req.header("authorization") ?? req.header("Authorization")
+  const bearer = authHeader?.replace(/^Bearer\s+/i, "")
+  const auth = await resolveUploadAccessToken(oauthMode, bearer)
+  if (auth.error || !auth.token) {
+    return Left({ status: auth.status ?? 401, body: { error: auth.error ?? "Unauthorized" } })
+  }
+  return Right(auth.token)
+}
+
+// Base64 is 4/3 the size of the bytes it carries; the slack covers any line breaks left in.
+const maxRequestBytes = (encoding: string | undefined, maxBytes: number): number =>
+  encoding === "base64" ? Math.ceil(((maxBytes * 4) / 3) * 1.02) + 1024 : maxBytes
+
+// Refuses an oversized request on its declared length, before the body is read into memory.
+const relayBody = async (
   req: UploadRequestContext,
-  oauthMode: boolean,
-): Promise<{ status: number; body: unknown }> => {
+  encoding: string | undefined,
+  maxBytes: number,
+): Promise<Either<RelayResponse, Buffer>> => {
+  const declared = Number(req.header("content-length") ?? req.header("Content-Length"))
+  if (Number.isFinite(declared) && declared > maxRequestBytes(encoding, maxBytes)) {
+    return Left({ status: 413, body: { error: `File too large (max ${maxBytes} bytes)` } })
+  }
+  const raw = await req.arrayBuffer().then(
+    (bytes) => Right<string, Buffer>(Buffer.from(bytes)),
+    (error: unknown) =>
+      Left<string, Buffer>(`Failed to read request body: ${error instanceof Error ? error.message : String(error)}`),
+  )
+  if (raw.isLeft()) return Left({ status: 400, body: { error: raw.value as string } })
+  const rawBuffer = raw.value as Buffer
+  if (rawBuffer.length === 0) return Left({ status: 400, body: { error: "Empty request body" } })
+
+  const buffer = encoding === "base64" ? decodeBase64Upload(rawBuffer) : rawBuffer
+  if (buffer.length === 0) return Left({ status: 400, body: { error: "Invalid base64 content" } })
+  if (buffer.length > maxBytes) {
+    return Left({ status: 413, body: { error: `File too large (max ${maxBytes} bytes)` } })
+  }
+  return Right(buffer)
+}
+
+// Only the versions the Graph version resolver knows reach the request path.
+const relayApiBase = (req: UploadRequestContext): Either<RelayResponse, string> => {
+  const version = req.query("apiVersion") ?? defaultVersion()
+  return version === "v1.0" || version === "beta"
+    ? Right(`${GRAPH_API_BASE}/${version}`)
+    : Left({ status: 400, body: { error: 'apiVersion must be "v1.0" or "beta"' } })
+}
+
+const handleAttachmentUpload = async (req: UploadRequestContext, oauthMode: boolean): Promise<RelayResponse> => {
+  const messageId = req.query("messageId")
+  const name = req.query("name")?.trim()
+  if (!messageId || !name) {
+    return { status: 400, body: { error: "messageId and name query parameters are required" } }
+  }
+  const apiBase = relayApiBase(req)
+  if (apiBase.isLeft()) return apiBase.value as RelayResponse
+
+  const auth = await relayAuth(req, oauthMode)
+  if (auth.isLeft()) return auth.value as RelayResponse
+  const token = auth.value as string
+
+  // In oauth-proxy mode any bearer passes relayAuth; this one GET is what proves it, so it runs
+  // before the body (up to 150 MB) is read. It also enforces the draft rule.
+  const draft = await requireDraftMessage(apiBase.value as string, messageId, token)
+  if (draft.isLeft()) {
+    const err = draft.value as { message: string; status?: number }
+    return { status: err.status ?? 502, body: { error: err.message } }
+  }
+
+  const body = await relayBody(req, req.query("encoding"), MAX_ATTACHMENT_SIZE)
+  if (body.isLeft()) return body.value as RelayResponse
+  const buffer = body.value as Buffer
+
+  const contentType = resolveUploadContentType(req.query("contentType"), name)
+  console.error(`[AttachmentUpload] bytes=${buffer.length} contentType=${contentType}`)
+
+  const result = await attachFile(apiBase.value as string, messageId, token, buffer, name, contentType)
+  if (result.isLeft()) {
+    const err = result.value as { message: string; status?: number }
+    return { status: err.status ?? 502, body: { error: err.message } }
+  }
+  return { status: 200, body: result.value }
+}
+
+const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Promise<RelayResponse> => {
   const path = req.query("path")
   if (!path) return { status: 400, body: { error: "path query parameter is required" } }
   if (!/:\/content$/i.test(path)) {
     return { status: 400, body: { error: 'path must end with ":/content"' } }
   }
 
-  const apiVersion = req.query("apiVersion") ?? defaultVersion()
+  const apiBase = relayApiBase(req)
+  if (apiBase.isLeft()) return apiBase.value as RelayResponse
   const conflictBehavior = req.query("conflictBehavior") ?? "rename"
   const explicitContentType = req.query("contentType")
   const encoding = req.query("encoding")
 
-  const authHeader = req.header("authorization") ?? req.header("Authorization")
-  const bearer = authHeader?.replace(/^Bearer\s+/i, "")
-  const auth = await resolveUploadAccessToken(oauthMode, bearer)
-  if (auth.error || !auth.token) {
-    return { status: auth.status ?? 401, body: { error: auth.error ?? "Unauthorized" } }
-  }
+  const auth = await relayAuth(req, oauthMode)
+  if (auth.isLeft()) return auth.value as RelayResponse
+  const token = auth.value as string
 
-  const rawBufferResult = await (async (): Promise<Either<string, Buffer>> => {
-    try {
-      return Right(Buffer.from(await req.arrayBuffer()))
-    } catch (error) {
-      return Left(`Failed to read request body: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })()
-  if (rawBufferResult.isLeft()) {
-    return { status: 400, body: { error: rawBufferResult.value as string } }
-  }
-  const rawBuffer = rawBufferResult.value as Buffer
-  if (rawBuffer.length === 0) return { status: 400, body: { error: "Empty request body" } }
-
-  const buffer = encoding === "base64" ? decodeBase64Upload(rawBuffer) : rawBuffer
-  if (buffer.length === 0) return { status: 400, body: { error: "Invalid base64 content" } }
-  if (buffer.length > MAX_UPLOAD_SIZE) {
-    return { status: 413, body: { error: `File too large (max ${MAX_UPLOAD_SIZE} bytes)` } }
-  }
+  const body = await relayBody(req, encoding, MAX_UPLOAD_SIZE)
+  if (body.isLeft()) return body.value as RelayResponse
+  const buffer = body.value as Buffer
 
   const filename = filenameFromPath(path)
   const contentType = resolveUploadContentType(explicitContentType, filename)
-  const apiBase = `${GRAPH_API_BASE}/${apiVersion}`
+  const base = apiBase.value as string
 
   console.error(
     `[Upload] path=${path} bytes=${buffer.length} contentType=${contentType} mode=${buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}`,
@@ -1767,8 +1861,8 @@ const handleUpload = async (
 
   const result =
     buffer.length <= SIMPLE_UPLOAD_LIMIT
-      ? await simpleUpload(apiBase, path, auth.token, buffer, contentType, conflictBehavior)
-      : await sessionUpload(apiBase, path, auth.token, buffer, conflictBehavior)
+      ? await simpleUpload(base, path, token, buffer, contentType, conflictBehavior)
+      : await sessionUpload(base, path, token, buffer, conflictBehavior)
 
   if (result.isLeft()) {
     const err = result.value as { message: string; status?: number }
@@ -1778,30 +1872,44 @@ const handleUpload = async (
   return { status: 200, body: result.value }
 }
 
-const mountUploadRoute = (server: FastMCP, oauthMode: boolean): void => {
+const mountRelayRoute = (
+  server: FastMCP,
+  path: string,
+  handle: (req: UploadRequestContext, oauthMode: boolean) => Promise<RelayResponse>,
+  oauthMode: boolean,
+): void => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hono app surface
   const app: any = (server as unknown as { getApp?: () => unknown }).getApp?.()
   if (!app) {
-    console.error("[Upload] FastMCP.getApp() unavailable; /upload endpoint not mounted")
+    console.error(`[Upload] FastMCP.getApp() unavailable; ${path} endpoint not mounted`)
     return
   }
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const handler = async (c: any) => {
     try {
-      const result = await handleUpload(c.req as UploadRequestContext, oauthMode)
+      const result = await handle(c.req as UploadRequestContext, oauthMode)
       return c.json(result.body, result.status)
     } catch (err) {
       const { message } = describeFetchError(err)
-      console.error("[Upload] unhandled error:", message)
+      console.error(`[Upload] ${path} unhandled error:`, message)
       return c.json({ error: message }, 500)
     }
   }
 
-  app.post("/upload", handler)
-  app.put("/upload", handler)
+  app.post(path, handler)
+  app.put(path, handler)
   /* eslint-enable @typescript-eslint/no-explicit-any */
-  console.error("[Setup] /upload endpoint mounted (POST, PUT)")
+  console.error(`[Setup] ${path} endpoint mounted (POST, PUT)`)
+}
+
+// Each relay route is mounted only when its tool survives the filters, so read-only mode, presets
+// and MS365_ENABLED_TOOLS close the HTTP route as well as hiding the tool.
+const mountRelayRoutes = (server: FastMCP, allowedTools: Set<string>, oauthMode: boolean): void => {
+  if (allowedTools.has("get_upload_config")) mountRelayRoute(server, "/upload", handleUpload, oauthMode)
+  if (allowedTools.has("get_attachment_upload_config")) {
+    mountRelayRoute(server, "/upload/attachment", handleAttachmentUpload, oauthMode)
+  }
 }
 
 // === Server Startup ===
@@ -1852,7 +1960,7 @@ const main = async () => {
     initializeGraphClient({ getAccessToken })
 
     registerTools(server, allowedTools, true)
-    if (allowedTools.has("get_upload_config")) mountUploadRoute(server, true)
+    mountRelayRoutes(server, allowedTools, true)
 
     const port = parseInt(process.env.PORT ?? "3000", 10)
     const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
@@ -1875,7 +1983,7 @@ const main = async () => {
     const transportType = process.env.TRANSPORT_TYPE ?? "stdio"
 
     if (transportType === "httpStream") {
-      if (allowedTools.has("get_upload_config")) mountUploadRoute(server, false)
+      mountRelayRoutes(server, allowedTools, false)
       const port = parseInt(process.env.PORT ?? "3000", 10)
       const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
       await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })

@@ -54,8 +54,8 @@ describe.each(["client-token", "oauth-proxy"])("%s server environment controls",
     vi.stubEnv(key, value)
     await import("../src/index")
     await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
-    expect(server.post).not.toHaveBeenCalled()
-    expect(server.put).not.toHaveBeenCalled()
+    expect(server.post).not.toHaveBeenCalledWith("/upload", expect.any(Function))
+    expect(server.put).not.toHaveBeenCalledWith("/upload", expect.any(Function))
     expect(server.instructions).not.toContain("Upload workflows:")
     expect(server.addTool.mock.calls.map(([tool]) => tool.name)).not.toContain("get_upload_config")
   })
@@ -92,4 +92,168 @@ describe.each(["client-token", "oauth-proxy"])("%s server environment controls",
     expect(server.post).toHaveBeenCalledWith("/upload", expect.any(Function))
     expect(server.put).toHaveBeenCalledWith("/upload", expect.any(Function))
   })
+})
+
+describe.each(["client-token", "oauth-proxy"])("%s draft attachment relay", (mode) => {
+  const attachmentHandler = () => server.post.mock.calls.find(([path]) => path === "/upload/attachment")?.[1]
+  const request = (query: Record<string, string | undefined>) => ({
+    req: {
+      query: (key: string) => query[key],
+      header: () => "Bearer TOKEN",
+      arrayBuffer: async () => new TextEncoder().encode(Buffer.from("%PDF").toString("base64")).buffer,
+    },
+    json: vi.fn(),
+  })
+  const graph = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status })
+
+  beforeEach(() => {
+    vi.stubEnv("MS365_AUTH_MODE", mode)
+    vi.stubEnv("MS365_UPLOAD_TOKEN", "TOKEN")
+    vi.stubEnv("MS365_GRAPH_BASE_BACKOFF_MS", "0")
+  })
+
+  it.each([
+    ["MS365_READ_ONLY", "true"],
+    ["MS365_PRESETS", "collaboration"],
+    ["MS365_ENABLED_TOOLS", "^list_"],
+  ])("does not expose /upload/attachment when %s=%s", async (key, value) => {
+    vi.stubEnv(key, value)
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+    expect(attachmentHandler()).toBeUndefined()
+    expect(server.put).not.toHaveBeenCalledWith("/upload/attachment", expect.any(Function))
+    expect(server.instructions).not.toContain("Mail attachments:")
+    expect(server.addTool.mock.calls.map(([tool]) => tool.name)).not.toContain("get_attachment_upload_config")
+  })
+
+  it("mounts only /upload/attachment when only its tool is enabled, and keeps it under require-draft", async () => {
+    vi.stubEnv("MS365_ENABLED_TOOLS", "^get_attachment_upload_config$")
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "true")
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+    expect(server.post.mock.calls.map(([path]) => path)).toEqual(["/upload/attachment"])
+    expect(server.put).toHaveBeenCalledWith("/upload/attachment", expect.any(Function))
+    expect(server.instructions).toContain("Mail attachments:")
+  })
+
+  it("attaches the decoded file to a draft using the configured Graph version", async () => {
+    vi.stubEnv("MS365_GRAPH_VERSION", "beta")
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(graph({ id: "draft", isDraft: true }))
+      .mockResolvedValueOnce(graph({ id: "att", size: 4 }, 201))
+    vi.stubGlobal("fetch", fetchSpy)
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+    const context = request({ messageId: "draft", name: "report.pdf", encoding: "base64" })
+    await attachmentHandler()?.(context)
+
+    expect(context.json).toHaveBeenCalledWith({ id: "att", name: "report.pdf", size: 4 }, 200)
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe("https://graph.microsoft.com/beta/me/messages/draft/attachments")
+    const body = JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string) as {
+      contentBytes: string
+      contentType: string
+    }
+    expect(Buffer.from(body.contentBytes, "base64").toString()).toBe("%PDF")
+    expect(body.contentType).toBe("application/pdf")
+  })
+
+  it("refuses a message that is not a draft, even with a valid upload credential", async () => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(graph({ id: "sent", isDraft: false }))
+    vi.stubGlobal("fetch", fetchSpy)
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+    const context = request({ messageId: "sent", name: "report.pdf", encoding: "base64" })
+    await attachmentHandler()?.(context)
+
+    expect(context.json).toHaveBeenCalledWith({ error: expect.stringContaining("not a draft") }, 409)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses a bad credential with 401 before reading the body or attaching", async () => {
+    // Shared-secret mode rejects the bearer itself; oauth-proxy mode learns it from Graph's 401.
+    const fetchSpy = vi.fn().mockResolvedValue(graph({ error: { code: "InvalidAuthenticationToken" } }, 401))
+    vi.stubGlobal("fetch", fetchSpy)
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+    const context = request({ messageId: "draft", name: "report.pdf", encoding: "base64" })
+    context.req.header = () => "Bearer wrong"
+    const arrayBuffer = vi.spyOn(context.req, "arrayBuffer")
+    await attachmentHandler()?.(context)
+
+    expect(context.json).toHaveBeenCalledWith(expect.anything(), 401)
+    expect(arrayBuffer).not.toHaveBeenCalled()
+    expect(fetchSpy.mock.calls.every(([url]) => !String(url).includes("/attachments"))).toBe(true)
+  })
+
+  it("does not read the body of a request aimed at a message that is not a draft", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(graph({ id: "sent", isDraft: false })))
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+    const context = request({ messageId: "sent", name: "report.pdf", encoding: "base64" })
+    const arrayBuffer = vi.spyOn(context.req, "arrayBuffer")
+    await attachmentHandler()?.(context)
+
+    expect(context.json).toHaveBeenCalledWith(expect.anything(), 409)
+    expect(arrayBuffer).not.toHaveBeenCalled()
+  })
+
+  it("refuses a declared length over the 150 MB limit without reading the body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(graph({ id: "draft", isDraft: true })))
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+    const context = request({ messageId: "draft", name: "big.bin", encoding: "base64" })
+    context.req.header = (name: string) =>
+      name.toLowerCase() === "content-length" ? String(300 * 1024 * 1024) : "Bearer TOKEN"
+    const arrayBuffer = vi.spyOn(context.req, "arrayBuffer")
+    await attachmentHandler()?.(context)
+
+    expect(context.json).toHaveBeenCalledWith(expect.anything(), 413)
+    expect(arrayBuffer).not.toHaveBeenCalled()
+  })
+
+  it("passes an apiVersion override through to the attachment request", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(graph({ id: "draft", isDraft: true }))
+      .mockResolvedValueOnce(graph({ id: "att" }, 201))
+    vi.stubGlobal("fetch", fetchSpy)
+    await import("../src/index")
+    await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+    await attachmentHandler()?.(
+      request({ messageId: "draft", name: "report.pdf", encoding: "base64", apiVersion: "beta" }),
+    )
+
+    expect(fetchSpy.mock.calls.map(([url]) => String(url).split("/me/")[0])).toEqual([
+      "https://graph.microsoft.com/beta",
+      "https://graph.microsoft.com/beta",
+    ])
+  })
+
+  it.each(["/upload", "/upload/attachment"])(
+    "rejects an unknown apiVersion on %s before calling Graph",
+    async (path) => {
+      const fetchSpy = vi.fn()
+      vi.stubGlobal("fetch", fetchSpy)
+      await import("../src/index")
+      await vi.waitFor(() => expect(server.start).toHaveBeenCalled())
+
+      const context = request({
+        path: "/me/drive/root:/x.txt:/content",
+        messageId: "draft",
+        name: "report.pdf",
+        apiVersion: "v1.0/../../users",
+      })
+      await server.post.mock.calls.find(([mounted]) => mounted === path)?.[1](context)
+
+      expect(context.json).toHaveBeenCalledWith({ error: 'apiVersion must be "v1.0" or "beta"' }, 400)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    },
+  )
 })

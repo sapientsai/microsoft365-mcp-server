@@ -154,6 +154,15 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "send_draft", title: "Send Email Draft", domain: "mail", readOnly: false, orgOnly: false },
   { name: "update_draft", title: "Edit Email Draft", domain: "mail", readOnly: false, orgOnly: false },
   { name: "delete_draft", title: "Delete Email Draft", domain: "mail", readOnly: false, orgOnly: false },
+  // Changes an existing draft, so it is not additive. httpStream only: the relay is an HTTP route.
+  {
+    name: "get_attachment_upload_config",
+    title: "Get Draft Attachment Upload Link",
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+    transportOnly: "httpStream",
+  },
   // Calendar
   { name: "list_events", title: "List Calendar Events", domain: "calendar", readOnly: true, orgOnly: false },
   {
