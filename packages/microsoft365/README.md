@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **74 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **75 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -244,7 +244,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 ## Available Tools
 
-### Mail (20 tools)
+### Mail (21 tools)
 
 | Tool                           | Description                                                               |
 | ------------------------------ | ------------------------------------------------------------------------- |
@@ -265,6 +265,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `delete_draft`                 | Delete a draft (refuses non-drafts)                                       |
 | `get_attachment_upload_config` | Relay URL to attach a file to a draft, up to 150 MB (HTTP transport only) |
 | `list_attachments`             | List a message's attachments, with a read_document path for file ones     |
+| `save_attachment`              | Save an attachment to a local file and return its path (stdio only)       |
 | `list_mail_folders`            | List top-level mail folders with item, unread and subfolder counts        |
 | `move_message`                 | Move a message to a well-known folder, a folder name, or a folder ID      |
 | `batch_move_messages`          | Move up to 50 messages to one folder in a single call                     |
@@ -281,6 +282,12 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode, and `graph_query`
 > refuses requests that send mail without a draft (`sendMail`, and `reply`, `replyAll` or
 > `forward` on a message, including inside a `$batch`).
+
+> **Reading attachments.** `read_document` extracts _text_, so a scanned PDF or a
+> photographed letter comes back empty — there is no text layer to extract. Use
+> `save_attachment` for those: it writes the file locally and returns the path, leaving
+> the client to read the PDF or image with whatever it already has. That keeps
+> rasterising and OCR out of this server.
 
 ### Calendar (8 tools)
 

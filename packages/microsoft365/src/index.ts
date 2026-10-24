@@ -93,6 +93,7 @@ import {
   moveMessage,
   readDocument,
   respondToEvent,
+  saveAttachment,
   scanMessages,
   searchContacts,
   searchFiles,
@@ -427,6 +428,30 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe("Destination folder: well-known name (e.g. archive), display name, or folder ID"),
     }),
     execute: async (params) => unwrapResult(await batchMoveMessages(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "save_attachment",
+    description:
+      "Save a mail attachment to a local file and return its path. Use for anything read_document cannot " +
+      "extract text from — scanned PDFs, photographed documents, images — and for handing a file to another " +
+      "tool. Read the saved file directly: PDFs and images are viewable without text extraction. Omit " +
+      "attachment_id when the message has exactly one attachment; otherwise get IDs from list_attachments.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID, or a short ref returned by scan_messages"),
+      attachment_id: z
+        .string()
+        .optional()
+        .describe("Which attachment to save. Optional when the message has exactly one."),
+      out_dir: z
+        .string()
+        .optional()
+        .describe(
+          "Directory to write into (default: the system temp directory). An existing file is never replaced; a numbered name is used instead.",
+        ),
+    }),
+    execute: async (params) => unwrapResult(await saveAttachment(params)),
     domain: "mail",
     readOnly: false,
   },
@@ -886,7 +911,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       "and text-based files. Use instead of download_file when you need document contents. Pair with " +
       "search_site_files (SharePoint) or search_files (OneDrive) to get IDs, then pass " +
       "/drives/{driveId}/items/{itemId}/content or /me/drive/items/{id}/content. Text extraction only, no OCR: " +
-      "scanned PDFs return no text.",
+      "scanned PDFs return no text — for those, and for images, use save_attachment and read the file.",
     parameters: z.object({
       path: z.string().describe("Graph path to the file content endpoint, ending in /content"),
       api_version: z.enum(["v1.0", "beta"]).optional().describe("Graph API version"),
