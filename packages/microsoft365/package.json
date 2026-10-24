@@ -34,13 +34,16 @@
     "test:coverage": "ts-builds test:coverage",
     "build": "NODE_ENV=production ts-builds build && node scripts/check-bundle-deferral.mjs",
     "check:install": "node scripts/check-npm-install.mjs",
+    "sync:server-json": "node scripts/sync-server-json.mjs",
+    "check:server-json": "node scripts/sync-server-json.mjs --check",
     "smoke:live": "node scripts/smoke-live.mjs",
     "dev": "ts-builds dev",
-    "prepublishOnly": "pnpm validate",
+    "prepublishOnly": "pnpm validate && pnpm check:server-json",
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector dist/index.js",
     "start": "pnpm build && npx microsoft365-mcp-server",
     "serve": "pnpm build && node dist/index.js",
-    "build:mcpb": "bash scripts/build-mcpb.sh"
+    "build:mcpb": "bash scripts/build-mcpb.sh",
+    "version": "node scripts/sync-server-json.mjs && git add server.json"
   },
   "prettier": "ts-builds/prettier",
   "keywords": [

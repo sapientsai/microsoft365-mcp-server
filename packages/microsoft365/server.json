@@ -1,0 +1,85 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sapientsai/microsoft365-mcp-server",
+  "description": "Microsoft 365 via Graph \u2014 mail, calendar, contacts, files, Teams, Planner, OneNote, To Do.",
+  "repository": {
+    "url": "https://github.com/sapientsai/microsoft365-mcp-server",
+    "source": "github"
+  },
+  "version": "1.2.16",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "microsoft365-mcp-server",
+      "version": "1.2.16",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MS365_CLIENT_ID",
+          "description": "Azure AD application (client) ID \u2014 required in every auth mode",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MS365_TENANT_ID",
+          "description": "Azure AD tenant ID, or 'common'/'organizations'/'consumers'. Required for certificate and client-secret modes",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MS365_CLIENT_SECRET",
+          "description": "Azure AD client secret (client-secret auth mode only)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MS365_AUTH_MODE",
+          "description": "Auth mode: interactive (default), certificate, client-secret, client-token, oauth-proxy",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MS365_READ_ONLY",
+          "description": "Set to 'true' to expose read-only tools and refuse every write",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MS365_ENABLED_TOOLS",
+          "description": "Comma-separated allowlist of tool names to register; omit to register all",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MS365_PRESETS",
+          "description": "Comma-separated tool presets to enable instead of naming tools individually",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MS365_ORG_MODE",
+          "description": "Set to 'true' for organisation-wide (application-permission) behaviour",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TRANSPORT_TYPE",
+          "description": "Transport: 'stdio' (default) or 'httpStream' for remote/Docker deployments",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
