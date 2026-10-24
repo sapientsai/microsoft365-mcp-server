@@ -94,6 +94,9 @@ importers:
       '@azure/identity':
         specifier: ^4.14.0
         version: 4.14.0(supports-color@7.2.0)
+      '@azure/msal-node':
+        specifier: ^6.0.1
+        version: 6.0.1
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0

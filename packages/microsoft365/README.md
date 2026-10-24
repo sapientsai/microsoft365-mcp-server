@@ -78,6 +78,13 @@ MS365_USE_DEVICE_CODE=true
 This skips the browser and prints a URL and code to stderr. Open the URL on a
 browser-capable device and enter the code to sign in.
 
+Either way, the token cache and the signed-in account are saved to
+`~/.config/microsoft365-mcp-server/token-cache/` (or `$XDG_CONFIG_HOME/...`), so a
+restart reuses them instead of asking you to sign in again. The files are written
+with mode `0600`, and a cache file readable by anyone else is discarded rather than
+used. Set `MS365_TOKEN_CACHE=false` to keep tokens in memory only, or
+`MS365_TOKEN_CACHE_PATH` to put them somewhere else.
+
 ### Client Secret
 
 For service accounts and automation.
@@ -460,6 +467,8 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                                                           | --                  |
 | `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                                                            | --                  |
 | `MS365_USE_DEVICE_CODE`   | Skip the browser in `interactive` mode and use device code                                                                | `false`             |
+| `MS365_TOKEN_CACHE`       | Persist the `interactive` token cache to disk; `false` keeps it in memory only                                            | `true`              |
+| `MS365_TOKEN_CACHE_PATH`  | Directory for the persisted token cache and account record                                                                | `~/.config/...`     |
 | `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                                                             | --                  |
 | `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                                                       | `v1.0`              |
 | `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                                                        | `stdio`             |
