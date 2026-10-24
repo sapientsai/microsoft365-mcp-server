@@ -16,6 +16,13 @@ import { randomInt } from "node:crypto"
 //   that issued it. After a restart the prefix no longer matches and the ref fails.
 // - Numbers come from a counter that only goes up, never from the map's size, so
 //   numbers are never reused, even if entries are later evicted.
+//
+// Refs are qualified by the mailbox they were minted against, for the same reason. A
+// message ID is only meaningful within its own mailbox, so a ref from a scan of a
+// delegated mailbox must not resolve while addressing /me — that would fetch an
+// unrelated message, or 404 confusingly. The mailbox is not part of the ref the caller
+// sees (it stays short, which is the whole point); it is checked on resolve, and a
+// mismatch is reported as such.
 
 const REF_PREFIX_LENGTH = 4
 const REF_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -25,41 +32,79 @@ const newPrefix = (): string =>
 
 const REF_PATTERN = /^([a-z0-9]{4})-(\d+)$/
 
-const state = { prefix: newPrefix(), counter: 0 }
-const refToId = new Map<string, string>()
-const idToRef = new Map<string, string>()
+// Undefined key = the signed-in user's own mailbox, matching MailboxScope.mailbox.
+type MailboxKey = string | undefined
 
-export const rememberMessageId = (id: string): string => {
-  const existing = idToRef.get(id)
+type RefEntry = {
+  readonly id: string
+  readonly mailbox: MailboxKey
+}
+
+export type RefResolution =
+  | { readonly kind: "id"; readonly id: string }
+  | { readonly kind: "unknown"; readonly ref: string }
+  | { readonly kind: "wrong-mailbox"; readonly ref: string; readonly mintedFor: MailboxKey }
+
+const state = { prefix: newPrefix(), counter: 0 }
+const refToEntry = new Map<string, RefEntry>()
+const keyToRef = new Map<string, string>()
+
+// One namespace per mailbox: the same message ID scanned in two mailboxes is two refs.
+// "\u0000" as an escape, not a literal NUL: an invisible control byte in source makes
+// the file read as binary to git and unreviewable in a diff. It separates the two
+// parts safely because it cannot occur in an address or a Graph message id.
+const cacheKey = (mailbox: MailboxKey, id: string): string => `${mailbox ?? ""}\u0000${id}`
+
+export const rememberMessageId = (id: string, mailbox?: string): string => {
+  const key = cacheKey(mailbox, id)
+  const existing = keyToRef.get(key)
   if (existing !== undefined) return existing
 
   // Starts at 1 so "0" in output is obviously a bug.
   state.counter += 1
   const ref = `${state.prefix}-${state.counter}`
-  refToId.set(ref, id)
-  idToRef.set(id, ref)
+  refToEntry.set(ref, { id, mailbox })
+  keyToRef.set(key, ref)
   return ref
 }
 
-export const resolveMessageRef = (ref: string): string | undefined => refToId.get(ref.trim().toLowerCase())
+export const resolveMessageRef = (ref: string, mailbox?: string): RefResolution => {
+  const normalized = ref.trim().toLowerCase()
+  const entry = refToEntry.get(normalized)
+  if (entry === undefined) return { kind: "unknown", ref: normalized }
+  if (entry.mailbox !== mailbox) return { kind: "wrong-mailbox", ref: normalized, mintedFor: entry.mailbox }
+  return { kind: "id", id: entry.id }
+}
 
 // A caller may pass either a ref from a scan or a full Graph ID. Anything shaped like a
 // ref is looked up, and a ref from another process (or a bare number, the old format)
-// comes back undefined so the caller reports it. Everything else goes to Graph untouched.
-export const resolveMessageIdOrRef = (idOrRef: string): string | undefined => {
+// comes back unknown so the caller reports it. Everything else goes to Graph untouched —
+// a raw ID carries its own mailbox context, so there is nothing to check.
+export const resolveMessageIdOrRef = (idOrRef: string, mailbox?: string): RefResolution => {
   const trimmed = idOrRef.trim()
-  if (/^\d+$/.test(trimmed)) return undefined
-  if (!REF_PATTERN.test(trimmed.toLowerCase())) return trimmed
+  if (/^\d+$/.test(trimmed)) return { kind: "unknown", ref: trimmed }
+  if (!REF_PATTERN.test(trimmed.toLowerCase())) return { kind: "id", id: trimmed }
 
-  return resolveMessageRef(trimmed)
+  return resolveMessageRef(trimmed, mailbox)
 }
 
-export const messageRefCount = (): number => refToId.size
+const describeMailbox = (mailbox: MailboxKey): string => mailbox ?? "your own mailbox"
+
+/** Human-readable reason a ref did not resolve, for the tool layer to surface. */
+export const describeRefFailure = (
+  resolution: Exclude<RefResolution, { kind: "id" }>,
+  requested: MailboxKey,
+): string =>
+  resolution.kind === "unknown"
+    ? `Unknown message ref "${resolution.ref}". Refs come from scan_messages and last for the session — re-run the scan to refresh them.`
+    : `Message ref "${resolution.ref}" was scanned in ${describeMailbox(resolution.mintedFor)}, but this call addresses ${describeMailbox(requested)}. Re-scan that mailbox, or pass the mailbox the ref came from.`
+
+export const messageRefCount = (): number => refToEntry.size
 
 // Test seam only — refs are process-scoped in normal use. A new prefix stands in for a
 // server restart; tests pass one so two random prefixes can never collide.
 export const clearMessageRefs = (prefix: string = newPrefix()): void => {
-  refToId.clear()
-  idToRef.clear()
+  refToEntry.clear()
+  keyToRef.clear()
   state.prefix = prefix
 }

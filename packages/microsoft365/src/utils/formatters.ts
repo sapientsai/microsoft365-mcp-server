@@ -848,9 +848,11 @@ export const formatMessageScan = (
     readonly folder?: string
     readonly nextCursor?: string
     readonly searched?: boolean
+    /** Set when the scan addressed another mailbox; the cursor must be continued there. */
+    readonly mailbox?: string
   },
 ): string => {
-  const scope = meta.folder ? ` in ${meta.folder}` : ""
+  const scope = `${meta.folder ? ` in ${meta.folder}` : ""}${meta.mailbox ? ` (${meta.mailbox})` : ""}`
   const header =
     messages.length === 0
       ? "No messages found on this page."
@@ -863,7 +865,7 @@ export const formatMessageScan = (
         ].join("\n")
   const rows = messages.map((msg, i) => formatMessageScanRow(msg, refs[i]!)).join("\n")
   const more = meta.nextCursor
-    ? `\n\n**INCOMPLETE — more results exist.** Re-run scan_messages with cursor: "${meta.nextCursor}" alone to continue.`
+    ? `\n\n**INCOMPLETE — more results exist.** Re-run scan_messages with cursor: "${meta.nextCursor}"${meta.mailbox ? ` and mailbox: "${meta.mailbox}"` : " alone"} to continue.`
     : "\n\nEnd of results for this query (Graph returned no nextLink)."
   const coverage = meta.searched
     ? '\n\nSearch returns at most 1,000 results. Exhausting a search does not establish mailbox coverage; use filter (e.g. "hasAttachments eq true") and follow every cursor for a full scan.'

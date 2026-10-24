@@ -183,15 +183,67 @@ az rest --method POST \
 
 Or in Azure Portal: Enterprise Applications > your app > Users and groups > Add user.
 
+### Other Mailboxes (Delegated and Shared)
+
+Mail tools take an optional `mailbox` parameter — an email address — so one server can
+work across a household or a team: your own mail by default, someone else's when named.
+
+```bash
+MS365_ALLOWED_MAILBOXES="bel@example.com,household@example.com"
+```
+
+Nothing is reachable until it is listed. Omitting `mailbox` always means your own
+mailbox, so existing setups need no configuration and behave exactly as before.
+
+Two boundaries apply, and both matter:
+
+| Boundary                  | Set by                                                 | What it does                                                                              |
+| ------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Azure                     | Delegation, or an ApplicationAccessPolicy for app-only | Caps what the credential can reach at all. The real enforcement.                          |
+| `MS365_ALLOWED_MAILBOXES` | This server                                            | Narrows one deployment within that cap, and returns a clear error instead of a Graph 403. |
+
+The env var is configuration, not security: it lets a single app registration serve
+several agents with different reach — a triage bot limited to one mailbox, an assistant
+given two — without minting a registration per agent. It cannot widen what Azure allows.
+
+**Which permission you need depends on how the server authenticates:**
+
+- **Interactive / OAuth proxy (delegated).** Reaching another mailbox needs a `.Shared`
+  scope; the non-shared one does not grant it. Add it explicitly:
+
+  ```bash
+  MS365_EXTRA_SCOPES="Mail.ReadWrite.Shared"   # or Mail.Read.Shared for read-only
+  ```
+
+  The mailbox's owner must also have granted you delegate access (in Outlook, or via
+  `Add-MailboxPermission`). Actions are performed as you: Exchange audit records
+  distinguish delegate access from owner access, but not one delegate tool from another.
+
+- **Client secret / certificate (app-only).** These request `.default`, so permissions
+  come from the app registration — nothing to add here. There is no `/me` for an app-only
+  token, so `mailbox` is **required** on every mail call. Scope the app to specific
+  mailboxes with an ApplicationAccessPolicy, otherwise `Mail.ReadWrite` reaches every
+  mailbox in the tenant:
+
+  ```powershell
+  New-ApplicationAccessPolicy -AppId <app-id> `
+    -PolicyScopeGroupId mailbox-group@example.com -AccessRight RestrictAccess
+  ```
+
+Note that `scan_messages` refs are per-mailbox: a ref from one mailbox passed to a call
+addressing another is refused with an explanation rather than resolving to the wrong
+message.
+
 ### Safety Layers
 
-| Layer                    | Protection                                               | Default            |
-| ------------------------ | -------------------------------------------------------- | ------------------ |
-| **User assignment**      | Only assigned users can authenticate                     | Off (enable above) |
-| **Platform governance**  | Per-tool allow/confirm/deny in Claude Desktop Enterprise | Platform-level     |
-| **Tool filtering**       | Presets, read-only, org-mode gating                      | All tools          |
-| **Tenant restriction**   | `MS365_TENANT_ID` locks to one org                       | `common`           |
-| **M365 native recovery** | Recycle bins, version history                            | Built-in           |
+| Layer                    | Protection                                                   | Default            |
+| ------------------------ | ------------------------------------------------------------ | ------------------ |
+| **User assignment**      | Only assigned users can authenticate                         | Off (enable above) |
+| **Platform governance**  | Per-tool allow/confirm/deny in Claude Desktop Enterprise     | Platform-level     |
+| **Tool filtering**       | Presets, read-only, org-mode gating                          | All tools          |
+| **Mailbox allowlist**    | `MS365_ALLOWED_MAILBOXES` caps which mailboxes are reachable | Own mailbox only   |
+| **Tenant restriction**   | `MS365_TENANT_ID` locks to one org                           | `common`           |
+| **M365 native recovery** | Recycle bins, version history                                | Built-in           |
 
 **Recovery by domain:**
 
@@ -468,6 +520,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_PRESETS`           | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`                                        | -- (all tools)      |
 | `MS365_EXTRA_SCOPES`      | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)                                                | --                  |
 | `MS365_MAX_EXTRACT_BYTES` | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.                                        | -- (per-format)     |
+| `MS365_ALLOWED_MAILBOXES` | Comma-separated addresses the `mailbox` parameter may target. Unset = own mailbox only                                    | --                  |
 | `MS365_ENABLED_TOOLS`     | Regex pattern to filter tools                                                                                             | --                  |
 | `MS365_READ_ONLY`         | Hide write tools                                                                                                          | `false`             |
 | `MS365_ORG_MODE`          | Enable org-only tools (teams, chats, groups, planner)                                                                     | `false`             |

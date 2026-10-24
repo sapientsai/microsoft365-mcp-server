@@ -48,11 +48,15 @@ describe("updateDraft", () => {
     const result = await updateDraft({ message_id: "d1", subject: "New", body: "Hi", cc: "a@x.com, b@x.com" })
 
     expect(result.isRight()).toBe(true)
-    expect(mockClient.updateMessage).toHaveBeenCalledWith("d1", {
-      subject: "New",
-      body: { contentType: "Text", content: "Hi" },
-      ccRecipients: [{ emailAddress: { address: "a@x.com" } }, { emailAddress: { address: "b@x.com" } }],
-    })
+    expect(mockClient.updateMessage).toHaveBeenCalledWith(
+      "d1",
+      {
+        subject: "New",
+        body: { contentType: "Text", content: "Hi" },
+        ccRecipients: [{ emailAddress: { address: "a@x.com" } }, { emailAddress: { address: "b@x.com" } }],
+      },
+      "/me",
+    )
   })
 
   it("should clear a recipient list given an empty string", async () => {
@@ -61,7 +65,7 @@ describe("updateDraft", () => {
 
     await updateDraft({ message_id: "d1", bcc: "" })
 
-    expect(mockClient.updateMessage).toHaveBeenCalledWith("d1", { bccRecipients: [] })
+    expect(mockClient.updateMessage).toHaveBeenCalledWith("d1", { bccRecipients: [] }, "/me")
   })
 
   // PATCH on a received message can still change some properties, so the draft check is the guard.
@@ -99,7 +103,7 @@ describe("deleteDraft", () => {
     const result = await deleteDraft({ message_id: "d1" })
 
     expect(message(result)).toBe('Draft "Quarterly update" deleted.')
-    expect(mockClient.deleteMessage).toHaveBeenCalledWith("d1")
+    expect(mockClient.deleteMessage).toHaveBeenCalledWith("d1", "/me")
   })
 
   // DELETE works on any message, so without the check this would be a general delete tool.

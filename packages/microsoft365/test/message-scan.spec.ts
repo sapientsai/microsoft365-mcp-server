@@ -4,6 +4,7 @@ import type { GraphMessage } from "../src/types"
 import { formatMessageScan, formatMessageScanRow } from "../src/utils/formatters"
 import {
   clearMessageRefs,
+  describeRefFailure,
   messageRefCount,
   rememberMessageId,
   resolveMessageIdOrRef,
@@ -55,27 +56,27 @@ describe("message refs", () => {
     const [newPrefix, number] = rememberMessageId("id-new").split("-")
 
     expect(newPrefix).toBe("bbbb")
-    expect(resolveMessageIdOrRef(`aaaa-${number}`)).toBeUndefined()
-    expect(resolveMessageIdOrRef(`bbbb-${number}`)).toBe("id-new")
+    expect(resolveMessageIdOrRef(`aaaa-${number}`)).toMatchObject({ kind: "unknown" })
+    expect(resolveMessageIdOrRef(`bbbb-${number}`)).toEqual({ kind: "id", id: "id-new" })
   })
 
   it("round-trips a ref back to its message id, ignoring case and spaces", () => {
     const ref = rememberMessageId("id-a")
-    expect(resolveMessageRef(ref)).toBe("id-a")
-    expect(resolveMessageIdOrRef(` ${ref.toUpperCase()} `)).toBe("id-a")
+    expect(resolveMessageRef(ref)).toEqual({ kind: "id", id: "id-a" })
+    expect(resolveMessageIdOrRef(` ${ref.toUpperCase()} `)).toEqual({ kind: "id", id: "id-a" })
   })
 
   it("passes a full Graph id straight through", () => {
     const graphId = "AAMkAGI0YjA3OTNhLWY2MDEtNGZlYy1hNzU2LTE4NDFiODg5ZjliMg=="
-    expect(resolveMessageIdOrRef(graphId)).toBe(graphId)
+    expect(resolveMessageIdOrRef(graphId)).toEqual({ kind: "id", id: graphId })
   })
 
   // The dangerous failure is resolving to the wrong message rather than to nothing,
-  // so an unknown ref must come back undefined for the caller to turn into an error.
-  it("returns undefined for a ref that was never issued", () => {
+  // so an unknown ref must be reported as unknown for the caller to turn into an error.
+  it("reports a ref that was never issued", () => {
     const ref = rememberMessageId("id-a")
     const prefix = ref.split("-")[0]!
-    expect(resolveMessageIdOrRef(`${prefix}-999`)).toBeUndefined()
+    expect(resolveMessageIdOrRef(`${prefix}-999`)).toEqual({ kind: "unknown", ref: `${prefix}-999` })
   })
 
   // Numbering used to come from the map's size and restart at 1 with the process, so a
@@ -86,12 +87,49 @@ describe("message refs", () => {
     clearMessageRefs()
     rememberMessageId("id-new")
 
-    expect(resolveMessageIdOrRef(before)).toBeUndefined()
+    expect(resolveMessageIdOrRef(before)).toMatchObject({ kind: "unknown" })
   })
 
   it("treats a bare number as a stale ref, never as a message id", () => {
     rememberMessageId("id-a")
-    expect(resolveMessageIdOrRef("1")).toBeUndefined()
+    expect(resolveMessageIdOrRef("1")).toEqual({ kind: "unknown", ref: "1" })
+  })
+
+  // A message id means nothing outside its own mailbox: a ref minted while scanning a
+  // delegated mailbox must not silently resolve against the signed-in user's.
+  it("keeps refs from different mailboxes apart", () => {
+    const own = rememberMessageId("id-own")
+    const delegated = rememberMessageId("id-bel", "bel@example.com")
+
+    expect(own).not.toBe(delegated)
+    expect(resolveMessageRef(own)).toEqual({ kind: "id", id: "id-own" })
+    expect(resolveMessageRef(delegated, "bel@example.com")).toEqual({ kind: "id", id: "id-bel" })
+  })
+
+  it("refuses a ref minted against another mailbox", () => {
+    const delegated = rememberMessageId("id-bel", "bel@example.com")
+
+    expect(resolveMessageIdOrRef(delegated)).toEqual({
+      kind: "wrong-mailbox",
+      ref: delegated,
+      mintedFor: "bel@example.com",
+    })
+  })
+
+  it("explains a cross-mailbox ref in terms of both mailboxes", () => {
+    const delegated = rememberMessageId("id-bel", "bel@example.com")
+    const resolution = resolveMessageRef(delegated)
+    if (resolution.kind === "id") throw new Error("expected a mismatch")
+
+    const message = describeRefFailure(resolution, undefined)
+    expect(message).toContain("bel@example.com")
+    expect(message).toContain("your own mailbox")
+  })
+
+  // The same message id in two mailboxes is two distinct refs — collapsing them would
+  // reintroduce exactly the cross-mailbox confusion the qualification prevents.
+  it("issues distinct refs for the same id in different mailboxes", () => {
+    expect(rememberMessageId("shared-id")).not.toBe(rememberMessageId("shared-id", "bel@example.com"))
   })
 })
 

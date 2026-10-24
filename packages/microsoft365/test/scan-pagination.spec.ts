@@ -158,4 +158,39 @@ describe("scan pagination through the Graph client", () => {
     expect((await scanMessages({ cursor: cursorFrom(first.value) })).isLeft()).toBe(true)
     expect(fetchSpy).toHaveBeenCalledOnce()
   })
+
+  // Graph keeps a delegated scan's continuation under /users/{address}, in either the path or the
+  // OData key form. Only the mailbox the scan addressed may be followed.
+  it.each([
+    "https://graph.microsoft.com/v1.0/users/bel@example.com/messages?$skip=2",
+    "https://graph.microsoft.com/v1.0/users('bel@example.com')/mailFolders('inbox')/messages?$skip=2",
+  ])("follows a continuation in the scanned mailbox %s", async (nextLink) => {
+    vi.stubEnv("MS365_ALLOWED_MAILBOXES", "bel@example.com")
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(json({ value: [], "@odata.nextLink": nextLink }))
+      .mockResolvedValueOnce(json({ value: [message("next")] }))
+    vi.stubGlobal("fetch", fetchSpy)
+    initializeGraphClient(auth)
+
+    const first = await scanMessages({ mailbox: "bel@example.com" })
+    expect(new URL(fetchSpy.mock.calls[0]![0] as string).pathname).toBe("/v1.0/users/bel%40example.com/messages")
+    expect((await scanMessages({ cursor: cursorFrom(first.value), mailbox: "bel@example.com" })).isRight()).toBe(true)
+    expect(fetchSpy.mock.calls[1]![0]).toBe(nextLink)
+  })
+
+  it("refuses a continuation that leaves the scanned mailbox", async () => {
+    vi.stubEnv("MS365_ALLOWED_MAILBOXES", "bel@example.com")
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        json({ value: [], "@odata.nextLink": "https://graph.microsoft.com/v1.0/users/other@example.com/messages" }),
+      )
+    vi.stubGlobal("fetch", fetchSpy)
+    initializeGraphClient(auth)
+
+    const first = await scanMessages({ mailbox: "bel@example.com" })
+    expect((await scanMessages({ cursor: cursorFrom(first.value), mailbox: "bel@example.com" })).isLeft()).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
 })

@@ -53,7 +53,7 @@ describe("getAttachmentUploadConfig", () => {
 
     const result = await getAttachmentUploadConfig({ message_id: ref, name: "a.pdf" })
 
-    expect(mockClient.getDraftState).toHaveBeenCalledWith("AAMkLongGraphId")
+    expect(mockClient.getDraftState).toHaveBeenCalledWith("AAMkLongGraphId", "/me")
     expect(
       new URL((JSON.parse(result.value as string) as { uploadUrl: string }).uploadUrl).searchParams.get("messageId"),
     ).toBe("AAMkLongGraphId")
