@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **74 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **75 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -397,15 +397,20 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 > constrained HTML subset and silently drops unsupported CSS/tags, so a page can post
 > successfully yet render differently than the source.
 
-### To Do (5 tools)
+### To Do (6 tools)
 
 | Tool               | Description                         |
 | ------------------ | ----------------------------------- |
 | `list_todo_lists`  | List task lists                     |
+| `create_todo_list` | Create a task list                  |
 | `list_todo_tasks`  | List tasks in a list                |
 | `create_todo_task` | Create a task, optionally repeating |
 | `update_todo_task` | Update a task, or change its repeat |
 | `delete_todo_task` | Delete a task (no API undo)         |
+
+`create_todo_list` refuses a name an existing list already uses. Graph accepts a
+duplicate `displayName` and returns a second list indistinguishable from the first in
+every client, which scatters tasks across two lists nobody can tell apart.
 
 `create_todo_task` and `update_todo_task` take an optional `recurrence`, mapping to
 Graph's `patternedRecurrence`. Pass a `pattern` of `daily`, `weekly`,

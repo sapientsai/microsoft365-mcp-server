@@ -65,7 +65,7 @@ export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   groups: "Groups: List groups and group members",
   planner: "Planner: List plans and tasks; create and update tasks",
   onenote: "OneNote: List notebooks, sections, pages; read page content",
-  todo: "To Do: List task lists and tasks; create, update, and delete tasks, including repeating ones",
+  todo: "To Do: List and create task lists; list, create, update, and delete tasks, including repeating ones",
   query: "Graph Query: Execute arbitrary Microsoft Graph API queries",
   rag: "Documents: Extract readable text from PDF, DOCX, XLSX and text files — in OneDrive, SharePoint, or attached to a message",
 }
@@ -358,6 +358,14 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   { name: "delete_onenote_page", title: "Delete OneNote Page", domain: "onenote", readOnly: false, orgOnly: false },
   // To Do
   { name: "list_todo_lists", title: "List To Do Lists", domain: "todo", readOnly: true, orgOnly: false },
+  {
+    name: "create_todo_list",
+    title: "Create To Do List",
+    additive: true,
+    domain: "todo",
+    readOnly: false,
+    orgOnly: false,
+  },
   { name: "list_todo_tasks", title: "List To Do Tasks", domain: "todo", readOnly: true, orgOnly: false },
   {
     name: "create_todo_task",

@@ -134,6 +134,7 @@ describe("tool-registry", () => {
         "create_onenote_section",
         "create_reply_all_draft",
         "create_reply_draft",
+        "create_todo_list",
         "create_todo_task",
         "get_upload_config",
       ])

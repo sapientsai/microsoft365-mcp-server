@@ -7,13 +7,15 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { createTodoTask, deleteTodoTask, updateTodoTask } from "../src/tools/todo-tools"
+import { createTodoList, createTodoTask, deleteTodoTask, updateTodoTask } from "../src/tools/todo-tools"
 
 const mockClient = {
   createTodoTask: vi.fn(),
   updateTodoTask: vi.fn(),
   getTodoTask: vi.fn(),
   deleteTodoTask: vi.fn(),
+  listTodoLists: vi.fn(),
+  createTodoList: vi.fn(),
 }
 
 const QUARTERLY = {
@@ -29,6 +31,46 @@ beforeEach(() => {
 })
 
 describe("todo-tools", () => {
+  describe("createTodoList", () => {
+    it("should create a list when the name is free", async () => {
+      mockClient.listTodoLists.mockResolvedValue(Right({ value: [{ id: "l1", displayName: "Household" }] }))
+      mockClient.createTodoList.mockResolvedValue(Right({ id: "l2", displayName: "Renovation" }))
+
+      const result = await createTodoList({ display_name: "Renovation" })
+
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.createTodoList).toHaveBeenCalledWith("Renovation")
+    })
+
+    // Graph happily creates a second list with the same displayName, and no client can
+    // then tell the two apart — so tasks scatter across both.
+    it("should refuse a name an existing list already uses, case-insensitively", async () => {
+      mockClient.listTodoLists.mockResolvedValue(Right({ value: [{ id: "l1", displayName: "Household" }] }))
+
+      const result = await createTodoList({ display_name: "household" })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createTodoList).not.toHaveBeenCalled()
+    })
+
+    it("should refuse a blank name without calling Graph", async () => {
+      const result = await createTodoList({ display_name: "   " })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.listTodoLists).not.toHaveBeenCalled()
+      expect(mockClient.createTodoList).not.toHaveBeenCalled()
+    })
+
+    it("should trim the name before sending it", async () => {
+      mockClient.listTodoLists.mockResolvedValue(Right({ value: [] }))
+      mockClient.createTodoList.mockResolvedValue(Right({ id: "l2", displayName: "Renovation" }))
+
+      await createTodoList({ display_name: "  Renovation  " })
+
+      expect(mockClient.createTodoList).toHaveBeenCalledWith("Renovation")
+    })
+  })
+
   describe("createTodoTask", () => {
     it("should create a task with just a title", async () => {
       mockClient.createTodoTask.mockResolvedValue(Right({ id: "t1", title: "Buy milk" }))

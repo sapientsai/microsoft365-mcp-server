@@ -32,6 +32,43 @@ export const listTodoLists = async (params?: { fetch_all_pages?: boolean }): Pro
     .map((response) => formatTodoListList((response as ODataResponse<never>).value))
 }
 
+// Graph accepts a duplicate displayName and returns a second list with the same name,
+// which is indistinguishable from the first in every client. Existing lists are read
+// first and an exact match refused, because the usual cause is a caller that did not
+// know the list was already there — and a duplicate is worse than the error, since
+// tasks then scatter across two lists nobody can tell apart.
+export const createTodoList = async (params: { display_name: string }): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const name = params.display_name.trim()
+  if (name.length === 0) return Left(new UserError("A To Do list needs a display_name."))
+
+  const existing = await client.listTodoLists()
+  if (existing.isRight()) {
+    const lists = (existing.orThrow() as ODataResponse<GraphTodoList>).value
+    const clash = lists.find((list) => list.displayName?.trim().toLowerCase() === name.toLowerCase())
+    if (clash) {
+      return Left(
+        new UserError(
+          `A To Do list named "${clash.displayName}" already exists (ID: ${clash.id}). ` +
+            "Use it, or choose a different name — two lists with one name cannot be told apart.",
+        ),
+      )
+    }
+  }
+
+  const result = await client.createTodoList(name)
+  return result
+    .mapLeft((error) => new UserError(`Failed to create To Do list: ${error.message}`))
+    .map(
+      (list) =>
+        `Created To Do list **${list.displayName ?? name}** (ID: ${list.id}).\n\n` +
+        "Graph cannot share a list — sharing is only available in the To Do app, and a new list " +
+        "is visible to nobody else until someone shares it there.",
+    )
+}
+
 export const listTodoTasks = async (params: {
   list_id: string
   fetch_all_pages?: boolean

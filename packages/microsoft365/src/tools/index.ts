@@ -71,5 +71,12 @@ export {
 export { readDocument } from "./read-document-tools"
 export { getSite, listSiteDrives, listSiteItems, listSites, searchSiteFiles } from "./sharepoint-tools"
 export { listChannelMessages, listChannels, listTeams, sendChannelMessage } from "./teams-tools"
-export { createTodoTask, deleteTodoTask, listTodoLists, listTodoTasks, updateTodoTask } from "./todo-tools"
+export {
+  createTodoList,
+  createTodoTask,
+  deleteTodoTask,
+  listTodoLists,
+  listTodoTasks,
+  updateTodoTask,
+} from "./todo-tools"
 export { getMe, getUser, listUsers } from "./users-tools"
