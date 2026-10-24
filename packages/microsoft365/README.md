@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **74 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **77 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -295,14 +295,17 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 | `delete_event`              | Delete an event                                                 |
 | `respond_to_event`          | Accept, decline or tentatively accept an invitation             |
 
-### Contacts (4 tools)
+### Contacts (7 tools)
 
-| Tool              | Description          |
-| ----------------- | -------------------- |
-| `list_contacts`   | List contacts        |
-| `get_contact`     | Get contact details  |
-| `create_contact`  | Create a new contact |
-| `search_contacts` | Search contacts      |
+| Tool              | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `list_contacts`   | List contacts                                                 |
+| `get_contact`     | Get contact details                                           |
+| `create_contact`  | Create a new contact                                          |
+| `search_contacts` | Search contacts                                               |
+| `update_contact`  | Update a contact; list fields replace the whole list          |
+| `delete_contact`  | Delete a contact, returning its details                       |
+| `export_contacts` | Export every contact folder to a local JSON file (stdio only) |
 
 ### Files / OneDrive (7 tools)
 

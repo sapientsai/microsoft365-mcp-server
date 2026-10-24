@@ -336,6 +336,7 @@ export const formatContactDetail = (contact: GraphContact): string => {
   const phones =
     [
       ...(contact.businessPhones ?? []).map((p) => `  - Business: ${p}`),
+      ...(contact.homePhones ?? []).map((p) => `  - Home: ${p}`),
       ...Option(contact.mobilePhone)
         .map((p) => `  - Mobile: ${p}`)
         .fold(
@@ -352,12 +353,13 @@ export const formatContactDetail = (contact: GraphContact): string => {
 - Last Name: ${contact.surname ?? ""}
 - Company: ${contact.companyName ?? ""}
 - Job Title: ${contact.jobTitle ?? ""}
+- Categories: ${(contact.categories ?? []).join(", ")}
 
 ## Email Addresses
 ${emails}
 
 ## Phone Numbers
-${phones}`
+${phones}${contact.personalNotes ? `\n\n## Notes\n${contact.personalNotes}` : ""}`
 }
 
 // Files

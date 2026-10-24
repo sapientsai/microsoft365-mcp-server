@@ -135,6 +135,7 @@ describe("tool-registry", () => {
         "create_reply_all_draft",
         "create_reply_draft",
         "create_todo_task",
+        "export_contacts",
         "get_upload_config",
       ])
     })

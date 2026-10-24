@@ -192,6 +192,11 @@ const createGraphClient = (auth: AuthStrategy) => {
   const createContact = (contact: Record<string, unknown>) =>
     request<GraphContact>("POST", "/me/contacts", { body: contact })
 
+  const updateContact = (id: string, contact: Record<string, unknown>) =>
+    request<GraphContact>("PATCH", `/me/contacts/${id}`, { body: contact })
+
+  const deleteContact = (id: string) => request<Record<string, never>>("DELETE", `/me/contacts/${id}`)
+
   const searchContacts = (query: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphContact>>("GET", "/me/contacts", {
       odataParams: { ...odataParams, $search: query },
@@ -567,6 +572,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     listContacts,
     getContact,
     createContact,
+    updateContact,
+    deleteContact,
     searchContacts,
     // Files
     listDriveItems,

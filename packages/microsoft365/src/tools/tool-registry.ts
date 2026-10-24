@@ -55,7 +55,7 @@ export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   auth: "Authentication: Check auth status and manage tokens",
   mail: "Mail: List, read, send, reply, search, and draft email messages; edit and delete drafts",
   calendar: "Calendar: List, view, create, update, and delete events; accept or decline invitations",
-  contacts: "Contacts: List, view, create, and search contacts",
+  contacts: "Contacts: List, view, create, update, delete, search, and export contacts",
   files:
     "Files: List, view, search, download OneDrive files; create folders; upload files (see Upload workflows below)",
   chats: "Chats: List Teams chats and messages; send chat messages, starting a chat by email if needed",
@@ -202,6 +202,17 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
     orgOnly: false,
   },
   { name: "search_contacts", title: "Search Contacts", domain: "contacts", readOnly: true, orgOnly: false },
+  { name: "update_contact", title: "Update Contact", domain: "contacts", readOnly: false, orgOnly: false },
+  { name: "delete_contact", title: "Delete Contact", domain: "contacts", readOnly: false, orgOnly: false },
+  {
+    name: "export_contacts",
+    title: "Export Contacts to Local File",
+    additive: true,
+    domain: "contacts",
+    readOnly: false,
+    orgOnly: false,
+    transportOnly: "stdio",
+  },
   // Files
   { name: "list_drive_items", title: "List OneDrive Files", domain: "files", readOnly: true, orgOnly: false },
   { name: "get_drive_item", title: "Get OneDrive File Details", domain: "files", readOnly: true, orgOnly: false },
