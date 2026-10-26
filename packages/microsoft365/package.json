@@ -75,7 +75,7 @@
     "functype": "^1.19.0",
     "functype-log": "^1.19.0",
     "mammoth": "^1.13.0",
-    "unpdf": "^1.9.0",
+    "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
