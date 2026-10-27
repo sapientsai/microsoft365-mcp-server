@@ -84,72 +84,93 @@ describe("graph-client AuthStrategy injection", () => {
     expect((init.headers as Record<string, string>).Prefer).toBeUndefined()
   })
 
-  // Graph validates $select for /attachments against the BASE attachment type. sourceUrl and
-  // friends live on the derived referenceAttachment, so naming them in a $select makes Graph
-  // reject the whole request — for every message, not only ones carrying a cloud link:
-  //
+  // Routes each request by URL: the attachment list, then one read per cloud link.
+  const stubAttachmentFetch = (list: unknown, links: Record<string, unknown | undefined>) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const path = new URL(url).pathname
+        const linkId = /\/attachments\/([^/]+)$/.exec(path)?.[1]
+        const json = linkId === undefined ? list : links[decodeURIComponent(linkId)]
+        const ok = json !== undefined
+        return Promise.resolve({
+          ok,
+          status: ok ? 200 : 404,
+          text: () => Promise.resolve(JSON.stringify(json ?? { error: { message: "not found" } })),
+          json: () => Promise.resolve(json),
+          headers: new Headers({ "content-type": "application/json" }),
+        } as Response)
+      }),
+    )
+
+  const FILE = { "@odata.type": "#microsoft.graph.fileAttachment", id: "FILE", name: "invoice.pdf", size: 1024 }
+  const LINK = { "@odata.type": "#microsoft.graph.referenceAttachment", id: "LINK/1=", name: "Renovation invoices" }
+
+  // A fileAttachment carries its whole base64 payload unless a $select leaves contentBytes out, and
+  // Graph rejects a $select naming referenceAttachment-only properties for every message:
   //   Parsing OData Select and Expand failed: Could not find a property named 'sourceUrl'
   //   on type 'microsoft.graph.attachment'.
-  //
-  // That shipped once and broke list_attachments and save_attachment outright. The previous
-  // version of this test asserted the broken behaviour, because it only checked the URL we build
-  // and never what Graph does with it. Assert the absence instead — it is the property that
-  // actually keeps the endpoint working.
-  it("does not $select derived referenceAttachment properties (Graph rejects the request)", async () => {
+  // So the list selects the base properties, and only those.
+  it("lists attachments with a base-type $select that leaves out contentBytes and derived properties", async () => {
     const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
-    stubFetch({ value: [] })
+    stubAttachmentFetch({ value: [FILE] }, {})
 
     const client = initializeGraphClient(auth)
     await client.listAttachments("MSG-ID")
 
-    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
-    const requested = decodeURIComponent(url)
-    for (const derived of ["sourceUrl", "providerType", "permission", "isFolder"]) {
-      expect(requested).not.toContain(derived)
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce()
+    const [url] = vi.mocked(fetch).mock.calls[0] as unknown as [string]
+    const select = new URL(url).searchParams.get("$select")?.split(",") ?? []
+    expect(select).toEqual(expect.arrayContaining(["id", "name", "contentType", "size"]))
+    for (const excluded of ["contentBytes", "sourceUrl", "providerType", "permission", "isFolder"]) {
+      expect(select).not.toContain(excluded)
     }
   })
 
-  // The reference fields and @odata.type must still reach the caller — dropping them is how cloud
-  // links became invisible in the first place. With no $select, Graph returns them itself.
-  it("passes through @odata.type and reference fields, and strips contentBytes", async () => {
+  it("reads each cloud link on its own to get its URL, and no file attachment", async () => {
     const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
-    stubFetch({
-      value: [
-        {
-          "@odata.type": "#microsoft.graph.fileAttachment",
-          id: "FILE",
-          name: "invoice.pdf",
-          size: 1024,
-          contentBytes: "QUJD".repeat(10_000),
-        },
-        {
-          "@odata.type": "#microsoft.graph.referenceAttachment",
-          id: "LINK",
-          name: "Renovation invoices",
+    stubAttachmentFetch(
+      { value: [FILE, LINK] },
+      {
+        "LINK/1=": {
+          ...LINK,
           sourceUrl: "https://www.icloud.com/iclouddrive/EXAMPLE",
           providerType: "other",
           permission: "view",
           isFolder: true,
         },
-      ],
+      },
+    )
+
+    const client = initializeGraphClient(auth)
+    const result = await client.listAttachments("MSG-ID")
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+    const [linkUrl] = vi.mocked(fetch).mock.calls[1] as unknown as [string]
+    expect(new URL(linkUrl).pathname).toMatch(/\/me\/messages\/MSG-ID\/attachments\/LINK%2F1%3D$/)
+
+    const attachments = (result.value as { value: ReadonlyArray<Record<string, unknown>> }).value
+    expect(attachments.find((a) => a.id === "FILE")).toEqual(FILE)
+    expect(attachments.find((a) => a.id === "LINK/1=")).toMatchObject({
+      "@odata.type": "#microsoft.graph.referenceAttachment",
+      sourceUrl: "https://www.icloud.com/iclouddrive/EXAMPLE",
+      providerType: "other",
+      permission: "view",
+      isFolder: true,
     })
+  })
+
+  it("still lists a cloud link, without its URL, when reading it fails", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubAttachmentFetch({ value: [LINK] }, {})
 
     const client = initializeGraphClient(auth)
     const result = await client.listAttachments("MSG-ID")
 
     expect(result.isRight()).toBe(true)
-    const attachments = (result.value as { value: ReadonlyArray<Record<string, unknown>> }).value
-
-    const file = attachments.find((a) => a.id === "FILE")
-    expect(file?.["@odata.type"]).toBe("#microsoft.graph.fileAttachment")
-    // A fileAttachment's base64 payload would be megabytes of binary through the model.
-    expect(file).not.toHaveProperty("contentBytes")
-    expect(file?.name).toBe("invoice.pdf")
-
-    const link = attachments.find((a) => a.id === "LINK")
-    expect(link?.sourceUrl).toBe("https://www.icloud.com/iclouddrive/EXAMPLE")
-    expect(link?.providerType).toBe("other")
-    expect(link?.isFolder).toBe(true)
+    const [link] = (result.value as { value: ReadonlyArray<Record<string, unknown>> }).value
+    expect(link).toMatchObject({ id: "LINK/1=", name: "Renovation invoices" })
+    expect(link?.sourceUrl).toBeUndefined()
   })
 
   it("short-circuits to an auth error when the strategy fails (fetch never called)", async () => {

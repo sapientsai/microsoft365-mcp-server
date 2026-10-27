@@ -26,6 +26,7 @@ import type {
   GraphTodoTask,
   GraphUser,
 } from "../types"
+import { linkLocation } from "./link-url"
 import { describeRecurrence } from "./recurrence"
 
 // Mail
@@ -88,8 +89,8 @@ const formatReferenceAttachment = (att: GraphAttachment): string => {
   const access = att.permission ? `, ${att.permission}` : ""
   return [
     `- **${att.name ?? "(unnamed)"}** — cloud link to a ${kind} (${provider}reference attachment${access})`,
-    att.sourceUrl ? `  URL: ${att.sourceUrl}` : `  URL: not returned by Graph for this attachment`,
-    `  No bytes in the mailbox: save_attachment and read_document cannot fetch this. Open the URL.`,
+    `  Link: ${linkLocation(att)}`,
+    `  Not stored in the mailbox, so save_attachment and read_document cannot fetch it.`,
   ].join("\n")
 }
 

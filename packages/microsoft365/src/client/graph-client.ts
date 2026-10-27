@@ -41,6 +41,8 @@ import type {
 import { safeDecode } from "../utils/safe-decode"
 import { defaultVersion } from "./graph-version"
 
+const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment"
+
 const createGraphClient = (auth: AuthStrategy) => {
   // Generic request machinery (auth injection, OData, error mapping, pagination) lives in
   // @sapientsai/ms-graph-core; this client builds the M365 domain methods on top of it.
@@ -113,30 +115,50 @@ const createGraphClient = (auth: AuthStrategy) => {
   const moveMessage = (id: string, destinationId: string, prefix: string = "/me") =>
     request<GraphMessage>("POST", `${prefix}/messages/${id}/move`, { body: { destinationId } })
 
-  // No $select here, deliberately — see the two constraints it has to satisfy at once.
-  //
-  // sourceUrl/providerType/permission/isFolder exist only on referenceAttachment, and
-  // @odata.type is what tells the callers which kind of attachment they have. Graph validates
-  // $select against the *base* attachment type, so naming a derived property bare rejects the
-  // entire request — "Could not find a property named 'sourceUrl' on type
-  // 'microsoft.graph.attachment'" — for every message in the mailbox, whether or not it carries a
-  // cloud link. Selecting only the base properties would parse, but then drops @odata.type and
-  // the reference fields, which is the bug this endpoint had before: cloud links were invisible.
-  //
-  // So: ask for everything, and drop contentBytes here instead. That was the only reason to
-  // $select in the first place — a fileAttachment carries its full base64 payload inline, which
-  // would drag megabytes of binary through the model for what is meant to be a listing.
-  const stripContentBytes = (response: ODataResponse<GraphAttachment>): ODataResponse<GraphAttachment> => ({
-    ...response,
-    value: response.value.map((att) => {
-      const { contentBytes: _discarded, ...rest } = att as GraphAttachment & { contentBytes?: string }
-      return rest as GraphAttachment
-    }),
-  })
+  // The list keeps its $select so a fileAttachment's contentBytes, its whole base64 payload, never
+  // comes back with it: without one, a message carrying a 100 MB PDF would pull ~133 MB of JSON just
+  // to list it. @odata.type survives a $select (Graph annotates every derived type), so links are
+  // still recognisable. Their own fields (sourceUrl, providerType, permission, isFolder) live on the
+  // derived referenceAttachment, and Graph rejects naming them in a $select against the base
+  // attachment type ("Could not find a property named 'sourceUrl' on type
+  // 'microsoft.graph.attachment'"), so each link is read on its own. A link has no bytes, so that
+  // read is small. If it fails, the link is still listed, without its URL.
+  const ATTACHMENT_FIELDS = ["id", "name", "contentType", "size", "isInline", "lastModifiedDateTime"]
 
-  const listAttachments = (messageId: string, prefix: string = "/me") =>
-    request<ODataResponse<GraphAttachment>>("GET", `${prefix}/messages/${messageId}/attachments`).then((result) =>
-      result.map(stripContentBytes),
+  const withReferenceFields = (messageId: string, att: GraphAttachment, prefix: string): Promise<GraphAttachment> =>
+    att["@odata.type"] !== REFERENCE_ATTACHMENT
+      ? Promise.resolve(att)
+      : request<GraphAttachment>(
+          "GET",
+          `${prefix}/messages/${messageId}/attachments/${encodeURIComponent(att.id)}`,
+        ).then((full) =>
+          full.fold(
+            () => att,
+            ({ sourceUrl, providerType, permission, isFolder }) => ({
+              ...att,
+              sourceUrl,
+              providerType,
+              permission,
+              isFolder,
+            }),
+          ),
+        )
+
+  const listAttachments = (
+    messageId: string,
+    prefix: string = "/me",
+  ): Promise<Either<GraphApiError, ODataResponse<GraphAttachment>>> =>
+    request<ODataResponse<GraphAttachment>>("GET", `${prefix}/messages/${messageId}/attachments`, {
+      odataParams: { $select: ATTACHMENT_FIELDS },
+    }).then((listed) =>
+      listed.fold(
+        (error) => Promise.resolve(Left<GraphApiError, ODataResponse<GraphAttachment>>(error)),
+        async (page) =>
+          Right<GraphApiError, ODataResponse<GraphAttachment>>({
+            ...page,
+            value: await Promise.all(page.value.map((att) => withReferenceFields(messageId, att, prefix))),
+          }),
+      ),
     )
 
   const sendMessage = (message: Record<string, unknown>, prefix: string = "/me") =>

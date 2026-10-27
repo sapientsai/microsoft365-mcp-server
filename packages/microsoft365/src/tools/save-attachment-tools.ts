@@ -12,6 +12,7 @@ import { getGraphClient } from "../client/graph-client"
 import { defaultVersion } from "../client/graph-version"
 import { resolveMailbox } from "../mail/mailbox"
 import type { GraphAttachment } from "../types"
+import { linkLocation } from "../utils/link-url"
 import { writeNewFile } from "../utils/local-file"
 import { describeRefFailure, resolveMessageIdOrRef } from "../utils/message-refs"
 
@@ -138,9 +139,7 @@ export const saveAttachment = async (params: {
   const all = attachments.filter((a) => a["@odata.type"] !== REFERENCE_ATTACHMENT)
 
   const describeReferences = () =>
-    references
-      .map((r) => `  ${r.name ?? "(unnamed)"}${r.isFolder ? " (folder)" : ""} — ${r.sourceUrl ?? "URL not returned"}`)
-      .join("\n")
+    references.map((r) => `  ${r.name ?? "(unnamed)"}${r.isFolder ? " (folder)" : ""} — ${linkLocation(r)}`).join("\n")
 
   if (all.length === 0) {
     return Left(
@@ -149,7 +148,7 @@ export const saveAttachment = async (params: {
           ? "This message has no attachments."
           : `This message has no downloadable file attachments, but it does carry ${references.length} cloud ` +
               `link${references.length === 1 ? "" : "s"} (reference attachment${references.length === 1 ? "" : "s"}). ` +
-              `The mailbox holds no bytes for these — open the URL to get the content:\n${describeReferences()}`,
+              `The mailbox holds no bytes for these:\n${describeReferences()}`,
       ),
     )
   }
@@ -169,7 +168,7 @@ export const saveAttachment = async (params: {
         return Left(
           new UserError(
             `"${asReference.name ?? params.attachment_id}" is a cloud link (reference attachment), not a file in ` +
-              `the mailbox, so there are no bytes to save. Open it directly: ${asReference.sourceUrl ?? "URL not returned by Graph"}`,
+              `the mailbox, so there are no bytes to save. Link: ${linkLocation(asReference)}`,
           ),
         )
       }
@@ -180,7 +179,7 @@ export const saveAttachment = async (params: {
       references.length === 0
         ? ""
         : `\n\nIt also carries ${references.length} cloud link${references.length === 1 ? "" : "s"}, which cannot ` +
-          `be saved from the mailbox — open the URL instead:\n${describeReferences()}`
+          `be saved from the mailbox:\n${describeReferences()}`
     return Left(
       new UserError(
         `This message has ${all.length} attachments — pass attachment_id to choose one:\n${names}${alsoLinks}`,
