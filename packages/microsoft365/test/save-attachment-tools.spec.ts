@@ -22,6 +22,15 @@ const mockClient = { listAttachments: vi.fn() }
 
 const PDF = { id: "att-1", name: "scan.pdf", contentType: "application/pdf", size: 2048 }
 const JPG = { id: "att-2", name: "photo.jpg", contentType: "image/jpeg", size: 1024 }
+const REF = {
+  id: "att-3",
+  name: "Tax Folder",
+  "@odata.type": "#microsoft.graph.referenceAttachment",
+  sourceUrl: "https://www.icloud.com/iclouddrive/EXAMPLE",
+  providerType: "other",
+  isFolder: true,
+  size: 0,
+}
 
 let outDir: string
 
@@ -267,16 +276,57 @@ describe("saveAttachment", () => {
     expect(Buffer.byteLength(saved)).toBeLessThanOrEqual(200)
   })
 
-  // referenceAttachment is a link to OneDrive, not bytes — fetching its $value fails confusingly.
-  it("ignores reference attachments", async () => {
-    mockClient.listAttachments.mockResolvedValue(
-      Right({ value: [{ ...PDF, "@odata.type": "#microsoft.graph.referenceAttachment" }] }),
-    )
+  // A referenceAttachment is a link, not bytes. It cannot be saved — but it must never be dropped
+  // silently: the document exists, and hiding it lets a sweep claim coverage it does not have.
+  it("reports the URL of a cloud link rather than hiding it", async () => {
+    mockClient.listAttachments.mockResolvedValue(Right({ value: [REF] }))
 
     const result = await saveAttachment({ message_id: "1", out_dir: outDir })
 
     expect(result.isLeft()).toBe(true)
-    expect((result.value as { message: string }).message).toContain("no downloadable file attachments")
+    const message = (result.value as { message: string }).message
+    expect(message).toContain("Tax Folder")
+    expect(message).toContain("https://www.icloud.com/iclouddrive/EXAMPLE")
+    expect(message).toContain("folder")
+  })
+
+  it("distinguishes no attachments at all from only-cloud-links", async () => {
+    mockClient.listAttachments.mockResolvedValue(Right({ value: [] }))
+
+    const result = await saveAttachment({ message_id: "1", out_dir: outDir })
+
+    expect((result.value as { message: string }).message).toBe("This message has no attachments.")
+  })
+
+  it("explains why a cloud link cannot be saved when its id is passed", async () => {
+    mockClient.listAttachments.mockResolvedValue(Right({ value: [PDF, REF] }))
+
+    const result = await saveAttachment({ message_id: "1", attachment_id: "att-3", out_dir: outDir })
+
+    expect(result.isLeft()).toBe(true)
+    const message = (result.value as { message: string }).message
+    expect(message).toContain("cloud link")
+    expect(message).toContain("https://www.icloud.com/iclouddrive/EXAMPLE")
+  })
+
+  it("mentions cloud links alongside the choice list when several attachments exist", async () => {
+    mockClient.listAttachments.mockResolvedValue(Right({ value: [PDF, JPG, REF] }))
+
+    const result = await saveAttachment({ message_id: "1", out_dir: outDir })
+
+    const message = (result.value as { message: string }).message
+    expect(message).toContain("att-1")
+    expect(message).toContain("cloud link")
+    expect(message).toContain("https://www.icloud.com/iclouddrive/EXAMPLE")
+  })
+
+  it("still saves a real file when a cloud link sits alongside it", async () => {
+    mockClient.listAttachments.mockResolvedValue(Right({ value: [PDF, REF] }))
+
+    const result = await saveAttachment({ message_id: "1", out_dir: outDir })
+
+    expect(result.isRight()).toBe(true)
+    expect(result.value).toContain(join(outDir, "scan.pdf"))
   })
 
   it("rejects an attachment over the size cap before fetching it", async () => {

@@ -420,7 +420,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   {
     name: "list_attachments",
     description:
-      "List a message's attachments with name, content type and size. Returns a read_document path for file attachments so their text can be extracted (PDF, Office, etc); cloud links and embedded Outlook items are marked as not readable that way.",
+      "List a message's attachments with name, content type and size. Returns a read_document path for file attachments so their text can be extracted (PDF, Office, etc). Cloud links (OneDrive, SharePoint, Dropbox) are listed with their URL to open instead, since the mailbox holds no bytes for them; embedded Outlook items are marked as not readable that way.",
     parameters: z.object({
       message_id: z.string().describe("The message ID, or a short ref from scan_messages, whose attachments to list"),
       mailbox: MAILBOX_PARAM,
@@ -465,7 +465,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       "Save a mail attachment to a local file and return its path. Use for anything read_document cannot " +
       "extract text from — scanned PDFs, photographed documents, images — and for handing a file to another " +
       "tool. Read the saved file directly: PDFs and images are viewable without text extraction. Omit " +
-      "attachment_id when the message has exactly one attachment; otherwise get IDs from list_attachments.",
+      "attachment_id when the message has exactly one attachment; otherwise get IDs from list_attachments. " +
+      "Cloud links (reference attachments) cannot be saved — the tool reports their URL so they can be opened.",
     parameters: z.object({
       message_id: z.string().describe("The message ID, or a short ref returned by scan_messages"),
       attachment_id: z
