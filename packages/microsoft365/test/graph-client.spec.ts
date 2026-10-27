@@ -146,8 +146,11 @@ describe("graph-client AuthStrategy injection", () => {
     const result = await client.listAttachments("MSG-ID")
 
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+    const [listUrl] = vi.mocked(fetch).mock.calls[0] as unknown as [string]
     const [linkUrl] = vi.mocked(fetch).mock.calls[1] as unknown as [string]
-    expect(new URL(linkUrl).pathname).toMatch(/\/me\/messages\/MSG-ID\/attachments\/LINK%2F1%3D$/)
+    expect(new URL(listUrl).pathname).toMatch(/^\/v1\.0\/me\/messages\/MSG-ID\/attachments$/)
+    // v1.0 returns none of the link fields; only beta does.
+    expect(new URL(linkUrl).pathname).toMatch(/^\/beta\/me\/messages\/MSG-ID\/attachments\/LINK%2F1%3D$/)
 
     const attachments = (result.value as { value: ReadonlyArray<Record<string, unknown>> }).value
     expect(attachments.find((a) => a.id === "FILE")).toEqual(FILE)
@@ -158,6 +161,21 @@ describe("graph-client AuthStrategy injection", () => {
       permission: "view",
       isFolder: true,
     })
+  })
+
+  it("reads a cloud link from the same mailbox the list came from", async () => {
+    const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+    stubAttachmentFetch({ value: [LINK] }, { "LINK/1=": { ...LINK, sourceUrl: "https://example.com/doc" } })
+
+    const client = initializeGraphClient(auth)
+    const result = await client.listAttachments("MSG-ID", "/users/shared@example.com")
+
+    const [linkUrl] = vi.mocked(fetch).mock.calls[1] as unknown as [string]
+    expect(new URL(linkUrl).pathname).toMatch(
+      /^\/beta\/users\/shared@example\.com\/messages\/MSG-ID\/attachments\/LINK%2F1%3D$/,
+    )
+    const [link] = (result.value as { value: ReadonlyArray<Record<string, unknown>> }).value
+    expect(link?.sourceUrl).toBe("https://example.com/doc")
   })
 
   it("still lists a cloud link, without its URL, when reading it fails", async () => {

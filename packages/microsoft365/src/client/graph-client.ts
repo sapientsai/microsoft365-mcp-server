@@ -123,15 +123,19 @@ const createGraphClient = (auth: AuthStrategy) => {
   // attachment type ("Could not find a property named 'sourceUrl' on type
   // 'microsoft.graph.attachment'"), so each link is read on its own. A link has no bytes, so that
   // read is small. If it fails, the link is still listed, without its URL.
+  //
+  // That read is pinned to beta whatever MS365_GRAPH_VERSION says. Microsoft documents the link
+  // fields on beta only, and v1.0 holds to that: checked live, a v1.0 GET of a referenceAttachment
+  // returns the base properties and no sourceUrl, providerType, permission or isFolder, while the same
+  // GET on beta returns all four.
   const ATTACHMENT_FIELDS = ["id", "name", "contentType", "size", "isInline", "lastModifiedDateTime"]
 
   const withReferenceFields = (messageId: string, att: GraphAttachment, prefix: string): Promise<GraphAttachment> =>
     att["@odata.type"] !== REFERENCE_ATTACHMENT
       ? Promise.resolve(att)
-      : request<GraphAttachment>(
-          "GET",
-          `${prefix}/messages/${messageId}/attachments/${encodeURIComponent(att.id)}`,
-        ).then((full) =>
+      : request<GraphAttachment>("GET", `${prefix}/messages/${messageId}/attachments/${encodeURIComponent(att.id)}`, {
+          version: "beta",
+        }).then((full) =>
           full.fold(
             () => att,
             ({ sourceUrl, providerType, permission, isFolder }) => ({
