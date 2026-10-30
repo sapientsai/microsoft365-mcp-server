@@ -128,12 +128,14 @@ Every requirement follows `AGENTS.md`:
 
 - **Priority:** Must.
 - **Statement:** Each task line in `list_todo_tasks` carries the fields a caller needs, in a fixed order, and the format is pinned in `test/plugin-contract.spec.ts`.
-- **Proposed line:**
+- **Line (as shipped in PR 1, #164):**
   ```
-  - **<title>** [<status>] [<importance>] (Due: <date>) (Completed: <dateTime> <timeZone>) (Modified: <ISO time>) (Categories: a, b) (Link: <externalId>) (Ext: <JSON>) (ID: <id>)
+  - **<title>** [<status>] [<High|Low> importance] (Due: <date>) (Repeats: <pattern>) (Completed: <dateTime> <timeZone>) (Modified: <ISO time>) (Categories: a, b) (Link: <externalId>) (Ext: <JSON>) (ID: <id>)
   ```
+  `TODO_LINE` in `test/plugin-contract.spec.ts` is the authority; copy it from there.
   - Optional parts are left out when empty, never printed blank.
-  - `[<importance>]` appears only when it isn't `normal`, as mail flags appear only when set.
+  - Importance appears only when it isn't `normal`, labelled `[High importance]` or `[Low importance]` as mail lines are, so it can't be read as a status.
+  - `(Repeats: …)` stays after Due: whether a task repeats is what a caller must know before completing it.
   - `(Due: …)` prints `dateTime` as today. `(Completed: …)` prints `completedDateTime`'s `dateTime` and `timeZone`, because it's a `dateTimeTimeZone`.
   - `(Ext: …)` is the extension's fields as one-line JSON. It sits last before the id, and the pattern anchors on ` (ID: <id>)$`, so a `)` inside a value can't end the line early.
   - **No defaults.** A field Graph didn't return is left out. Today `formatTodoTaskSummary` prints `Untitled` and `notStarted` for a missing title or status (`utils/formatters.ts:627,640`); a parsed line must never carry a value Graph didn't send.
