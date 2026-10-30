@@ -89,6 +89,7 @@ Every requirement follows `AGENTS.md`:
   - The check can't see a task the person moved to another list or deleted. Not creating those again is a caller rule (How the assistant will use the tools, item 6).
   - `web_url` is shown only if it parses as `http:` or `https:` (AGENTS.md).
   - Tests cover both paths, and that `MS365_READ_ONLY` hides the tool.
+- **Checked live after PR 1 (#164), 2026-10-30,** in a throwaway list since deleted: a tagged create stored `externalId`, `applicationName`, `displayName` and `webUrl` as sent; a second create with the same `external_id` returned the existing task and made no second one; the list line carried `(Link: …)`. Graph also accepted a linked resource with no `displayName`, so the server's default is a courtesy, not a requirement.
 - **Settled by the docs:** `linkedResources` goes inside the create body. The [create task](https://learn.microsoft.com/en-us/graph/api/todotasklist-post-tasks?view=graph-rest-1.0) example "creates a **todoTask** in the specified task list, and includes a linkedResource" in the same POST. No second call is needed.
 - **Settled live (2026-10-30):** Graph refuses `$filter=linkedResources/any(r: r/externalId eq '…')` with "CollectionNavigationNode operation is not supported in query filters." So the check pages the whole list with `$expand=linkedResources` and matches in code, as the acceptance above requires. `$expand=linkedResources` works on list tasks, and the Flagged email list returns `linkedResources` even without it.
 - **Refuse an unsafe `external_id`.** It's a round-trip key, so output can't clean it without breaking the match. Refuse one that holds CR/LF, `|`, `(` or `)`, or is over 200 characters, before any call.
@@ -99,7 +100,7 @@ Every requirement follows `AGENTS.md`:
 - **Statement:** `create_todo_task` and `update_todo_task` take `categories: string[]`, and list and detail output print them.
 - **Acceptance:** Categories round-trip, and output cleans each one as untrusted text.
 - **Settled by the docs:** "Each category corresponds to the **displayName** property of an outlookCategory that the user has defined" ([todoTask](https://learn.microsoft.com/en-us/graph/api/resources/todotask?view=graph-rest-1.0)).
-- **Verify first:** whether Graph refuses a category that isn't in the person's master category list. The docs don't say. If it refuses, say so in the tool description. Don't create master categories.
+- **Settled live (2026-10-30):** Graph accepts and stores a category that isn't in the person's master category list (`ClaudeTestCategoryNotInMasterList` round-tripped). How To Do shows such a category wasn't checked. Don't create master categories.
 - **Not in `set_todo_task_state`.** Categories replace the person's own, so they stay out of the unattended tool (DR-001).
 
 ### REQ-TODO-003: Store a caller's data on a task (open extension)
@@ -254,7 +255,6 @@ Run `pnpm validate` before each PR.
 ## Open questions
 
 - Each "Verify first" item above, answered during the build, with the fallback named in each. Still open, with nothing in the docs:
-  - whether Graph refuses a category missing from the master list (REQ-TODO-002);
   - which name the extension `$filter` matches, To Do's extension limits, and whether an update merges or replaces (REQ-TODO-003);
   - which `@removed` reasons To Do sends, and the status `syncStateNotFound` arrives with (REQ-TODO-005);
   - whether Graph refuses writes to the Flagged email list (REQ-TODO-006);
