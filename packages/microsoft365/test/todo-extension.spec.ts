@@ -64,6 +64,15 @@ describe("extension shapes", () => {
     expect(extensionFields(read)).toEqual({ rank: 1, tier: "top", pinned: true })
   })
 
+  // Another writer could store a key this server would refuse; it must not reach the line.
+  it("drops a key it wouldn't accept on input", () => {
+    expect(extensionFields({ ...read, "bad\u2028key": "x", "with.dot": 1 })).toEqual({
+      rank: 1,
+      tier: "top",
+      pinned: true,
+    })
+  })
+
   it("finds an extension by extensionName, case-insensitively, never by id", () => {
     expect(findExtension([read], "COM.claude.test")).toBe(read)
     expect(

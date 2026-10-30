@@ -115,8 +115,6 @@ import {
   setTodoTaskState,
   summarizeSenders,
   switchAccountTool,
-  TASK_IMPORTANCES,
-  TASK_STATUSES,
   updateContact,
   updateDraft,
   updateEvent,
@@ -127,6 +125,7 @@ import {
   uploadFile,
   uploadFileFromPath,
 } from "./tools"
+import { SET_TODO_TASK_STATE_PARAMS, TODO_EXTENSION_PARAM } from "./tools/todo-schemas"
 import type { ToolDefinition } from "./tools/tool-definitions"
 import {
   annotationsFor,
@@ -299,17 +298,6 @@ const TODO_CATEGORIES_PARAM = z
   .array(z.string())
   .optional()
   .describe("Category names, matching the person's Outlook categories")
-
-// A caller's own data on a task, as a Graph open extension. Use one fixed name per app: Graph warns
-// against naming extensions in a variable manner.
-const TODO_EXTENSION_PARAM = z
-  .object({
-    name: z.string().describe("Reverse-DNS extension name, one fixed name per app, e.g. com.example.assistant"),
-    fields: z
-      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-      .describe("At most 20 flat fields (string, number or boolean), at most 2 KB as JSON"),
-  })
-  .optional()
 
 const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Auth Tools ===
@@ -1879,15 +1867,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       "a failed call is safe to repeat. Completing a repeating task is refused; use update_todo_task. Complete " +
       "only tasks you created, and change importance only on tasks carrying your extension, so the person's own " +
       "choices are never overwritten",
-    parameters: z.object({
-      list_id: z.string().describe("To Do list ID"),
-      task_id: z.string().describe("Task ID"),
-      status: z.enum(TASK_STATUSES).optional().describe("New status"),
-      importance: z.enum(TASK_IMPORTANCES).optional().describe("New importance"),
-      extension: TODO_EXTENSION_PARAM.describe(
-        "Fields to set in your extension. Fields you leave out keep their values; a missing extension is created",
-      ),
-    }),
+    parameters: SET_TODO_TASK_STATE_PARAMS,
     execute: async (params) => unwrapResult(await setTodoTaskState(params)),
     domain: "todo",
     readOnly: false,

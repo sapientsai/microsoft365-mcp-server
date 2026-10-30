@@ -312,6 +312,11 @@ describe("tool-registry", () => {
     })
   })
 
+  it("hides set_todo_task_state in read-only mode", () => {
+    expect(filterTools({ readOnly: true }).has("set_todo_task_state")).toBe(false)
+    expect(filterTools({}).has("set_todo_task_state")).toBe(true)
+  })
+
   describe("idempotentHint", () => {
     it("marks set_todo_task_state destructive and idempotent, and no other tool idempotent", () => {
       const state = TOOL_METADATA.find((m) => m.name === "set_todo_task_state")!

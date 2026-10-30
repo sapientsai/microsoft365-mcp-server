@@ -5,7 +5,7 @@ import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphTodoList, GraphTodoTask, ODataResponse } from "../types"
-import { formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
+import { extensionJson, formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
 import { displayableLinkUrl } from "../utils/link-url"
 import type { RecurrenceInput } from "../utils/recurrence"
 import { buildRecurrence, describeRecurrence, toDateOnly } from "../utils/recurrence"
@@ -88,9 +88,6 @@ export const createTodoList = async (params: { display_name: string }): Promise<
     )
 }
 
-// A task's source lives in linkedResources, a relationship Graph returns only when expanded.
-const TASK_EXPAND = { $expand: ["linkedResources"] }
-
 export type LinkedResourceInput = {
   readonly external_id: string
   readonly application_name: string
@@ -130,7 +127,8 @@ const cleanCategories = (categories: ReadonlyArray<string>): ReadonlyArray<strin
   ...new Set(categories.map((c) => c.trim()).filter((c) => c !== "")),
 ]
 
-// With an extension name, that one extension is expanded too, so its fields can print on each line.
+// A task's source lives in linkedResources, a relationship Graph returns only when expanded. With an
+// extension name, that one extension is expanded too, so its fields can print on each line.
 const taskExpand = (extensionName?: string) => ({
   $expand: extensionName === undefined ? ["linkedResources"] : ["linkedResources", extensionExpand(extensionName)],
 })
@@ -209,7 +207,7 @@ export const createTodoTask = async (params: {
   // included. A list that can't be read in full refuses the create rather than risk the duplicate.
   if (params.linked_resource) {
     const externalId = params.linked_resource.external_id
-    const existing = await client.listAllTodoTasks(params.list_id, TASK_EXPAND)
+    const existing = await client.listAllTodoTasks(params.list_id, taskExpand(params.extension?.name))
     if (existing.isLeft()) {
       return Left(
         new UserError(
@@ -224,7 +222,7 @@ export const createTodoTask = async (params: {
     // AGENTS.md, Results, on an idempotent repeat.
     if (match) {
       return Right(
-        `A task with this external_id already exists, so none was created.\n\n${formatTodoTaskDetail(match)}`,
+        `A task with this external_id already exists, so none was created.\n\n${formatTodoTaskDetail(match, params.extension?.name)}`,
       )
     }
     task.linkedResources = [toLinkedResource(params.linked_resource)]
@@ -445,7 +443,7 @@ const writeExtension = async (
   }
   const merged = { ...extensionFields(existing.value as Record<string, unknown>), ...extension.fields }
   const tooBig = extensionFieldsProblem(merged)
-  if (tooBig) return Left(`the merged extension is too large: ${tooBig}`)
+  if (tooBig) return Left(`the extension can't take these fields: ${tooBig}`)
   const replaced = await client.replaceTodoTaskExtension(listId, taskId, extension.name, toExtensionPatch(merged))
   return replaced.fold(
     (e) => Left(`writing the extension failed: ${e.message}`),
@@ -517,7 +515,7 @@ export const setTodoTaskState = async (params: {
     const prefix = changedTask ? `${saved} on task ${params.task_id}, but ` : "Nothing was changed: "
     return Left(new UserError(`${prefix}${written.value as string}. Repeating the call is safe.`))
   }
-  const now = JSON.stringify(written.value as Record<string, ExtensionValue>)
+  const now = extensionJson(written.value as Record<string, ExtensionValue>)
   return Right(
     `${changedTask ? `${saved}, and set` : "Set"} extension ${params.extension.name} on task ${params.task_id}. It now holds ${now}.`,
   )

@@ -85,12 +85,15 @@ export const toExtensionPatch = (fields: Readonly<Record<string, ExtensionValue>
   ...fields,
 })
 
-/** Only the caller's fields: Graph's name, id, type and per-field annotations are dropped. */
+/**
+ * Only the caller's fields: Graph's name, id, type and per-field annotations are dropped, and so is
+ * any key this server wouldn't accept on input (another writer's), so a key can't break the line.
+ */
 export const extensionFields = (extension: GraphOpenExtension): Record<string, ExtensionValue> =>
   Object.fromEntries(
     Object.entries(extension).filter(
       (entry): entry is [string, ExtensionValue] =>
-        !entry[0].includes("@") &&
+        FIELD_KEY.test(entry[0]) &&
         !RESERVED_KEYS.has(entry[0].toLowerCase()) &&
         ["string", "number", "boolean"].includes(typeof entry[1]),
     ),

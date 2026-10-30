@@ -653,7 +653,7 @@ const linkedExternalIds = (task: GraphTodoTask): ReadonlyArray<string> =>
 // escapes CR and LF but leaves U+2028 and U+2029 as they are.
 const EXTENSION_VALUE_MAX = 500
 
-const extensionJson = (fields: Readonly<Record<string, ExtensionValue>>): string =>
+export const extensionJson = (fields: Readonly<Record<string, ExtensionValue>>): string =>
   JSON.stringify(
     Object.fromEntries(
       Object.entries(fields).map(([k, v]) => [k, typeof v === "string" ? inlineText(v, EXTENSION_VALUE_MAX) : v]),
