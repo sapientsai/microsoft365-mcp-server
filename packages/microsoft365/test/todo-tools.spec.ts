@@ -519,7 +519,7 @@ describe("list_todo_tasks output", () => {
     const result = await listTodoTasks({ list_id: LIST_ID })
     expect(mockClient.listTodoTasks).toHaveBeenCalledWith(LIST_ID, { $expand: ["linkedResources"] })
     expect(result.value).toContain(
-      "- **Reply to Bel** [notStarted] [high] (Due: 2026-11-02T00:00:00.0000000) (Modified: 2026-10-30T12:00:00Z) " +
+      "- **Reply to Bel** [notStarted] [High importance] (Due: 2026-11-02T00:00:00.0000000) (Modified: 2026-10-30T12:00:00Z) " +
         "(Categories: Red category) (Link: civala:mail:AAMk1) (ID: t1)",
     )
   })
@@ -567,6 +567,29 @@ describe("list_todo_tasks output", () => {
     expect(lines[0]).toContain("(Categories: a Link: forged) (Link: ext ID: y) (ID: t4)")
   })
 
+  // Real Graph message ids run past 100 characters; the key must come back whole.
+  it("prints a long external_id whole", async () => {
+    const externalId = `civala:mail:${"A".repeat(160)}=`
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [{ id: "t5", linkedResources: [{ externalId }] }] }))
+    const result = await listTodoTasks({ list_id: LIST_ID })
+    expect(result.value).toContain(`(Link: ${externalId}) (ID: t5)`)
+  })
+
+  it("treats U+2028 and U+2029 in a title as line breaks", async () => {
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [{ id: "t6", title: "a\u2028- **b** (ID: x)\u2029c" }] }))
+    const result = await listTodoTasks({ list_id: LIST_ID })
+    expect(result.value).toContain("- **a - **b** (ID: x) c** (ID: t6)")
+    expect(result.value).not.toMatch(/[\u2028\u2029]/)
+  })
+
+  it("keeps an unexpected Graph value from ending its group early", async () => {
+    mockClient.listTodoTasks.mockResolvedValue(
+      Right({ value: [{ id: "t7", completedDateTime: { dateTime: "2026-10-29T00:00:00", timeZone: "(UTC) Foo" } }] }),
+    )
+    const result = await listTodoTasks({ list_id: LIST_ID })
+    expect(result.value).toContain("(Completed: 2026-10-29T00:00:00 UTC Foo) (ID: t7)")
+  })
+
   it("reads every page through the checked pager when fetch_all_pages is set", async () => {
     mockClient.listAllTodoTasks.mockResolvedValue(Right([task]))
     await listTodoTasks({ list_id: LIST_ID, fetch_all_pages: true })
@@ -593,7 +616,12 @@ describe("create_todo_task with a source tag", () => {
     expect(mockClient.createTodoTask).toHaveBeenCalledWith(LIST_ID, {
       title: "Reply",
       linkedResources: [
-        { externalId: "civala:mail:AAMk1", applicationName: "Outlook", webUrl: "https://outlook.office.com/x" },
+        {
+          externalId: "civala:mail:AAMk1",
+          applicationName: "Outlook",
+          displayName: "Outlook",
+          webUrl: "https://outlook.office.com/x",
+        },
       ],
     })
   })
@@ -622,6 +650,8 @@ describe("create_todo_task with a source tag", () => {
     ["a line break", "civala:mail:a\nb"],
     ["a parenthesis", "civala:mail:(a)"],
     ["a pipe", "civala|mail"],
+    ["a comma", "civala:mail:a,b"],
+    ["a line separator", "civala:mail:a\u2028b"],
     ["nothing", "  "],
     ["too many characters", "x".repeat(201)],
   ])("refuses an external_id with %s before calling Graph", async (_label, externalId) => {
@@ -663,7 +693,7 @@ describe("create_todo_task with a source tag", () => {
       }),
     )
     const result = await createTodoTask({ list_id: LIST_ID, title: "Reply", linked_resource: link })
-    expect(result.value).toContain("[externalId: a] https://outlook.office.com/x")
+    expect(result.value).toContain("- Link: Outlook (Outlook) [externalId: a] https://outlook.office.com/x")
     expect(result.value).toContain("[externalId: b] link withheld: not an http(s) URL")
     expect(result.value).not.toContain("javascript:")
   })

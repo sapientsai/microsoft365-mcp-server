@@ -508,7 +508,9 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   // A continuation link is followed only if it is Graph's own, carries no credentials or fragment,
   // and stays on the same list's tasks: a link that points anywhere else is refused, not followed.
-  const nextTodoTaskPage = (nextLink: string, listId: string) => {
+  // It must also keep the first page's $expand: a page without linkedResources would read as a
+  // page of untagged tasks, and a duplicate check would miss the task it was looking for.
+  const nextTodoTaskPage = (nextLink: string, listId: string, expand: string | null) => {
     const url = URL.canParse(nextLink) ? new URL(nextLink) : undefined
     const match = /^\/(v1\.0|beta)\/me\/todo\/lists\/([^/]+)\/tasks$/.exec(url?.pathname ?? "")
     if (
@@ -517,7 +519,8 @@ const createGraphClient = (auth: AuthStrategy) => {
       url.password ||
       url.hash ||
       !match ||
-      safeDecode(match[2]!) !== safeDecode(listId)
+      safeDecode(match[2]!) !== safeDecode(listId) ||
+      url.searchParams.get("$expand") !== expand
     ) {
       return Promise.resolve(
         Left<GraphApiError, ODataResponse<GraphTodoTask>>({
@@ -537,13 +540,15 @@ const createGraphClient = (auth: AuthStrategy) => {
     listId: string,
     odataParams?: ODataParams,
   ): Promise<Either<GraphApiError, ReadonlyArray<GraphTodoTask>>> => {
+    const expand = odataParams?.$expand ? odataParams.$expand.join(",") : null
     const step = async (
       page: Either<GraphApiError, ODataResponse<GraphTodoTask>>,
       read: ReadonlyArray<GraphTodoTask>,
       pages: number,
     ): Promise<Either<GraphApiError, ReadonlyArray<GraphTodoTask>>> => {
       if (page.isLeft()) return Left(page.value as GraphApiError)
-      const { value, "@odata.nextLink": next } = page.value as ODataResponse<GraphTodoTask>
+      const { value, "@odata.nextLink": next } = page.value as Partial<ODataResponse<GraphTodoTask>>
+      if (!Array.isArray(value)) return Left({ type: "parse", message: "A page of To Do tasks had no value array." })
       const all = [...read, ...value]
       if (next === undefined) return Right(all)
       if (pages >= MAX_TODO_TASK_PAGES) {
@@ -552,7 +557,7 @@ const createGraphClient = (auth: AuthStrategy) => {
           message: `The list has more than ${MAX_TODO_TASK_PAGES} pages of ${TODO_TASK_PAGE_SIZE} tasks; reading stopped there.`,
         })
       }
-      return step(await nextTodoTaskPage(next, listId), all, pages + 1)
+      return step(await nextTodoTaskPage(next, listId, expand), all, pages + 1)
     }
     return step(await listTodoTasks(listId, { ...odataParams, $top: TODO_TASK_PAGE_SIZE }), [], 1)
   }

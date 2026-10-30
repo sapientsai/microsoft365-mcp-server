@@ -21,7 +21,7 @@ const MESSAGE_LINE = /^- \*\*(.*)\*\* \((\d{4}-\d{2}-\d{2}T[^)]*)\)((?: \[[^\]]+
 // server only prints it from REQ-TODO-003, so the plugin copies this pattern once. Groups:
 // 1 title, 2 status, 3 importance, 4 due, 5 repeats, 6 completed, 7 modified, 8 categories, 9 link, 10 ext, 11 id.
 const TODO_LINE =
-  /^- \*\*(.*)\*\*(?: \[(?!(?:low|high)\])([A-Za-z]+)\])?(?: \[(low|high)\])?(?: \(Due: ([^)]+)\))?(?: \(Repeats: ([^)]+)\))?(?: \(Completed: ([^)]+)\))?(?: \(Modified: ([^)]+)\))?(?: \(Categories: ([^)]+)\))?(?: \(Link: ([^)]+)\))?(?: \(Ext: (\{.*\})\))? \(ID: ([^)]+)\)$/
+  /^- \*\*(.*)\*\*(?: \[([A-Za-z]+)\])?(?: \[(High|Low) importance\])?(?: \(Due: ([^)]+)\))?(?: \(Repeats: ([^)]+)\))?(?: \(Completed: ([^)]+)\))?(?: \(Modified: ([^)]+)\))?(?: \(Categories: ([^)]+)\))?(?: \(Link: ([^)]+)\))?(?: \(Ext: (\{.*\})\))? \(ID: ([^)]+)\)$/
 
 // The plugin splits on newlines and trims; item lines start with "- **", text lines with "  > ".
 const itemLines = (text: string): ReadonlyArray<string> =>
@@ -180,7 +180,7 @@ describe("plugin contract: list_todo_tasks", () => {
         linkedResources: [{ externalId: "civala:mail:AAMk1", applicationName: "Outlook" }],
       }),
       {
-        3: "high",
+        3: "High",
         4: "2026-11-02T00:00:00.0000000",
         5: "every day from 2026-11-02",
         6: "2026-11-03T00:00:00.0000000 UTC",
@@ -188,7 +188,7 @@ describe("plugin contract: list_todo_tasks", () => {
         9: "civala:mail:AAMk1",
       },
     ],
-    ["low importance and no status", task({ status: undefined, importance: "low" }), { 2: undefined, 3: "low" }],
+    ["low importance and no status", task({ status: undefined, importance: "low" }), { 2: undefined, 3: "Low" }],
     ["a title with brackets, parentheses and bold markers", task({ title: "Re: [EXT] (urgent) **budget** v2" }), {}],
     ["a flagged email's linked message", task({ linkedResources: [{ externalId: "AAkALgAAAA-EWg0AAA" }] }), {}],
   ])("parses %s, ID last", (_label, todo, groups) => {
@@ -198,6 +198,12 @@ describe("plugin contract: list_todo_tasks", () => {
     expect(match, lines[0]).not.toBeNull()
     expect(match?.[11]).toBe(todo.id)
     for (const [group, value] of Object.entries(groups)) expect(match?.[Number(group)], `group ${group}`).toBe(value)
+  })
+
+  it("returns a long external_id whole in the Link group", () => {
+    const externalId = `civala:mail:${"A".repeat(160)}=`
+    const lines = itemLines(formatTodoTaskList([task({ linkedResources: [{ externalId }] })]))
+    expect(TODO_LINE.exec(lines[0])?.[9]).toBe(externalId)
   })
 
   it("keeps a title with a line break to one item line", () => {

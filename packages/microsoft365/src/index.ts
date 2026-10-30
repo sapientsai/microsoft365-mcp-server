@@ -1812,11 +1812,11 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
             .string()
             .describe(
               "Your key for the source, e.g. 'civala:mail:<message id>'. At most 200 characters, with no line " +
-                "break, |, ( or ). One task per external_id per list",
+                "break, |, (, ) or comma. One task per external_id per list",
             ),
           application_name: z.string().describe("The source app, e.g. 'Outlook'"),
           web_url: z.string().optional().describe("An http(s) link back to the source, shown in To Do"),
-          display_name: z.string().optional().describe("A label for the link"),
+          display_name: z.string().optional().describe("A label for the link. Defaults to application_name"),
         })
         .optional()
         .describe("Tag the task with where it came from. Stored as the task's linkedResources"),

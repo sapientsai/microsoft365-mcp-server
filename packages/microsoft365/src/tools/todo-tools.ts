@@ -96,8 +96,9 @@ const linkedResourceProblem = (link: LinkedResourceInput): string | undefined =>
   if (link.external_id.length > EXTERNAL_ID_MAX) {
     return `linked_resource.external_id is longer than ${EXTERNAL_ID_MAX} characters.`
   }
-  if (/[\r\n|()]/.test(link.external_id)) {
-    return "linked_resource.external_id must not contain a line break, |, ( or )."
+  // A comma would make two linked ids on one line ambiguous, since the list line joins them with ", ".
+  if (/[\r\n\v\f\u0085\u2028\u2029|(),]/.test(link.external_id)) {
+    return "linked_resource.external_id must not contain a line break, |, (, ) or a comma."
   }
   if (link.application_name.trim() === "") return "linked_resource.application_name must not be empty."
   if (link.web_url !== undefined && displayableLinkUrl(link.web_url) === undefined) {
@@ -106,11 +107,12 @@ const linkedResourceProblem = (link: LinkedResourceInput): string | undefined =>
   return undefined
 }
 
+// Graph's linkedResource docs list displayName as required, so it falls back to the app's name.
 const toLinkedResource = (link: LinkedResourceInput): Record<string, string> => ({
   externalId: link.external_id,
   applicationName: link.application_name,
+  displayName: link.display_name ?? link.application_name,
   ...(link.web_url === undefined ? {} : { webUrl: link.web_url }),
-  ...(link.display_name === undefined ? {} : { displayName: link.display_name }),
 })
 
 const cleanCategories = (categories: ReadonlyArray<string>): ReadonlyArray<string> => [

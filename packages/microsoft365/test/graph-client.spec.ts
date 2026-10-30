@@ -311,7 +311,12 @@ describe("listAllTodoTasks", () => {
   it("follows the list's own continuation links to the end, expanding linkedResources", async () => {
     const fetchSpy = vi
       .fn()
-      .mockResolvedValueOnce(page(["t1"], nextLink(`/me/todo/lists/${LIST}/tasks`)))
+      .mockResolvedValueOnce(
+        page(
+          ["t1"],
+          `https://graph.microsoft.com/v1.0/me/todo/lists/${LIST}/tasks?$top=100&$expand=linkedResources&$skip=100`,
+        ),
+      )
       .mockResolvedValueOnce(page(["t2"]))
     vi.stubGlobal("fetch", fetchSpy)
     const result = await initializeGraphClient(auth).listAllTodoTasks(LIST, { $expand: ["linkedResources"] })
@@ -336,6 +341,21 @@ describe("listAllTodoTasks", () => {
     expect(result.isLeft()).toBe(true)
     expect((result.value as { message: string }).message).toBe("Invalid Graph To Do continuation URL.")
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  // A continuation that dropped $expand would return untagged tasks, and a duplicate check would miss.
+  it("refuses a continuation link that drops the first page's $expand", async () => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(page(["t1"], nextLink(`/me/todo/lists/${LIST}/tasks`)))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST, { $expand: ["linkedResources"] })
+    expect(result.isLeft()).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("fails on a page with no value array instead of throwing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({}))))
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST)
+    expect(result.isLeft()).toBe(true)
   })
 
   it("fails, rather than returning a short list, when the page cap is reached", async () => {
