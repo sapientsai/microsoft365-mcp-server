@@ -603,7 +603,7 @@ update they replace the task's categories, and `[]` clears them.
 **Task lines have a fixed shape** for callers that parse them:
 
 ```
-- **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>) (Modified: …) (Categories: a, b) (Link: <externalId>) (ID: <id>)
+- **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>) (Modified: …) (Categories: a, b) (Link: <externalId>) (Mail: <message id>) (Ext: <JSON>) (ID: <id>)
 ```
 
 A part Graph didn't return is left out, never filled with a default. Importance shows only
@@ -630,6 +630,14 @@ advertised as idempotent, and a failed call is safe to repeat. It is still marke
 because it overwrites values. Completing a repeating task is refused, since each completion
 rolls the series on by one more occurrence; use `update_todo_task` for that. When the task
 updates but the extension doesn't, the error says which part was saved.
+
+**The Flagged Emails list** (`wellknownListName: flaggedEmails`) holds the emails flagged
+in Outlook. Each of its tasks links to its email, but the link's `externalId` isn't an id any
+mail tool takes, so each such line also carries `(Mail: <message id>)`: the Graph id that
+`get_message` and the mail list lines use. It comes from the link's Outlook web URL, whose
+`ItemID` holds the same id in Outlook's older format; Microsoft doesn't document that mapping,
+so the id is shown only when the URL is an `https:` Outlook one and the result holds only id
+characters. Graph accepts writes to this list like any other.
 
 `delete_todo_task` has no undo through the API. Microsoft documents restoring a deleted
 task by hand from Outlook's Deleted Items folder, but that hasn't been checked for tasks
