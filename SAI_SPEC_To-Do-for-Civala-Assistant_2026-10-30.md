@@ -233,7 +233,7 @@ Every requirement follows `AGENTS.md`:
   - Create a task due `2026-11-02` for an Eastern-time user and confirm To Do shows November 2.
   - If it shows November 1, take a caller-supplied `time_zone`, or send noon UTC, which lands on the same day from UTC−12 to UTC+11. Don't read the mailbox's time zone: that needs `MailboxSettings.Read`, which isn't in `DEFAULT_INTERACTIVE_SCOPES` (`auth/scopes.ts:76-99`) and would break "no new consent is needed". Add a test.
 - **This is a check first.** It may already be correct.
-- **Checked live (2026-10-30):** Graph stores a due date as a point in time. `2026-11-02T00:00` UTC reads back as `2026-11-01T19:00` with `Prefer: outlook.timezone="Eastern Standard Time"`, and Eastern midnight is stored as `05:00` UTC. To Do's own writes use midnight UTC: completing a repeating task rolled its due date to `2026-10-31T00:00` UTC and set `completedDateTime` to midnight UTC. That suggests the app reads the UTC date, which would make today's sending correct, but only a look at the app can confirm it. The change waits for that look.
+- **Settled live (2026-10-30): no change.** Graph keeps a To Do due date as a date and drops the time. Sending `2026-11-02T12:00:00` UTC came back as `2026-11-02T00:00:00` UTC, so a noon fallback can't work. A date sent with another time zone is kept as midnight in that zone (Eastern midnight read back as `05:00` UTC). The server sends midnight UTC, which is the form To Do's own writes use (a repeating task rolled forward to midnight UTC). Not checked: the To Do app's own display. If a person ever reports a task one day early, the remaining fix is a caller-supplied `time_zone` sent as the `dueDateTime` zone, since a mailbox lookup needs `MailboxSettings.Read`.
 
 ## Decision requests
 
@@ -283,5 +283,5 @@ Run `pnpm validate` before each PR.
   - To Do's extension size limits (REQ-TODO-003);
   - which `@removed` reasons To Do sends, and the status `syncStateNotFound` arrives with (REQ-TODO-005);
   - whether Graph refuses writes to the Flagged email list (REQ-TODO-006);
-  - how To Do shows a UTC-midnight due date (REQ-TODO-008).
+  - the To Do app's own display of a due date (REQ-TODO-008; the API side is settled).
 - Whether to also expose `checklistItems`, `startDateTime` and `reminderDateTime`. Nobody needs them yet.
