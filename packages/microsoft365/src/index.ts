@@ -1785,7 +1785,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "list_todo_tasks",
-    description: "List tasks in a To Do list",
+    description:
+      "List tasks in a To Do list. The Flagged Emails list (wellknownListName flaggedEmails) holds the emails " +
+      "flagged in Outlook; each of its tasks carries (Mail: <message id>), the id the mail tools use",
     parameters: z.object({
       list_id: z.string().describe("To Do list ID"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,

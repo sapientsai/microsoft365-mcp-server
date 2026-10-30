@@ -893,3 +893,30 @@ describe("set_todo_task_state", () => {
     expect(mockClient.getTodoTaskExtension).not.toHaveBeenCalled()
   })
 })
+
+describe("the Flagged Emails list", () => {
+  it("prints each flagged email's message id beside its link, and in detail output", async () => {
+    const task = {
+      id: "f1",
+      title: "Invoice",
+      linkedResources: [
+        {
+          applicationName: "Outlook",
+          externalId: "AAkALg-ext",
+          webUrl: "https://outlook.office365.com/owa/?ItemID=AAMk%2FAB%2Bc%3D&exvsurl=1",
+        },
+      ],
+    }
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [task] }))
+    const list = await listTodoTasks({ list_id: LIST_ID })
+    expect(list.value).toContain("- **Invoice** (Link: AAkALg-ext) (Mail: AAMk-AB_c=) (ID: f1)")
+
+    mockClient.listAllTodoTasks.mockResolvedValue(Right([task]))
+    const repeat = await createTodoTask({
+      list_id: LIST_ID,
+      title: "Invoice",
+      linked_resource: { external_id: "AAkALg-ext", application_name: "Outlook" },
+    })
+    expect(repeat.value).toContain("[externalId: AAkALg-ext] [message: AAMk-AB_c=] https://outlook.office365.com/")
+  })
+})

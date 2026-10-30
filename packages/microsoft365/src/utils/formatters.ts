@@ -28,6 +28,7 @@ import type {
   GraphUser,
 } from "../types"
 import { displayableLinkUrl } from "./link-url"
+import { linkedMessageId } from "./outlook-link"
 import { describeRecurrence } from "./recurrence"
 import { extensionFields, type ExtensionValue, findExtension } from "./todo-extension"
 
@@ -649,6 +650,14 @@ const groupValue = (value: string, max: number = TODO_VALUE_MAX): string => inli
 const linkedExternalIds = (task: GraphTodoTask): ReadonlyArray<string> =>
   (task.linkedResources ?? []).flatMap((r) => (r.externalId ? [groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)] : []))
 
+// The Graph id of each email a task links to (a flagged email's task), so a caller can match the
+// task to its mail. Already checked to hold only id characters.
+const linkedMessageIds = (task: GraphTodoTask): ReadonlyArray<string> =>
+  (task.linkedResources ?? []).flatMap((r) => {
+    const id = linkedMessageId(r)
+    return id === undefined ? [] : [id]
+  })
+
 // An extension's fields as one line of JSON. String values are one-lined first: JSON.stringify
 // escapes CR and LF but leaves U+2028 and U+2029 as they are.
 const EXTENSION_VALUE_MAX = 500
@@ -672,7 +681,7 @@ const IMPORTANCE_LABELS: Readonly<Record<string, string>> = { high: "High import
  * One task as one line, in the fixed order the Civala Assistant parses (test/plugin-contract.spec.ts):
  *
  *   - **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>)
- *     (Modified: …) (Categories: a, b) (Link: <externalId>) (Ext: <JSON>) (ID: <id>)
+ *     (Modified: …) (Categories: a, b) (Link: <externalId>) (Mail: <message id>) (Ext: <JSON>) (ID: <id>)
  *
  * A part Graph didn't return is left out rather than filled in, because a caller reads every value
  * on the line as Graph's. Importance shows only when it isn't normal, labelled as mail lines label it,
@@ -685,6 +694,7 @@ export const formatTodoTaskSummary = (task: GraphTodoTask, extensionName?: strin
   const completedZone = task.completedDateTime?.timeZone ? ` ${task.completedDateTime.timeZone}` : ""
   const categories = (task.categories ?? []).map((c) => groupValue(c)).filter((c) => c !== "")
   const links = linkedExternalIds(task)
+  const mail = linkedMessageIds(task)
   return [
     `- **${inlineText(task.title ?? "", TODO_TITLE_MAX)}**`,
     task.status ? ` [${groupValue(task.status).replace(/[[\]]/g, "")}]` : "",
@@ -697,6 +707,7 @@ export const formatTodoTaskSummary = (task: GraphTodoTask, extensionName?: strin
     task.lastModifiedDateTime ? ` (Modified: ${groupValue(task.lastModifiedDateTime)})` : "",
     categories.length > 0 ? ` (Categories: ${categories.join(", ")})` : "",
     links.length > 0 ? ` (Link: ${links.join(", ")})` : "",
+    mail.length > 0 ? ` (Mail: ${mail.join(", ")})` : "",
     extension === undefined ? "" : ` (Ext: ${extension})`,
     ` (ID: ${task.id})`,
   ].join("")
@@ -711,9 +722,13 @@ const formatLinkedResource = (r: GraphLinkedResource): string => {
   const name = inlineText(r.displayName ?? r.applicationName ?? "Link", TODO_TITLE_MAX)
   const app = r.applicationName ? ` (${groupValue(r.applicationName)})` : ""
   const id = r.externalId ? ` [externalId: ${groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)}]` : ""
+  const message = Option(linkedMessageId(r)).fold(
+    () => "",
+    (m) => ` [message: ${m}]`,
+  )
   const url = r.webUrl === undefined ? "" : ` ${displayableLinkUrl(r.webUrl) ?? "link withheld: not an http(s) URL"}`
   // A fixed label starts the line, so a displayName can't open it looking like a task line.
-  return `- Link: ${name}${app}${id}${url}`
+  return `- Link: ${name}${app}${id}${message}${url}`
 }
 
 export const formatTodoTaskDetail = (task: GraphTodoTask, extensionName?: string): string => {
