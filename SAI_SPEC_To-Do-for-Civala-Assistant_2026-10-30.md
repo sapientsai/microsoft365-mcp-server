@@ -70,7 +70,7 @@ Every requirement follows `AGENTS.md`:
 - register through `TOOL_METADATA` and `filterTools`;
 - honor `MS365_READ_ONLY`, presets (`todo`) and `MS365_ENABLED_TOOLS`;
 - retry writes only on 429;
-- `$select` what a list needs;
+- `$select` what a list needs (except To Do task lists, which refuse it; see REQ-TODO-004);
 - clean untrusted text;
 - check a Graph URL's origin before following it;
 - return `Left` when nothing changed (REQ-TODO-001's safe repeat is the one exception, and PR 1 writes it into AGENTS.md);
@@ -90,7 +90,8 @@ Every requirement follows `AGENTS.md`:
   - `web_url` is shown only if it parses as `http:` or `https:` (AGENTS.md).
   - Tests cover both paths, and that `MS365_READ_ONLY` hides the tool.
 - **Settled by the docs:** `linkedResources` goes inside the create body. The [create task](https://learn.microsoft.com/en-us/graph/api/todotasklist-post-tasks?view=graph-rest-1.0) example "creates a **todoTask** in the specified task list, and includes a linkedResource" in the same POST. No second call is needed.
-- **Verify first:** whether Graph supports `$filter=linkedResources/any(r: r/externalId eq '…')`. The docs don't mention it. If it doesn't work, page the whole list with `$expand=linkedResources` and match in code, as the acceptance above requires.
+- **Settled live (2026-10-30):** Graph refuses `$filter=linkedResources/any(r: r/externalId eq '…')` with "CollectionNavigationNode operation is not supported in query filters." So the check pages the whole list with `$expand=linkedResources` and matches in code, as the acceptance above requires. `$expand=linkedResources` works on list tasks, and the Flagged email list returns `linkedResources` even without it.
+- **Refuse an unsafe `external_id`.** It's a round-trip key, so output can't clean it without breaking the match. Refuse one that holds CR/LF, `|`, `(` or `)`, or is over 200 characters, before any call.
 
 ### REQ-TODO-002: Categories
 
@@ -139,7 +140,7 @@ Every requirement follows `AGENTS.md`:
 - **Acceptance:**
   - Titles, categories and extension values are cleaned as `AGENTS.md` describes: CR/LF collapsed, length capped, `|` stripped.
   - A test feeds a title with a newline and checks the line count.
-  - `$select` covers exactly the printed fields, with `$expand=linkedResources` and, when `extension_name` is set, the extension.
+  - **No `$select`.** Graph refuses it on To Do task lists: `$select=id,title` returns "Invalid request" on both a default and the Flagged email list, while `$select` on `/me/messages` works (live, 2026-10-30). The list sends `$expand=linkedResources` and, when `extension_name` is set, the extension expand. The call site says why the AGENTS.md `$select` rule isn't followed there.
   - The contract test gains a `TODO_LINE` pattern covering the full line, Ext included, even though Ext is produced only from PR 2. The plugin then copies the pattern once.
 
 ### REQ-TODO-005: What changed since the last run (delta)
@@ -158,7 +159,7 @@ Every requirement follows `AGENTS.md`:
     - **On the first call** (`delta: true`), records are printed from the delta response, and only a record missing title, status or importance is filled by that GET.
     - If a GET returns 404, the task is listed as removed. If it fails otherwise, the call returns a `Left` and prints no token. Every printed line is then a full REQ-TODO-004 line.
   - **Removed tasks get their own line,** after the task lines: `Removed: <id> (<reason>)`, or `Removed: <id>` when `@removed` has no reason (the docs say it "might include" one). It can't match the plugin's item filter, `line.startsWith("- **")` (`test/plugin-contract.spec.ts:21-25`), and the contract test pins both forms as `TODO_REMOVED_LINE`. `<reason>` is whatever Graph sends; the docs explain `changed` and `deleted` only for directory objects, so the tool doesn't interpret them.
-  - Delta lines carry the same fields as REQ-TODO-004, including Link and Ext: delta supports `$select`, `$top` and `$expand`.
+  - Delta lines carry the same fields as REQ-TODO-004, including Link and Ext: delta supports `$select`, `$top` and `$expand`. The docs say delta supports `$select`, but the task list refuses it (REQ-TODO-004), so PR 3 checks it live before relying on it.
   - Within one call, a task listed more than once is printed once, from the GET above. Graph doesn't promise an order ("Don't assume a specific sequence"), so the last record isn't necessarily the newest.
   - Each tool description says that completing a repeating task makes the finished occurrence a new, already-completed task with a new id, so a caller must not read an unseen completed task as newly added work. This was seen live on 2026-10-28 (the comment in `todo-tools.ts`), not in Graph's docs, so the description doesn't cite the docs for it.
 - **Why:** Each run needs only what the person did since the last run: tasks completed, added, or removed. Re-reading a whole list every half hour is slow and makes the caller diff it.
@@ -251,7 +252,6 @@ Run `pnpm validate` before each PR.
 ## Open questions
 
 - Each "Verify first" item above, answered during the build, with the fallback named in each. Still open, with nothing in the docs:
-  - filtering a list by `linkedResources` (REQ-TODO-001);
   - whether Graph refuses a category missing from the master list (REQ-TODO-002);
   - which name the extension `$filter` matches, To Do's extension limits, and whether an update merges or replaces (REQ-TODO-003);
   - which `@removed` reasons To Do sends, and the status `syncStateNotFound` arrives with (REQ-TODO-005);
