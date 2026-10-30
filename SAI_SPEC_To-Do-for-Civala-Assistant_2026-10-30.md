@@ -1,7 +1,7 @@
 # Change Request: To Do tools for the Civala Assistant
 
 **Date:** 2026-10-30
-**Status:** Draft, ready to build. Checked against the code at `4d059f5` and the Microsoft Graph docs. Revised 2026-10-30 after a review: the docs settle four "Verify first" items, and three gaps are closed (the duplicate check reads every page, the safe repeat is an intended `Right`, and a completed repeating occurrence is not a new task).
+**Status:** Draft, ready to build. Checked against the code at `4d059f5` and the Microsoft Graph docs. Revised 2026-10-30 after a review: the docs settle four "Verify first" items, and three gaps are closed (the duplicate check reads every page, the safe repeat is an intended `Right`, and a completed repeating occurrence is not a new task). Revised again after a second review: delta records can be partial, delta parameters are fixed by the first call, removed items get their own line, the narrow update's annotations follow MCP's definitions (DR-001 now has options), and PR 1 amends AGENTS.md for the safe repeat. Still waiting on DR-001 and DR-002 before PR 2.
 **Author:** Jordan Burke
 **Scope:** `packages/microsoft365` (the delegated server), the six To Do tools. The app-only `packages/graph` server is out of scope.
 **Downstream:** the Civala Assistant (`civala-ai/claude-plugins`, `plugins/civala-assistant`), whose release 1.3.0 depends on this.
@@ -35,6 +35,12 @@ So the builder knows what "done" means:
 3. **A task the person completes** is the strongest done signal the assistant gets. **A task the person adds** to the list becomes their own top item, unless it is already completed: completing a repeating task makes Graph split the finished occurrence into a new task with a new id, so an unseen task that is already completed is a done signal, never a new item (REQ-TODO-005).
 4. **Never unattended:** delete, retitle, change notes, or touch the person's other lists.
 5. **The fence is the caller's.** This is a general server, so nothing here can confine writes to one list. The assistant keeps to its own list by its own rule; the server does not enforce it.
+6. **Rules only the caller can keep.** The server can't see across runs, so the assistant must:
+   - **never run two wakes at once.** The duplicate check in REQ-TODO-001 reads, then creates, so two overlapping runs can both pass it;
+   - **keep its own record of task id → `externalId`.** A removed task comes back from delta as an id only (REQ-TODO-005), with no link;
+   - **treat a task the person deleted or moved away as dismissed,** and not create it again. A moved task gets a new id, and a deleted one is gone, so REQ-TODO-001's check can't see either one;
+   - **tell its own writes from the person's.** Every change `set_todo_task_state` makes comes back through delta as a change;
+   - **dedupe by id.** Graph may replay a change in a later response, and may list one task more than once in a response.
 
 ## Where things stand
 
@@ -42,8 +48,8 @@ Code references are to `packages/microsoft365/src/` unless noted.
 
 - **Permission.** `Tasks.ReadWrite` is in `DEFAULT_INTERACTIVE_SCOPES` (`auth/scopes.ts:76`, `:90`). That list applies in OAuth proxy mode only; other modes request `.default` (see `SAI_SPEC_M365-connector-parity_2026-10-08.md`, "Where things stand"). The live Civala deployment reported the defaults on 2026-10-08, so no new consent is needed.
 - **Tools.**
-  - Defined at `index.ts:1755-1845`, implemented in `tools/todo-tools.ts`, Graph calls at `client/graph-client.ts:492-510`.
-  - `create_todo_task` takes `title`, `body`, `due_date`, `importance` and `recurrence` only (`todo-tools.ts:99-132`).
+  - Defined at `index.ts:1755-1847`, implemented in `tools/todo-tools.ts`, Graph calls at `client/graph-client.ts:492-510`.
+  - `create_todo_task` takes `title`, `body`, `due_date`, `importance` and `recurrence` only (`todo-tools.ts:99-133`).
   - `update_todo_task` takes title, status, due date, importance, body and recurrence (`todo-tools.ts:175` on).
 - **Annotations.** `tools/tool-registry.ts:390-409`, rendered at `:448`. Reads are read-only. `create_todo_list` and `create_todo_task` are `additive` (`destructiveHint: false`). `update_todo_task` and `delete_todo_task` get `destructiveHint: true`.
 - **Output.**
@@ -53,6 +59,7 @@ Code references are to `packages/microsoft365/src/` unless noted.
 - **Lists.** `todoTaskList.wellknownListName` is `none`, `defaultList`, `flaggedEmails` or `unknownFutureValue`. The docs say: "Tasks from flagged emails are present in this list." `formatTodoListSummary` already prints the well-known name (`utils/formatters.ts:613-621`).
 - **Contract.** `test/plugin-contract.spec.ts` pins the line formats the Civala Assistant parses for mail and chats. To Do lines are not pinned yet.
 - **Tests.** `test/todo-tools.spec.ts` has 38 tests.
+- **Paging.** Core's `fetchAllPages` stops silently at 50 pages (`packages/core/src/utils/pagination.ts:6`) and does no origin check on `@odata.nextLink`. The origin-checked pager to copy is `nextMessageScanPage` (`client/graph-client.ts:88-95`).
 
 ## Requirements
 
@@ -66,7 +73,7 @@ Every requirement follows `AGENTS.md`:
 - `$select` what a list needs;
 - clean untrusted text;
 - check a Graph URL's origin before following it;
-- return `Left` when nothing changed;
+- return `Left` when nothing changed (REQ-TODO-001's safe repeat is the one exception, and PR 1 writes it into AGENTS.md);
 - update the package README's To Do section.
 
 ### REQ-TODO-001: Tag a task with its source, and make create safe to repeat
@@ -75,9 +82,11 @@ Every requirement follows `AGENTS.md`:
 - **Statement:** `create_todo_task` takes an optional `linked_resource`: `{ external_id, web_url?, application_name, display_name? }`, stored as the task's `linkedResources`. When `external_id` is given and the list already has a task with a linked resource carrying that `externalId`, the tool returns that task and creates nothing.
 - **Why:** A wake can die after Graph creates a task but before the caller records it. The next wake must not create a second copy. `externalId` is the key, for example `civala:mail:<message id>`. `web_url` puts a link back to the email in To Do.
 - **Acceptance:**
-  - A task created with `linked_resource` shows its `externalId` and a parsed `https:` link in list and detail output.
-  - A second create with the same `external_id` in the same list returns "already exists" with the existing id, as a `Right`, and sends no POST. **This is an intended exception to AGENTS.md "Results"** (return `Left` when an operation changes nothing). That rule is about failures. A repeat of a create that already succeeded is a success, and the caller must be able to retry without treating it as an error.
-  - **The duplicate check reads every page of the list, completed tasks included,** whatever `fetch_all_pages` says. A check that stops at the first page can miss the task and create the duplicate this requirement exists to stop. If any page fails to read, refuse to create, as `create_todo_list` does (`todo-tools.ts:35-41`).
+  - A task created with `linked_resource` shows its `externalId` in list output, and its `externalId` and parsed `web_url` in detail output. The URL stays out of the list line, because a URL can hold `)` and break the line's parsing (REQ-TODO-004).
+  - A second create with the same `external_id` in the same list returns "already exists" with the existing id, as a `Right`, and sends no POST. **This is an intended exception to AGENTS.md "Results"** (return `Left` when an operation changes nothing). That rule is about failures. A repeat of a create that already succeeded is a success, and the caller must be able to retry without treating it as an error. **PR 1 amends AGENTS.md "Results" to say so** ("an idempotent repeat of a write that already succeeded is a `Right` that names the existing item"), so the pre-merge review checks the code against the rule as amended.
+  - **The duplicate check reads every page of the list, completed tasks included,** whatever `fetch_all_pages` says. A check that stops at the first page can miss the task and create the duplicate this requirement exists to stop. If any page fails to read, refuse to create, as `create_todo_list` does (`todo-tools.ts:49-56`).
+  - The check pages with an origin-checked pager like `nextMessageScanPage`, not core's `fetchAllPages`, which stops silently at 50 pages. If the check hits its page cap, refuse to create rather than create blind.
+  - The check can't see a task the person moved to another list or deleted. Not creating those again is a caller rule (How the assistant will use the tools, item 6).
   - `web_url` is shown only if it parses as `http:` or `https:` (AGENTS.md).
   - Tests cover both paths, and that `MS365_READ_ONLY` hides the tool.
 - **Settled by the docs:** `linkedResources` goes inside the create body. The [create task](https://learn.microsoft.com/en-us/graph/api/todotasklist-post-tasks?view=graph-rest-1.0) example "creates a **todoTask** in the specified task list, and includes a linkedResource" in the same POST. No second call is needed.
@@ -90,6 +99,7 @@ Every requirement follows `AGENTS.md`:
 - **Acceptance:** Categories round-trip, and output cleans each one as untrusted text.
 - **Settled by the docs:** "Each category corresponds to the **displayName** property of an outlookCategory that the user has defined" ([todoTask](https://learn.microsoft.com/en-us/graph/api/resources/todotask?view=graph-rest-1.0)).
 - **Verify first:** whether Graph refuses a category that isn't in the person's master category list. The docs don't say. If it refuses, say so in the tool description. Don't create master categories.
+- **Not in `set_todo_task_state`.** Categories replace the person's own, so they stay out of the unattended tool (DR-001).
 
 ### REQ-TODO-003: Store a caller's data on a task (open extension)
 
@@ -100,7 +110,8 @@ Every requirement follows `AGENTS.md`:
 - **Why:** The assistant keeps rank, tier, source id and when the item was asked for. The person can't see or edit an extension, unlike the notes, so a stray edit can't break it.
 - **Acceptance:**
   - Fields round-trip.
-  - Updating the extension changes only the fields sent; Graph merges an update, keeping fields left out. A `null` value is refused before the call, because Graph refuses it.
+  - Updating the extension changes only the fields sent; Graph merges an update, keeping fields left out. A `null` value is refused before the call, because Graph refuses it. The [update open extension](https://learn.microsoft.com/en-us/graph/api/opentypeextension-update?view=graph-rest-1.0) page says: "For Microsoft 365 resources like messages: You can specify a subset of the properties in the request body to update them. The omitted properties and their values are retained. `null` values aren't allowed." The [extensibility overview](https://learn.microsoft.com/en-us/graph/extensibility-overview) says the opposite in general ("you must specify all its properties … Otherwise, the unspecified properties are deleted"), and the update page scopes that to directory objects. To Do isn't named in either. The round-trip test settles it.
+  - The tool description tells callers to use one fixed name per app. The [open extension](https://learn.microsoft.com/en-us/graph/api/resources/opentypeextension?view=graph-rest-1.0) page warns: "Avoid naming extensions in a variable manner".
   - Names that aren't reverse-DNS, nested values, more than 20 keys and more than 2 KB are refused.
   - Output prints field values as cleaned single-line text.
   - Tests cover each.
@@ -118,14 +129,18 @@ Every requirement follows `AGENTS.md`:
 - **Statement:** Each task line in `list_todo_tasks` carries the fields a caller needs, in a fixed order, and the format is pinned in `test/plugin-contract.spec.ts`.
 - **Proposed line:**
   ```
-  - **<title>** [<status>] [<importance>] (Due: <date>) (Completed: <ISO time>) (Modified: <ISO time>) (Categories: a, b) (Link: <externalId>) (Ext: k=v; k=v) (ID: <id>)
+  - **<title>** [<status>] [<importance>] (Due: <date>) (Completed: <dateTime> <timeZone>) (Modified: <ISO time>) (Categories: a, b) (Link: <externalId>) (Ext: <JSON>) (ID: <id>)
   ```
-  Optional parts are left out when empty, never printed blank.
+  - Optional parts are left out when empty, never printed blank.
+  - `[<importance>]` appears only when it isn't `normal`, as mail flags appear only when set.
+  - `(Due: …)` prints `dateTime` as today. `(Completed: …)` prints `completedDateTime`'s `dateTime` and `timeZone`, because it's a `dateTimeTimeZone`.
+  - `(Ext: …)` is the extension's fields as one-line JSON. It sits last before the id, and the pattern anchors on ` (ID: <id>)$`, so a `)` inside a value can't end the line early.
+  - **No defaults.** A field Graph didn't return is left out. Today `formatTodoTaskSummary` prints `Untitled` and `notStarted` for a missing title or status (`utils/formatters.ts:627,640`); a parsed line must never carry a value Graph didn't send.
 - **Acceptance:**
   - Titles, categories and extension values are cleaned as `AGENTS.md` describes: CR/LF collapsed, length capped, `|` stripped.
   - A test feeds a title with a newline and checks the line count.
-  - `$select` covers exactly the printed fields.
-  - The contract test gains a `TODO_LINE` pattern. The plugin will copy that pattern.
+  - `$select` covers exactly the printed fields, with `$expand=linkedResources` and, when `extension_name` is set, the extension.
+  - The contract test gains a `TODO_LINE` pattern covering the full line, Ext included, even though Ext is produced only from PR 2. The plugin then copies the pattern once.
 
 ### REQ-TODO-005: What changed since the last run (delta)
 
@@ -133,17 +148,22 @@ Every requirement follows `AGENTS.md`:
 - **Statement:** `list_todo_tasks` takes an optional `delta` mode (shape pending DR-002).
   - With `delta: true` and no token, it returns every task and a token.
   - With `delta_token`, it returns only the tasks added, changed or removed since that token, then the next token.
-  - Removed tasks are listed separately, by id, with Graph's reason (`changed` or `deleted`).
+  - **Parameters are fixed by the first call.** Graph encodes every query parameter into the token: "If you use any query parameter (other than `$deltatoken` and `$skiptoken`), you must specify it in the initial **delta** request" ([todoTask delta](https://learn.microsoft.com/en-us/graph/api/todotask-delta?view=graph-rest-1.0)). So `$select`, `$expand` and `extension_name` apply only with `delta: true`. With `delta_token`, the server sends the token and nothing else, and refuses `extension_name`. A token belongs to one list: the caller passes the same `list_id` it started with.
+  - **The token, not the URL.** The server parses each `@odata.deltaLink` with `new URL`, checks its origin, and prints only its `$deltatoken` value. On the next call it builds the URL itself from `list_id` and the token. A caller never hands the server a URL (DR-002).
+  - **Each call reads to the end.** The server follows every `@odata.nextLink` until it reaches a `@odata.deltaLink`, origin-checking each, with the same page cap as REQ-TODO-001. If it hits the cap or a page fails, it returns a `Left` and prints no token, so the next run starts from the last good token.
+  - **Changed records can be partial.** "Updated instances are represented by their **id** with *at least* the updated properties" ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)). A record missing title, status or importance is filled with one GET of that task before it is printed. If that GET returns 404, the task is listed as removed. If it fails otherwise, the call returns a `Left` and prints no token. Every printed line is then a full REQ-TODO-004 line.
+  - **Removed tasks get their own line,** after the task lines: `Removed: <id> (<reason>)`. It can't match the plugin's item filter, `line.startsWith("- **")` (`test/plugin-contract.spec.ts:21-25`), and the contract test pins it as `TODO_REMOVED_LINE`. `<reason>` is whatever Graph sends; the docs explain `changed` and `deleted` only for directory objects, so the tool doesn't interpret them.
   - Delta lines carry the same fields as REQ-TODO-004, including Link and Ext: delta supports `$select`, `$top` and `$expand`.
-  - Each tool description says that completing a repeating task makes Graph split off the finished occurrence as a new, already-completed task with a new id, so a caller must not read an unseen completed task as newly added work.
+  - Within one call, a task listed more than once is printed once, with its last record.
+  - Each tool description says that completing a repeating task makes the finished occurrence a new, already-completed task with a new id, so a caller must not read an unseen completed task as newly added work. This was seen live on 2026-10-28 (the comment in `todo-tools.ts`), not in Graph's docs, so the description doesn't cite the docs for it.
 - **Why:** Each run needs only what the person did since the last run: tasks completed, added, or removed. Re-reading a whole list every half hour is slow and makes the caller diff it.
 - **Acceptance:**
   - The token is printed on its own labelled line (`Delta token: …`) that a caller can pick out.
   - The server follows `@odata.nextLink` and `@odata.deltaLink` only after parsing each with `new URL` and checking its origin is the Graph host (AGENTS.md, Paths and URLs).
   - Both restart signals return a `Left` saying to start again with `delta: true`:
-    - an expired token, a 40X error with a code such as `syncStateNotFound`;
-    - a sync reset, `410 Gone` with a `Location` header, which Graph sends after tenant maintenance or migration.
-  - Tests use recorded responses for: first page, next page, a removed task, an expired token, a `410 Gone`, and a completed repeating occurrence appearing as a new task.
+    - an expired token, an error with the code `syncStateNotFound`, matched on the code whatever the status (Outlook commonly sends it as `410`);
+    - any `410 Gone`, with or without a `Location` header.
+  - Tests use recorded responses for: first page, next page, a removed task, a partial changed record filled by a GET, a filling GET that 404s, an expired token, a `410 Gone`, a page cap hit, a task listed twice, and a completed repeating occurrence appearing as a new task.
 - **Settled by the docs** ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)):
   - Removed items carry `"@removed": {"reason": …}`, and "Possible **@removed** reasons can be `changed` or `deleted`."
   - "In case the token expires, the service should respond with a 40X-series error with error codes such as `syncStateNotFound`."
@@ -163,13 +183,14 @@ Every requirement follows `AGENTS.md`:
 - **Priority:** Must, subject to DR-001.
 - **Statement:** A new tool, `set_todo_task_state`, sets only `status`, `importance`, `categories` and the extension from REQ-TODO-003 on one task. It can't change the title, notes, dates or recurrence, and it can't delete.
 - **Why:** These are the only changes the assistant makes unattended. Each is reversible and touches only the person's own task.
-- **Annotation:** `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`.
+- **Annotation:** set by DR-001. `idempotentHint: true` either way.
 - **Acceptance:**
-  - Any other field is refused.
-  - Setting `status: completed` on a repeating task reports the series rolling forward, as `update_todo_task` already does (`todo-tools.ts:293-308`).
+  - Any other field is refused, `categories` included (REQ-TODO-002).
+  - Setting `status: completed` on a repeating task is refused, pointing to `update_todo_task`. Each such call completes another occurrence (`todo-tools.ts:290-308`), so it can't be idempotent.
+  - Extension fields merge, as REQ-TODO-003 says.
   - `MS365_READ_ONLY` hides it.
-  - It retries on 429 only.
-  - The registry gains a flag for "reversible change to the user's own item" (DR-001), so `tool-registry.ts:448` doesn't overload `additive`.
+  - It retries on 429 only. The shared `request` path already does this for PATCH, so this is a test, not a new loop.
+  - The registry gains an `idempotent` field, rendered as `idempotentHint`. `ToolAnnotations` (`tools/tool-registry.ts:432-437`) has no such field today. If DR-001 picks option A, it also gains `reversible`, and `toolAnnotations` (`:445-450`) sets `destructiveHint = !(additive || reversible)`. Only `set_todo_task_state` gets the new flags in this CR; no existing tool changes.
 - **Leave `update_todo_task` as it is:** still destructive, for attended use.
 
 ### REQ-TODO-008: Due dates land on the right day
@@ -179,20 +200,23 @@ Every requirement follows `AGENTS.md`:
 - **Why:** `create_todo_task` sends `dueDateTime: { dateTime: <due_date>, timeZone: "UTC" }` (`todo-tools.ts:112`). For someone in America/New_York, midnight UTC is the evening before.
 - **Acceptance:**
   - Create a task due `2026-11-02` for an Eastern-time user and confirm To Do shows November 2.
-  - If it shows November 1, send the date in the mailbox's time zone, or at a time To Do treats as date-only, and add a test.
+  - If it shows November 1, take a caller-supplied `time_zone`, or send noon UTC, which lands on the same day from UTC−11 to UTC+11. Don't read the mailbox's time zone: that needs `MailboxSettings.Read`, which isn't in `DEFAULT_INTERACTIVE_SCOPES` (`auth/scopes.ts:76-99`) and would break "no new consent is needed". Add a test.
 - **This is a check first.** It may already be correct.
 
 ## Decision requests
 
-### DR-001: May a reversible update be marked non-destructive?
+### DR-001: How should `set_todo_task_state` be annotated?
 
-- **Question:** Can `set_todo_task_state` carry `destructiveHint: false`? And what should the registry flag be called?
-- **Recommendation:** Yes, with a new flag, `reversible: true`, separate from `additive`. MCP defines `destructiveHint` as "may perform destructive updates". Setting a status or importance the person can set back isn't one.
-- **Open:** whether Claude's scheduled tasks prompt on `destructiveHint: true` at all. That's the plugin's gate G8, untested. If they don't prompt, this tool is still worth having, because it's narrower.
+- **The definitions.** MCP's `ToolAnnotations` (2025-06-18): `destructiveHint` "If true, the tool may perform destructive updates to its environment. If false, the tool performs only additive updates." `idempotentHint` "If true, calling the tool repeatedly with the same arguments will have no additional effect on its environment."
+- **What REQ-TODO-007 already does to fit them:** it refuses `status: completed` on a repeating task, which would complete one more occurrence per call, and it leaves out `categories`, which would replace the person's own. What's left (status, importance and extension fields) gives the same result however many times it runs.
+- **Option A:** `destructiveHint: false`, `idempotentHint: true`, with a new `reversible` registry flag. Setting status or importance overwrites a value rather than adding one, so this reads "only additive" as "nothing the person can't set back".
+- **Option B:** `destructiveHint: true`, `idempotentHint: true`. This follows the letter of the definition. The tool is still narrower than `update_todo_task`.
+- **Recommendation:** B, unless the plugin's gate G8 shows Claude's scheduled tasks stop for approval on `destructiveHint: true`. That test is untested so far. If they do stop, take A, because that prompt is the reason this tool exists.
 
-### DR-002: Delta as a mode of `list_todo_tasks`, or its own tool?
+### DR-002: Delta as a mode of `list_todo_tasks`, or its own tool? And a token or a URL?
 
-- **Recommendation:** a mode. Mail delta (`SAI_PLAN_tool-output-for-automated-callers_2026-10-05.md`, section 4.2) should follow whatever this picks, so choose it once for both.
+- **Mode or tool. Recommendation:** a mode.
+- **Token or URL.** The mail plan (`SAI_PLAN_tool-output-for-automated-callers_2026-10-05.md`, section 4.2) already chose a validated full `deltaLink` URL as the cursor: "the server must accept only a Graph delta URL under the caller's own `/me/mailFolders/.../messages/delta`". REQ-TODO-005 uses the bare `$deltatoken`. **Recommendation:** the token, for both. The server builds the URL, so a caller can't steer it anywhere, and there's no URL to validate. If you agree, the mail plan's section 4.2 changes to match.
 
 ### DR-003: Fixed or caller-named extension?
 
@@ -202,9 +226,10 @@ Every requirement follows `AGENTS.md`:
 
 Three PRs, each reviewed before merge (`AGENTS.md`, Pull requests). None bumps the package version, because the release (version, `server.json`, tag) is a maintainer step. See CLAUDE.md, Publishing.
 
-1. **Output and tagging:** REQ-TODO-004, 001 and 002, with the contract test. Ship this first, because the plugin parses it.
+1. **Output and tagging:** REQ-TODO-004, 001 and 002, with the contract test (`TODO_LINE`, full line) and the AGENTS.md "Results" amendment. Ship this first, because the plugin parses it.
 2. **Caller data and the narrow update:** REQ-TODO-003 and 007, after DR-001 is answered. Answer DR-002 before this PR too, because PR 3 depends on it and mail delta will follow the same shape.
-3. **Change feed and Flagged email:** REQ-TODO-005, 006 and 008.
+3. **Change feed:** REQ-TODO-005, with `TODO_REMOVED_LINE`.
+4. **Flagged email and due dates:** REQ-TODO-006 and 008. Both are Should, so they can follow 1.3.0.
 
 Run `pnpm validate` before each PR.
 
@@ -223,7 +248,8 @@ Run `pnpm validate` before each PR.
 - Each "Verify first" item above, answered during the build, with the fallback named in each. Still open, with nothing in the docs:
   - filtering a list by `linkedResources` (REQ-TODO-001);
   - whether Graph refuses a category missing from the master list (REQ-TODO-002);
-  - which name the extension `$filter` matches, and To Do's extension limits (REQ-TODO-003);
+  - which name the extension `$filter` matches, To Do's extension limits, and whether an update merges or replaces (REQ-TODO-003);
+  - which `@removed` reasons To Do sends, and the status `syncStateNotFound` arrives with (REQ-TODO-005);
   - whether Graph refuses writes to the Flagged email list (REQ-TODO-006);
   - how To Do shows a UTC-midnight due date (REQ-TODO-008).
 - Whether to also expose `checklistItems`, `startDateTime` and `reminderDateTime`. Nobody needs them yet.
