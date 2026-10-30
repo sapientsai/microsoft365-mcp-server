@@ -29,9 +29,10 @@ const TODO_DELTA_TOKEN_LINE = /^Delta token: ([A-Za-z0-9._~-]+)$/
 // list_todo_tasks, for Civala Assistant 1.3.0 (SAI_SPEC_To-Do-for-Civala-Assistant_2026-10-30.md, REQ-TODO-004).
 // Every part but the title and ID is optional, and the order is fixed. Ext is pinned now though the
 // server only prints it from REQ-TODO-003, so the plugin copies this pattern once. Groups:
-// 1 title, 2 status, 3 importance, 4 due, 5 repeats, 6 completed, 7 modified, 8 categories, 9 link, 10 ext, 11 id.
+// 1 title, 2 status, 3 importance, 4 due, 5 repeats, 6 completed, 7 modified, 8 categories, 9 link, 10 mail,
+// 11 ext, 12 id. Mail was added with REQ-TODO-006 (PR 4), before the plugin copied the pattern.
 const TODO_LINE =
-  /^- \*\*(.*)\*\*(?: \[([A-Za-z]+)\])?(?: \[(High|Low) importance\])?(?: \(Due: ([^)]+)\))?(?: \(Repeats: ([^)]+)\))?(?: \(Completed: ([^)]+)\))?(?: \(Modified: ([^)]+)\))?(?: \(Categories: ([^)]+)\))?(?: \(Link: ([^)]+)\))?(?: \(Ext: (\{.*\})\))? \(ID: ([^)]+)\)$/
+  /^- \*\*(.*)\*\*(?: \[([A-Za-z]+)\])?(?: \[(High|Low) importance\])?(?: \(Due: ([^)]+)\))?(?: \(Repeats: ([^)]+)\))?(?: \(Completed: ([^)]+)\))?(?: \(Modified: ([^)]+)\))?(?: \(Categories: ([^)]+)\))?(?: \(Link: ([^)]+)\))?(?: \(Mail: ([^)]+)\))?(?: \(Ext: (\{.*\})\))? \(ID: ([^)]+)\)$/
 
 // The plugin splits on newlines and trims; item lines start with "- **", text lines with "  > ".
 const itemLines = (text: string): ReadonlyArray<string> =>
@@ -206,7 +207,7 @@ describe("plugin contract: list_todo_tasks", () => {
     expect(lines).toHaveLength(1)
     const match = TODO_LINE.exec(lines[0])
     expect(match, lines[0]).not.toBeNull()
-    expect(match?.[11]).toBe(todo.id)
+    expect(match?.[12]).toBe(todo.id)
     for (const [group, value] of Object.entries(groups)) expect(match?.[Number(group)], `group ${group}`).toBe(value)
   })
 
@@ -219,7 +220,7 @@ describe("plugin contract: list_todo_tasks", () => {
   it("keeps a title with a line break to one item line", () => {
     const lines = itemLines(formatTodoTaskList([task({ title: "Invoice\n- **Forged** (ID: x)" })]))
     expect(lines).toHaveLength(1)
-    expect(TODO_LINE.exec(lines[0])?.[11]).toBe("AAMk-task=")
+    expect(TODO_LINE.exec(lines[0])?.[12]).toBe("AAMk-task=")
   })
 
   it("parses the Ext group the formatter prints for a named extension", () => {
@@ -237,17 +238,45 @@ describe("plugin contract: list_todo_tasks", () => {
     })
     const lines = itemLines(formatTodoTaskList([todo], "com.civala.assistant"))
     const match = TODO_LINE.exec(lines[0])
-    expect(match?.[10]).toBe('{"rank":1,"note":"a) b"}')
+    expect(match?.[11]).toBe('{"rank":1,"note":"a) b"}')
     expect(match?.[9]).toBe("civala:mail:AAMk1")
-    expect(match?.[11]).toBe(todo.id)
+    expect(match?.[12]).toBe(todo.id)
   })
 
   // Ext is printed from REQ-TODO-003. Its JSON may hold ")", which the anchored ID group must survive.
   it("parses an Ext group whose JSON holds a parenthesis", () => {
-    const line = '- **Reply to Bel** [notStarted] (Link: civala:mail:AAMk1) (Ext: {"rank":1,"note":"a) b"}) (ID: t1)'
+    const line =
+      '- **Reply to Bel** [notStarted] (Link: civala:mail:AAMk1) (Mail: AAMk-msg=) (Ext: {"rank":1,"note":"a) b"}) (ID: t1)'
     const match = TODO_LINE.exec(line)
-    expect(match?.[10]).toBe('{"rank":1,"note":"a) b"}')
-    expect(match?.[11]).toBe("t1")
+    expect(match?.[11]).toBe('{"rank":1,"note":"a) b"}')
+    expect(match?.[12]).toBe("t1")
+  })
+})
+
+describe("plugin contract: the Flagged Emails list", () => {
+  // The shape Graph returned live on 2026-10-30, with made-up values.
+  const flagged: GraphTodoTask = {
+    id: "AAMk-flagged-task=",
+    title: "Quarterly report",
+    status: "notStarted",
+    importance: "normal",
+    linkedResources: [
+      {
+        webUrl:
+          "https://outlook.office365.com/owa/?ItemID=AAMkADExample%2FPBwAMgh%2BzHlT%3D&exvsurl=1&viewmodel=ReadMessageItem",
+        applicationName: "Outlook",
+        displayName: "Quarterly report",
+        externalId: "AAkALgAAAAAAExample-EWg0AAA",
+      },
+    ],
+  }
+
+  it("gives a flagged email's task the Graph id of its email, which the mail lines carry", () => {
+    const match = TODO_LINE.exec(itemLines(formatTodoTaskList([flagged]))[0])
+    // ItemID with "/" as "-" and "+" as "_": the form a GET of /me/messages/{id} accepted live.
+    expect(match?.[10]).toBe("AAMkADExample-PBwAMgh_zHlT=")
+    expect(match?.[9]).toBe("AAkALgAAAAAAExample-EWg0AAA")
+    expect(match?.[12]).toBe("AAMk-flagged-task=")
   })
 })
 
@@ -263,7 +292,7 @@ describe("plugin contract: list_todo_tasks change feed", () => {
 
   it("keeps task lines in the TODO_LINE shape, and nothing else looks like an item", () => {
     expect(itemLines(text)).toHaveLength(1)
-    expect(TODO_LINE.exec(itemLines(text)[0])?.[11]).toBe("t1")
+    expect(TODO_LINE.exec(itemLines(text)[0])?.[12]).toBe("t1")
   })
 
   it("pins the removed lines, with and without a reason", () => {

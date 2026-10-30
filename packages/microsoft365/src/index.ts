@@ -1789,9 +1789,11 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       "List tasks in a To Do list, or what changed in it since your last call. For changes, call once with " +
       "delta: true, which returns every task and a 'Delta token: …' line; keep the token and pass it as " +
       "delta_token next time to get only the tasks added, changed or removed since (removed ones as " +
-      "'Removed: <id>' lines), and a new token. Completing a repeating task makes Graph keep the series and " +
-      "split off the finished occurrence as a new, already-completed task with a new id, so an unseen " +
-      "completed task is a done occurrence, not new work. Your own writes come back as changes too",
+      "'Removed: <id> (<reason>)' lines), and a new token. Completing a repeating task makes Graph keep the " +
+      "series and split off the finished occurrence as a new, already-completed task with a new id, so an " +
+      "unseen completed task is a done occurrence, not new work. Your own writes come back as changes too. " +
+      "The Flagged Emails list (wellknownListName flaggedEmails) holds the emails flagged in Outlook; each of " +
+      "its tasks carries (Mail: <message id>), the id the mail tools use, when its Outlook link parses",
     parameters: z.object({
       list_id: z.string().describe("To Do list ID. A delta token works only with the list it came from"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
