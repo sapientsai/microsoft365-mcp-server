@@ -106,9 +106,10 @@ Every requirement follows `AGENTS.md`:
   - Tests cover each.
 - **Settled by the docs:**
   - An extension can be created with the task in one call. The [open extension](https://learn.microsoft.com/en-us/graph/api/opentypeextension-post-opentypeextension?view=graph-rest-1.0) page lists `POST /users/{id|userPrincipalName}/todo/lists/{id}/tasks` under "Create an extension in a new resource instance".
-  - Naming: `extensionName` is the bare name (`com.civala.assistant`). `id` "concatenates the extension type with the **extensionName**" (`microsoft.graph.openTypeExtension.com.civala.assistant`).
+  - Naming: `extensionName` is the bare name (`com.civala.assistant`). `id` is "a fully qualified name which concatenates the extension type and unique text identifier" ([get open extension](https://learn.microsoft.com/en-us/graph/api/opentypeextension-get?view=graph-rest-1.0)).
 - **Verify first:**
   - Which name `$expand=extensions($filter=id eq '…')` matches. The docs filter by the full `id` in one example and the bare name in another.
+  - The `id` prefix on read. A create response in the docs shows `microsoft.graph.openTypeExtension.Com.Contoso.Referral`; a read example shows `Microsoft.OutlookServices.OpenTypeExtension.Com.Contoso.Referral`. To Do is stored in Outlook, so either may come back. Match an extension on read by `extensionName`, never by an `id` prefix.
   - Size limits. Graph documents none for To Do tasks. Its general limits (two open extensions per app per item, 2 KB each, per the extensibility overview) are footnoted to users, groups, devices and organizations. The 20-key and 2 KB caps above are chosen to sit inside them either way.
 
 ### REQ-TODO-004: List output an unattended caller can parse
