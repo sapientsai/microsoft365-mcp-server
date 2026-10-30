@@ -7,15 +7,23 @@ import { Left, Right } from "functype/either"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../src/client/graph-client", () => ({ getGraphClient: vi.fn() }))
+vi.mock("../src/auth", () => ({ getAuthStatus: vi.fn() }))
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
   return { ...actual, writeFile: vi.fn(actual.writeFile) }
 })
 
+import { getAuthStatus } from "../src/auth"
 import { getGraphClient } from "../src/client/graph-client"
-import { deleteContact, exportContacts, updateContact } from "../src/tools/contacts-tools"
+import { createContact, deleteContact, exportContacts, updateContact } from "../src/tools/contacts-tools"
 
-const mockClient = { requestPaginated: vi.fn(), updateContact: vi.fn(), getContact: vi.fn(), deleteContact: vi.fn() }
+const mockClient = {
+  requestPaginated: vi.fn(),
+  createContact: vi.fn(),
+  updateContact: vi.fn(),
+  getContact: vi.fn(),
+  deleteContact: vi.fn(),
+}
 
 const pages: Record<string, ReadonlyArray<Record<string, unknown>>> = {
   "/me/contactFolders": [{ id: "F1", displayName: "Family" }],
@@ -308,5 +316,60 @@ describe("deleteContact", () => {
 
     expect(result.isLeft()).toBe(true)
     expect(mockClient.deleteContact).not.toHaveBeenCalled()
+  })
+})
+
+describe("contact writes without Contacts.ReadWrite", () => {
+  // Graph answers a write the sign-in has no permission for with 403 "Access is denied".
+  const forbidden = Left({
+    type: "forbidden",
+    status: 403,
+    message: "Access is denied. Check credentials and try again.",
+  })
+  const tokenScopes = (scopes: ReadonlyArray<string>) =>
+    vi.mocked(getAuthStatus).mockResolvedValue(Right({ mode: "oauth-proxy", authenticated: true, scopes }) as never)
+
+  it("names the missing permission when the token lacks Contacts.ReadWrite", async () => {
+    tokenScopes(["Contacts.Read", "Mail.Read"])
+    mockClient.createContact.mockResolvedValue(forbidden)
+    const result = await createContact({ given_name: "Ada" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("has no Contacts.ReadWrite permission")
+  })
+
+  it("names it for an update or a delete too", async () => {
+    tokenScopes(["Contacts.Read"])
+    mockClient.updateContact.mockResolvedValue(forbidden)
+    const update = await updateContact({ contact_id: "C1", job_title: "x" })
+    expect((update.value as Error).message).toContain("Contacts.ReadWrite")
+
+    mockClient.getContact.mockResolvedValue(Right({ id: "C1", displayName: "Ada" }))
+    mockClient.deleteContact.mockResolvedValue(forbidden)
+    const removal = await deleteContact({ contact_id: "C1" })
+    expect((removal.value as Error).message).toContain("Contacts.ReadWrite")
+  })
+
+  // The permission is there, so the 403 has another cause; don't send the caller after it.
+  it("keeps Graph's message when the token holds Contacts.ReadWrite", async () => {
+    tokenScopes(["Contacts.ReadWrite"])
+    mockClient.createContact.mockResolvedValue(forbidden)
+    const result = await createContact({ given_name: "Ada" })
+    expect((result.value as Error).message).toBe(
+      "Failed to create contact: Access is denied. Check credentials and try again.",
+    )
+  })
+
+  it("keeps Graph's message when the token's scopes can't be read", async () => {
+    tokenScopes([])
+    mockClient.createContact.mockResolvedValue(forbidden)
+    const result = await createContact({ given_name: "Ada" })
+    expect((result.value as Error).message).not.toContain("Contacts.ReadWrite")
+  })
+
+  it("keeps Graph's message for other failures, without reading the scopes", async () => {
+    mockClient.createContact.mockResolvedValue(Left({ type: "api", status: 400, message: "Bad name" }))
+    const result = await createContact({ given_name: "Ada" })
+    expect((result.value as Error).message).toBe("Failed to create contact: Bad name")
+    expect(getAuthStatus).not.toHaveBeenCalled()
   })
 })

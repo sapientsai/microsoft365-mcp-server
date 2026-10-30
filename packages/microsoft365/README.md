@@ -178,6 +178,7 @@ You need an Azure AD (Entra ID) app registration:
 | `Calendars.ReadWrite`                          | Calendar                                       |
 | `Calendars.Read.Shared`                        | Calendar free/busy (find_meeting_availability) |
 | `Contacts.Read`                                | Contacts                                       |
+| `Contacts.ReadWrite`                           | Creating, updating and deleting contacts       |
 | `Files.ReadWrite`                              | OneDrive                                       |
 | `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites                               |
 | `Chat.ReadWrite`                               | Teams chats                                    |

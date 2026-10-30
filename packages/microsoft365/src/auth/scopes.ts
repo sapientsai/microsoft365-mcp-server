@@ -83,6 +83,11 @@ export const DEFAULT_INTERACTIVE_SCOPES: ReadonlyArray<string> = [
   GRAPH_SCOPES.CALENDARS_READWRITE,
   GRAPH_SCOPES.CALENDARS_READ_SHARED,
   GRAPH_SCOPES.CONTACTS_READ,
+  // create_contact, update_contact and delete_contact need it; without it Graph answers each with
+  // "Access is denied". It doesn't need admin consent, but a tenant that blocks user consent will
+  // refuse new sign-ins until it is granted, so grant it on the app registration before deploying.
+  // Existing sessions keep refreshing on their original grant.
+  GRAPH_SCOPES.CONTACTS_READWRITE,
   GRAPH_SCOPES.FILES_READWRITE,
   GRAPH_SCOPES.TEAM_READ_BASIC_ALL,
   GRAPH_SCOPES.CHANNEL_READ_BASIC_ALL,
