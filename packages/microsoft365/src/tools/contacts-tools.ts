@@ -6,9 +6,19 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { GraphContact, GraphContactFolder, ODataResponse } from "../types"
+import type { GraphApiError, GraphContact, GraphContactFolder, ODataResponse } from "../types"
 import { formatContactDetail, formatContactList } from "../utils/formatters"
 import { writeNewFile } from "../utils/local-file"
+
+// Graph answers a contact write without Contacts.ReadWrite with a bare "Access is denied", which
+// reads like a bad sign-in. Name the permission instead.
+const writeFailure = (action: string, error: GraphApiError): UserError =>
+  new UserError(
+    error.type === "forbidden" || error.status === 403
+      ? `Failed to ${action} contact: Graph refused it (${error.message}). The sign-in needs the Contacts.ReadWrite ` +
+          "permission: add it to the app registration, then sign in again."
+      : `Failed to ${action} contact: ${error.message}`,
+  )
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -67,7 +77,7 @@ export const createContact = async (params: {
 
   const result = await client.createContact(contact)
   return result
-    .mapLeft((error) => new UserError(`Failed to create contact: ${error.message}`))
+    .mapLeft((error) => writeFailure("create", error))
     .map((c) => `Contact created.\n\n${formatContactDetail(c)}`)
 }
 
@@ -132,7 +142,7 @@ export const updateContact = async (params: {
 
   const result = await client.updateContact(params.contact_id, updates)
   return result
-    .mapLeft((error) => new UserError(`Failed to update contact: ${error.message}`))
+    .mapLeft((error) => writeFailure("update", error))
     .map((c) => `Contact updated.\n\n${formatContactDetail(c)}`)
 }
 
@@ -149,7 +159,7 @@ export const deleteContact = async (params: { contact_id: string }): Promise<Eit
 
   const result = await client.deleteContact(params.contact_id)
   return result
-    .mapLeft((error) => new UserError(`Failed to delete contact: ${error.message}`))
+    .mapLeft((error) => writeFailure("delete", error))
     .map(() => `Contact deleted: ${contact.displayName ?? params.contact_id}\n\n${formatContactDetail(contact)}`)
 }
 

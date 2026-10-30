@@ -13,9 +13,15 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 import { getGraphClient } from "../src/client/graph-client"
-import { deleteContact, exportContacts, updateContact } from "../src/tools/contacts-tools"
+import { createContact, deleteContact, exportContacts, updateContact } from "../src/tools/contacts-tools"
 
-const mockClient = { requestPaginated: vi.fn(), updateContact: vi.fn(), getContact: vi.fn(), deleteContact: vi.fn() }
+const mockClient = {
+  requestPaginated: vi.fn(),
+  createContact: vi.fn(),
+  updateContact: vi.fn(),
+  getContact: vi.fn(),
+  deleteContact: vi.fn(),
+}
 
 const pages: Record<string, ReadonlyArray<Record<string, unknown>>> = {
   "/me/contactFolders": [{ id: "F1", displayName: "Family" }],
@@ -308,5 +314,38 @@ describe("deleteContact", () => {
 
     expect(result.isLeft()).toBe(true)
     expect(mockClient.deleteContact).not.toHaveBeenCalled()
+  })
+})
+
+describe("contact writes without Contacts.ReadWrite", () => {
+  // Graph answers a write the sign-in has no permission for with 403 "Access is denied".
+  const forbidden = Left({
+    type: "forbidden",
+    status: 403,
+    message: "Access is denied. Check credentials and try again.",
+  })
+
+  it("names the missing permission when Graph refuses a create", async () => {
+    mockClient.createContact.mockResolvedValue(forbidden)
+    const result = await createContact({ given_name: "Ada" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("needs the Contacts.ReadWrite permission")
+  })
+
+  it("names the missing permission when Graph refuses an update or a delete", async () => {
+    mockClient.updateContact.mockResolvedValue(forbidden)
+    const update = await updateContact({ contact_id: "C1", job_title: "x" })
+    expect((update.value as Error).message).toContain("Contacts.ReadWrite")
+
+    mockClient.getContact.mockResolvedValue(Right({ id: "C1", displayName: "Ada" }))
+    mockClient.deleteContact.mockResolvedValue(forbidden)
+    const removal = await deleteContact({ contact_id: "C1" })
+    expect((removal.value as Error).message).toContain("Contacts.ReadWrite")
+  })
+
+  it("keeps Graph's own message for other failures", async () => {
+    mockClient.createContact.mockResolvedValue(Left({ type: "api", status: 400, message: "Bad name" }))
+    const result = await createContact({ given_name: "Ada" })
+    expect((result.value as Error).message).toBe("Failed to create contact: Bad name")
   })
 })
