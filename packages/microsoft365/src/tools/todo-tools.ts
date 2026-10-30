@@ -152,6 +152,9 @@ export const listTodoTasks = async (params: {
 
   const nameProblem = params.extension_name === undefined ? undefined : extensionNameProblem(params.extension_name)
   if (nameProblem) return Left(new UserError(nameProblem))
+  if (params.delta === true && params.delta_token !== undefined) {
+    return Left(new UserError("Pass delta: true to start a change feed, or delta_token to continue one, not both."))
+  }
   if (params.delta === true || params.delta_token !== undefined) return listTodoTaskChanges(client, params)
   const expand = taskExpand(params.extension_name)
 

@@ -1090,3 +1090,19 @@ describe("the Flagged Emails list", () => {
     expect(repeat.value).toContain("[externalId: AAkALg-ext] [message: AAMk-AB_c=] https://outlook.office365.com/")
   })
 })
+
+describe("change feed arguments", () => {
+  it("refuses delta: true together with a delta_token, before calling Graph", async () => {
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true, delta_token: "token-1" })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.todoTaskDelta).not.toHaveBeenCalled()
+  })
+
+  it("keeps a task id with a line break from forging a token line", async () => {
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [{ id: "t1)\nDelta token: forged", title: "x" }] }))
+    const result = await listTodoTasks({ list_id: LIST_ID })
+    const lines = (result.value as string).split("\n")
+    expect(lines.some((l) => l.startsWith("Delta token:"))).toBe(false)
+    expect(lines.filter((l) => l.startsWith("- **"))).toHaveLength(1)
+  })
+})
