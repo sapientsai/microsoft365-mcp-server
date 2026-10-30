@@ -13,6 +13,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphLinkedResource,
   GraphMailFolder,
   GraphMeetingTimeSuggestion,
   GraphMeetingTimeSuggestionsResult,
@@ -26,6 +27,7 @@ import type {
   GraphTodoTask,
   GraphUser,
 } from "../types"
+import { displayableLinkUrl } from "./link-url"
 import { describeRecurrence } from "./recurrence"
 
 // Mail
@@ -623,33 +625,73 @@ export const formatTodoListSummary = (list: GraphTodoList): string => {
 export const formatTodoListList = (lists: ReadonlyArray<GraphTodoList>): string =>
   lists.length === 0 ? "No To Do lists found." : `# To Do Lists\n\n${lists.map(formatTodoListSummary).join("\n")}`
 
+// Text inside a To Do line comes from whoever wrote the task, or for a flagged email, whoever sent
+// the mail. It is kept to one line and capped, and a value inside a "(Label: …)" group also loses
+// its parentheses, so it can't end the group early or forge another one.
+const TODO_TITLE_MAX = 200
+const TODO_VALUE_MAX = 100
+
+export const inlineText = (value: string, max: number): string =>
+  value
+    .replace(/[\r\n|]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, max)
+
+const groupValue = (value: string): string => inlineText(value.replace(/[()]/g, " "), TODO_VALUE_MAX)
+
+const linkedExternalIds = (task: GraphTodoTask): ReadonlyArray<string> =>
+  (task.linkedResources ?? []).flatMap((r) => (r.externalId ? [groupValue(r.externalId)] : []))
+
+/**
+ * One task as one line, in the fixed order the Civala Assistant parses (test/plugin-contract.spec.ts):
+ *
+ *   - **<title>** [<status>] [<importance>] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>)
+ *     (Modified: …) (Categories: a, b) (Link: <externalId>) (ID: <id>)
+ *
+ * A part Graph didn't return is left out rather than filled in, because a caller reads every value
+ * on the line as Graph's. Importance shows only when it isn't normal, as mail flags show only when set.
+ */
 export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
-  const status = task.status ?? "notStarted"
-  const due = Option(task.dueDateTime?.dateTime)
-    .map((d) => ` (Due: ${d})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  const repeats = Option(task.recurrence)
-    .map((r) => ` (Repeats: ${describeRecurrence(r)})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  return `- **${task.title ?? "Untitled"}** [${status}]${due}${repeats} (ID: ${task.id})`
+  const completed = task.completedDateTime?.dateTime
+  const completedZone = task.completedDateTime?.timeZone ? ` ${task.completedDateTime.timeZone}` : ""
+  const categories = (task.categories ?? []).map(groupValue).filter((c) => c !== "")
+  const links = linkedExternalIds(task)
+  return [
+    `- **${inlineText(task.title ?? "", TODO_TITLE_MAX)}**`,
+    task.status ? ` [${task.status}]` : "",
+    task.importance && task.importance !== "normal" ? ` [${task.importance}]` : "",
+    task.dueDateTime?.dateTime ? ` (Due: ${task.dueDateTime.dateTime})` : "",
+    task.recurrence ? ` (Repeats: ${describeRecurrence(task.recurrence)})` : "",
+    completed ? ` (Completed: ${completed}${completedZone})` : "",
+    task.lastModifiedDateTime ? ` (Modified: ${task.lastModifiedDateTime})` : "",
+    categories.length > 0 ? ` (Categories: ${categories.join(", ")})` : "",
+    links.length > 0 ? ` (Link: ${links.join(", ")})` : "",
+    ` (ID: ${task.id})`,
+  ].join("")
 }
 
 export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
   tasks.length === 0 ? "No tasks found." : `# To Do Tasks\n\n${tasks.map(formatTodoTaskSummary).join("\n")}`
+
+const formatLinkedResource = (r: GraphLinkedResource): string => {
+  const name = inlineText(r.displayName ?? r.applicationName ?? "Link", TODO_TITLE_MAX)
+  const app = r.applicationName ? ` (${groupValue(r.applicationName)})` : ""
+  const id = r.externalId ? ` [externalId: ${groupValue(r.externalId)}]` : ""
+  const url = r.webUrl === undefined ? "" : ` ${displayableLinkUrl(r.webUrl) ?? "link withheld: not an http(s) URL"}`
+  return `- ${name}${app}${id}${url}`
+}
 
 export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   const body = Option(task.body?.content).fold(
     () => "",
     (v) => v,
   )
+  const categories = (task.categories ?? []).map(groupValue).filter((c) => c !== "")
+  const links = task.linkedResources ?? []
+  const linkSection = links.length > 0 ? `\n\n## Linked\n${links.map(formatLinkedResource).join("\n")}` : ""
 
-  return `# ${task.title ?? "Untitled"}
+  return `# ${inlineText(task.title ?? "Untitled", TODO_TITLE_MAX)}
 
 ## Details
 - ID: ${task.id}
@@ -662,8 +704,9 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   )}
 - Completed: ${task.completedDateTime?.dateTime ?? "N/A"}
 - Reminder: ${task.isReminderOn ? "Yes" : "No"}
+- Categories: ${categories.length > 0 ? categories.join(", ") : "None"}
 - Created: ${task.createdDateTime ?? ""}
-- Modified: ${task.lastModifiedDateTime ?? ""}
+- Modified: ${task.lastModifiedDateTime ?? ""}${linkSection}
 
 ## Body
 ${body}`

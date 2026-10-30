@@ -584,6 +584,31 @@ says so when that happens. Passing `due_date` with a different `recurrence.start
 is refused, since both set when the series starts. So is moving a task with an `endDate`
 range past its end date: pass `recurrence` with a later `end_date`, or `clear_recurrence`.
 
+**Tagging a task with its source makes a create safe to repeat.** `create_todo_task`
+takes an optional `linked_resource` (`external_id`, `application_name`, and optionally
+`web_url` and `display_name`), stored as the task's `linkedResources`. When a task in
+the list already carries that `external_id`, the tool returns it and creates nothing, so
+a caller that died between Graph's create and its own record of it can simply retry.
+That check reads every page of the list first, completed tasks included, because Graph
+can't filter on `linkedResources`; if the list can't be read in full, the create is
+refused. An `external_id` is a lookup key, so one with a line break, `|`, `(` or `)`, or
+over 200 characters, is refused, and a `web_url` must be `http:` or `https:`.
+
+Both tools also take `categories`, the names of the person's Outlook categories. On an
+update they replace the task's categories, and `[]` clears them.
+
+**Task lines have a fixed shape** for callers that parse them:
+
+```
+- **<title>** [<status>] [<importance>] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>) (Modified: …) (Categories: a, b) (Link: <externalId>) (ID: <id>)
+```
+
+A part Graph didn't return is left out, never filled with a default. Importance shows only
+when it isn't `normal`. Titles, categories and link ids are kept to one line, and lose `|`
+and any parentheses that could end a `(…)` group early. The pattern is pinned in
+`test/plugin-contract.spec.ts`. Graph refuses `$select` on To Do task lists, so these
+reads fetch whole tasks, with `linkedResources` expanded.
+
 `delete_todo_task` has no undo through the API. Microsoft documents restoring a deleted
 task by hand from Outlook's Deleted Items folder, but that hasn't been checked for tasks
 deleted through Graph, so treat a delete as permanent. Because an id addresses the series, deleting a repeating task ends the whole
