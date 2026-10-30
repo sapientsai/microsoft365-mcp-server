@@ -1,7 +1,7 @@
 # Change Request: To Do tools for the Civala Assistant
 
 **Date:** 2026-10-30
-**Status:** Draft, ready to build. Checked against the code at `4d059f5` and the Microsoft Graph docs.
+**Status:** Draft, ready to build. Checked against the code at `4d059f5` and the Microsoft Graph docs. Revised 2026-10-30 after a review: the docs settle four "Verify first" items, and three gaps are closed (the duplicate check reads every page, the safe repeat is an intended `Right`, and a completed repeating occurrence is not a new task).
 **Author:** Jordan Burke
 **Scope:** `packages/microsoft365` (the delegated server), the six To Do tools. The app-only `packages/graph` server is out of scope.
 **Downstream:** the Civala Assistant (`civala-ai/claude-plugins`, `plugins/civala-assistant`), whose release 1.3.0 depends on this.
@@ -32,8 +32,9 @@ So the builder knows what "done" means:
    - reads the built-in Flagged email list as a signal of what the person thinks matters (REQ-TODO-006);
    - creates a task for each new top item, tagged with its source email or chat (REQ-TODO-001), and with its rank and tier in an extension (REQ-TODO-003);
    - sets importance on tasks entering or leaving the top (REQ-TODO-007).
-3. **A task the person completes** is the strongest done signal the assistant gets. **A task the person adds** to the list becomes their own top item.
+3. **A task the person completes** is the strongest done signal the assistant gets. **A task the person adds** to the list becomes their own top item, unless it is already completed: completing a repeating task makes Graph split the finished occurrence into a new task with a new id, so an unseen task that is already completed is a done signal, never a new item (REQ-TODO-005).
 4. **Never unattended:** delete, retitle, change notes, or touch the person's other lists.
+5. **The fence is the caller's.** This is a general server, so nothing here can confine writes to one list. The assistant keeps to its own list by its own rule; the server does not enforce it.
 
 ## Where things stand
 
@@ -75,34 +76,40 @@ Every requirement follows `AGENTS.md`:
 - **Why:** A wake can die after Graph creates a task but before the caller records it. The next wake must not create a second copy. `externalId` is the key, for example `civala:mail:<message id>`. `web_url` puts a link back to the email in To Do.
 - **Acceptance:**
   - A task created with `linked_resource` shows its `externalId` and a parsed `https:` link in list and detail output.
-  - A second create with the same `external_id` in the same list returns "already exists" with the existing id, as a `Right`, and sends no POST.
+  - A second create with the same `external_id` in the same list returns "already exists" with the existing id, as a `Right`, and sends no POST. **This is an intended exception to AGENTS.md "Results"** (return `Left` when an operation changes nothing). That rule is about failures. A repeat of a create that already succeeded is a success, and the caller must be able to retry without treating it as an error.
+  - **The duplicate check reads every page of the list, completed tasks included,** whatever `fetch_all_pages` says. A check that stops at the first page can miss the task and create the duplicate this requirement exists to stop. If any page fails to read, refuse to create, as `create_todo_list` does (`todo-tools.ts:35-41`).
   - `web_url` is shown only if it parses as `http:` or `https:` (AGENTS.md).
   - Tests cover both paths, and that `MS365_READ_ONLY` hides the tool.
-- **Verify first:**
-  - Graph may accept `linkedResources` inside the create body. If it doesn't, POST the task, then POST `/linkedResources`. On a failed second call, return `Right` with a warning naming the task id: the task exists, but untagged.
-  - Graph may support `$filter=linkedResources/any(r: r/externalId eq '…')`. If it doesn't, page the list with `$expand=linkedResources` and match in code.
+- **Settled by the docs:** `linkedResources` goes inside the create body. The [create task](https://learn.microsoft.com/en-us/graph/api/todotasklist-post-tasks?view=graph-rest-1.0) example "creates a **todoTask** in the specified task list, and includes a linkedResource" in the same POST. No second call is needed.
+- **Verify first:** whether Graph supports `$filter=linkedResources/any(r: r/externalId eq '…')`. The docs don't mention it. If it doesn't work, page the whole list with `$expand=linkedResources` and match in code, as the acceptance above requires.
 
 ### REQ-TODO-002: Categories
 
 - **Priority:** Should.
 - **Statement:** `create_todo_task` and `update_todo_task` take `categories: string[]`, and list and detail output print them.
 - **Acceptance:** Categories round-trip, and output cleans each one as untrusted text.
-- **Verify first:** whether a category must already exist in the person's Outlook master category list. If it must, say so in the tool description. Don't create master categories.
+- **Settled by the docs:** "Each category corresponds to the **displayName** property of an outlookCategory that the user has defined" ([todoTask](https://learn.microsoft.com/en-us/graph/api/resources/todotask?view=graph-rest-1.0)).
+- **Verify first:** whether Graph refuses a category that isn't in the person's master category list. The docs don't say. If it refuses, say so in the tool description. Don't create master categories.
 
 ### REQ-TODO-003: Store a caller's data on a task (open extension)
 
 - **Priority:** Must.
 - **Statement:**
-  - `create_todo_task` and the new tool in REQ-TODO-007 take `extension: { name, fields }`. `name` is a reverse-DNS extension name, for example `com.civala.assistant`. `fields` is a flat object of strings, numbers and booleans, at most 20 keys.
+  - `create_todo_task` and the new tool in REQ-TODO-007 take `extension: { name, fields }`. `name` is a reverse-DNS extension name, for example `com.civala.assistant`. `fields` is a flat object of strings, numbers and booleans, at most 20 keys and at most 2 KB as JSON.
   - `list_todo_tasks` takes `extension_name`. When set, it expands that extension and prints its fields on each task line.
 - **Why:** The assistant keeps rank, tier, source id and when the item was asked for. The person can't see or edit an extension, unlike the notes, so a stray edit can't break it.
 - **Acceptance:**
   - Fields round-trip.
-  - Updating the extension replaces only the named fields.
-  - Names that aren't reverse-DNS, nested values and more than 20 keys are refused.
+  - Updating the extension changes only the fields sent; Graph merges an update, keeping fields left out. A `null` value is refused before the call, because Graph refuses it.
+  - Names that aren't reverse-DNS, nested values, more than 20 keys and more than 2 KB are refused.
   - Output prints field values as cleaned single-line text.
   - Tests cover each.
-- **Verify first:** whether an extension can be included in the create body. If it can't, use POST `/extensions` after create, with the same partial-success rule as REQ-TODO-001. Also confirm how Graph names the extension on read (`extensionName` vs `id`).
+- **Settled by the docs:**
+  - An extension can be created with the task in one call. The [open extension](https://learn.microsoft.com/en-us/graph/api/opentypeextension-post-opentypeextension?view=graph-rest-1.0) page lists `POST /users/{id|userPrincipalName}/todo/lists/{id}/tasks` under "Create an extension in a new resource instance".
+  - Naming: `extensionName` is the bare name (`com.civala.assistant`). `id` "concatenates the extension type with the **extensionName**" (`microsoft.graph.openTypeExtension.com.civala.assistant`).
+- **Verify first:**
+  - Which name `$expand=extensions($filter=id eq '…')` matches. The docs filter by the full `id` in one example and the bare name in another.
+  - Size limits. Graph documents none for To Do tasks. Its general limits (two open extensions per app per item, 2 KB each, per the extensibility overview) are footnoted to users, groups, devices and organizations. The 20-key and 2 KB caps above are chosen to sit inside them either way.
 
 ### REQ-TODO-004: List output an unattended caller can parse
 
@@ -122,19 +129,24 @@ Every requirement follows `AGENTS.md`:
 ### REQ-TODO-005: What changed since the last run (delta)
 
 - **Priority:** Must.
-- **Statement:** `list_todo_tasks` takes an optional `delta` mode.
+- **Statement:** `list_todo_tasks` takes an optional `delta` mode (shape pending DR-002).
   - With `delta: true` and no token, it returns every task and a token.
   - With `delta_token`, it returns only the tasks added, changed or removed since that token, then the next token.
-  - Removed tasks are listed separately, by id.
+  - Removed tasks are listed separately, by id, with Graph's reason (`changed` or `deleted`).
+  - Delta lines carry the same fields as REQ-TODO-004, including Link and Ext: delta supports `$select`, `$top` and `$expand`.
+  - Each tool description says that completing a repeating task makes Graph split off the finished occurrence as a new, already-completed task with a new id, so a caller must not read an unseen completed task as newly added work.
 - **Why:** Each run needs only what the person did since the last run: tasks completed, added, or removed. Re-reading a whole list every half hour is slow and makes the caller diff it.
 - **Acceptance:**
   - The token is printed on its own labelled line (`Delta token: …`) that a caller can pick out.
   - The server follows `@odata.nextLink` and `@odata.deltaLink` only after parsing each with `new URL` and checking its origin is the Graph host (AGENTS.md, Paths and URLs).
-  - An expired or invalid token returns a `Left` saying to start again with `delta: true`.
-  - Tests use recorded responses for: first page, next page, a removed task, and an expired token.
-- **Verify first:**
-  - The removed-item shape. The [delta](https://learn.microsoft.com/en-us/graph/api/todotask-delta?view=graph-rest-1.0) page says deletions are tracked, but its example shows no marker. It is probably `@removed`.
-  - The HTTP status for an expired token.
+  - Both restart signals return a `Left` saying to start again with `delta: true`:
+    - an expired token, a 40X error with a code such as `syncStateNotFound`;
+    - a sync reset, `410 Gone` with a `Location` header, which Graph sends after tenant maintenance or migration.
+  - Tests use recorded responses for: first page, next page, a removed task, an expired token, a `410 Gone`, and a completed repeating occurrence appearing as a new task.
+- **Settled by the docs** ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)):
+  - Removed items carry `"@removed": {"reason": …}`, and "Possible **@removed** reasons can be `changed` or `deleted`."
+  - "In case the token expires, the service should respond with a 40X-series error with error codes such as `syncStateNotFound`."
+  - `410 Gone` with a `Location` header holding an empty `$deltatoken` means "the application must restart with a full synchronization".
 
 ### REQ-TODO-006: Read the Flagged email list
 
@@ -190,7 +202,7 @@ Every requirement follows `AGENTS.md`:
 Three PRs, each reviewed before merge (`AGENTS.md`, Pull requests). None bumps the package version, because the release (version, `server.json`, tag) is a maintainer step. See CLAUDE.md, Publishing.
 
 1. **Output and tagging:** REQ-TODO-004, 001 and 002, with the contract test. Ship this first, because the plugin parses it.
-2. **Caller data and the narrow update:** REQ-TODO-003 and 007, after DR-001 is answered.
+2. **Caller data and the narrow update:** REQ-TODO-003 and 007, after DR-001 is answered. Answer DR-002 before this PR too, because PR 3 depends on it and mail delta will follow the same shape.
 3. **Change feed and Flagged email:** REQ-TODO-005, 006 and 008.
 
 Run `pnpm validate` before each PR.
@@ -200,11 +212,17 @@ Run `pnpm validate` before each PR.
 - **Ranking or sorting.** Graph has no position field.
 - **My Day.** Graph exposes no such property.
 - **Sharing lists.** Graph can't; `create_todo_list` already says so.
+- **Confining writes to one list.** A general server can't know which list is the caller's. The Civala Assistant enforces that itself.
 - **Planner,** and the app-only `packages/graph` server.
 - **JSON output** (`format: "json"`). That's the automated-callers plan. This CR keeps markdown, pinned by the contract test.
 - **The plugin changes,** which ship as Civala Assistant 1.3.0.
 
 ## Open questions
 
-- Each "Verify first" item above, answered during the build, with the fallback named in each.
+- Each "Verify first" item above, answered during the build, with the fallback named in each. Still open, with nothing in the docs:
+  - filtering a list by `linkedResources` (REQ-TODO-001);
+  - whether Graph refuses a category missing from the master list (REQ-TODO-002);
+  - which name the extension `$filter` matches, and To Do's extension limits (REQ-TODO-003);
+  - whether Graph refuses writes to the Flagged email list (REQ-TODO-006);
+  - how To Do shows a UTC-midnight due date (REQ-TODO-008).
 - Whether to also expose `checklistItems`, `startDateTime` and `reminderDateTime`. Nobody needs them yet.
