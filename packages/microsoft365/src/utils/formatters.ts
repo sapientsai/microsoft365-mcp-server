@@ -634,6 +634,8 @@ const TODO_TITLE_MAX = 200
 const TODO_VALUE_MAX = 100
 // Matches EXTERNAL_ID_MAX in tools/todo-tools.ts: a caller's key must come back whole.
 const TODO_EXTERNAL_ID_MAX = 200
+// Graph's task ids run about 150 characters; the cap only stops a runaway value, never a real id.
+const TODO_ID_MAX = 1000
 
 // Every character a reader may treat as a line break, not only CR and LF: U+2028 and U+2029 also
 // end a line for many splitters, and JavaScript's "." doesn't match them, so either one would make
@@ -709,7 +711,8 @@ export const formatTodoTaskSummary = (task: GraphTodoTask, extensionName?: strin
     links.length > 0 ? ` (Link: ${links.join(", ")})` : "",
     mail.length > 0 ? ` (Mail: ${mail.join(", ")})` : "",
     extension === undefined ? "" : ` (Ext: ${extension})`,
-    ` (ID: ${task.id})`,
+    // Graph mints the id, but it is still the one value a line ends on, so it is cleaned like the rest.
+    ` (ID: ${groupValue(task.id, TODO_ID_MAX).replace(/ /g, "")})`,
   ].join("")
 }
 
@@ -736,8 +739,7 @@ export type TodoTaskChanges = {
 export const formatTodoTaskChanges = (changes: TodoTaskChanges): string => {
   const lines = changes.tasks.map((t) => formatTodoTaskSummary(t, changes.extensionName))
   const removed = changes.removed.map(
-    (r) =>
-      `Removed: ${groupValue(r.id, TODO_EXTERNAL_ID_MAX).replace(/ /g, "")}${r.reason ? ` (${groupValue(r.reason)})` : ""}`,
+    (r) => `Removed: ${groupValue(r.id, TODO_ID_MAX).replace(/ /g, "")}${r.reason ? ` (${groupValue(r.reason)})` : ""}`,
   )
   const body =
     lines.length + removed.length === 0 ? [changes.first ? "No tasks found." : "No changes."] : [...lines, ...removed]
