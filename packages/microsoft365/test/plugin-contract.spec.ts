@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 
 import type { GraphChat, GraphChatMessage, GraphMessage, GraphTodoTask } from "../src/types"
-import { formatChatList, formatChatMessageList, formatMessageList, formatTodoTaskList } from "../src/utils/formatters"
+import {
+  formatChatList,
+  formatChatMessageList,
+  formatMessageList,
+  formatTodoTaskChanges,
+  formatTodoTaskList,
+} from "../src/utils/formatters"
 
 // The Civala Assistant plugin (claude-plugins, plugins/civala-assistant) turns these tools' text into
 // data with the regular expressions below, copied verbatim from scripts/triage_rules.mts and
@@ -16,6 +22,10 @@ const MAIL_LINE =
 const CHAT_LINE =
   /^- \*\*(.*)\*\* \((?:last message (\d{4}-\d{2}-\d{2}T[^ )]*)(?: from (.*?))?|updated: (\d{4}-\d{2}-\d{2}T[^)]*))\) \(([^,)]+), ID: ([^)]+)\)$/
 const MESSAGE_LINE = /^- \*\*(.*)\*\* \((\d{4}-\d{2}-\d{2}T[^)]*)\)((?: \[[^\]]+\])*) \(ID: ([^)]+)\)$/
+// list_todo_tasks' change feed (REQ-TODO-005): a removed task, and the token, each on its own line.
+const TODO_REMOVED_LINE = /^Removed: ([^ ()]+)(?: \(([^)]+)\))?$/
+const TODO_DELTA_TOKEN_LINE = /^Delta token: ([A-Za-z0-9._~-]+)$/
+
 // list_todo_tasks, for Civala Assistant 1.3.0 (SAI_SPEC_To-Do-for-Civala-Assistant_2026-10-30.md, REQ-TODO-004).
 // Every part but the title and ID is optional, and the order is fixed. Ext is pinned now though the
 // server only prints it from REQ-TODO-003, so the plugin copies this pattern once. Groups:
@@ -267,5 +277,37 @@ describe("plugin contract: the Flagged Emails list", () => {
     expect(match?.[10]).toBe("AAMkADExample-PBwAMgh_zHlT=")
     expect(match?.[9]).toBe("AAkALgAAAAAAExample-EWg0AAA")
     expect(match?.[12]).toBe("AAMk-flagged-task=")
+  })
+})
+
+describe("plugin contract: list_todo_tasks change feed", () => {
+  const text = formatTodoTaskChanges({
+    first: false,
+    tasks: [{ id: "t1", title: "Reply to Bel", status: "completed", importance: "high" }],
+    removed: [{ id: "gone-1", reason: "deleted" }, { id: "gone-2" }],
+    deltaToken: "l7WI41sw-dt_2.b",
+    notes: ["a note"],
+  })
+  const lines = text.split("\n").map((l) => l.trim())
+
+  it("keeps task lines in the TODO_LINE shape, and nothing else looks like an item", () => {
+    expect(itemLines(text)).toHaveLength(1)
+    expect(TODO_LINE.exec(itemLines(text)[0])?.[12]).toBe("t1")
+  })
+
+  it("pins the removed lines, with and without a reason", () => {
+    const removed = lines.flatMap((l) => {
+      const m = TODO_REMOVED_LINE.exec(l)
+      return m ? [[m[1], m[2]]] : []
+    })
+    expect(removed).toEqual([
+      ["gone-1", "deleted"],
+      ["gone-2", undefined],
+    ])
+  })
+
+  it("pins the token line, last", () => {
+    expect(TODO_DELTA_TOKEN_LINE.exec(lines.at(-1)!)?.[1]).toBe("l7WI41sw-dt_2.b")
+    expect(lines.filter((l) => TODO_DELTA_TOKEN_LINE.test(l))).toHaveLength(1)
   })
 })

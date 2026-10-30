@@ -548,7 +548,7 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 | --------------------- | ------------------------------------------------------------- |
 | `list_todo_lists`     | List task lists                                               |
 | `create_todo_list`    | Create a task list                                            |
-| `list_todo_tasks`     | List tasks in a list                                          |
+| `list_todo_tasks`     | List tasks in a list, or what changed since a delta token     |
 | `create_todo_task`    | Create a task, optionally repeating                           |
 | `update_todo_task`    | Update a task, or change its repeat                           |
 | `set_todo_task_state` | Set status, importance and your own fields, safely repeatable |
@@ -630,6 +630,20 @@ advertised as idempotent, and a failed call is safe to repeat. It is still marke
 because it overwrites values. Completing a repeating task is refused, since each completion
 rolls the series on by one more occurrence; use `update_todo_task` for that. When the task
 updates but the extension doesn't, the error says which part was saved.
+
+**`list_todo_tasks` can report what changed since your last call.** Call it once with
+`delta: true`: it returns every task and ends with a `Delta token: …` line. Keep the token
+and pass it back as `delta_token`; the next call returns only the tasks added, changed or
+removed since, each removed one as a `Removed: <id> (<reason>)` line, and a new token. A
+token belongs to the list it came from. With a token, every changed task is read afresh, so
+its line is complete, and `extension_name` adds its `(Ext: …)` fields; the first call can't
+include extensions, since Graph's delta query doesn't return them. Each call reads every
+page, at most 50 pages of 100, and prints a token only when it read everything, so a run
+that fails part-way repeats the same window next time. When Graph refuses a token (it is
+unknown, damaged or too old), the error says to start again with `delta: true`.
+Completing a repeating task keeps the series and splits off the finished occurrence as a
+new, already-completed task with a new id, which shows up as a change; it is a done
+occurrence, not new work. Your own writes come back as changes too.
 
 **The Flagged Emails list** (`wellknownListName: flaggedEmails`) holds the emails flagged
 in Outlook. Each of its tasks links to its email, but the link's `externalId` isn't an id any

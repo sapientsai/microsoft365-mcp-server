@@ -39,8 +39,14 @@ import type {
   ODataParams,
   ODataResponse,
 } from "../types"
+import { isDeltaToken } from "../utils/delta-token"
 import { safeDecode } from "../utils/safe-decode"
 import { defaultVersion } from "./graph-version"
+
+/** A delta record: a task, or a removed one marked by "@removed". */
+export type TodoDeltaRecord = GraphTodoTask & { readonly "@removed"?: { readonly reason?: string } }
+type TodoDeltaPage = ODataResponse<TodoDeltaRecord> & { readonly "@odata.deltaLink"?: string }
+export type TodoDeltaResult = { readonly records: ReadonlyArray<TodoDeltaRecord>; readonly deltaToken: string }
 
 /** Tasks asked for per page of a To Do list, and the most pages read before giving up. */
 export const TODO_TASK_PAGE_SIZE = 100
@@ -562,14 +568,85 @@ const createGraphClient = (auth: AuthStrategy) => {
     return step(await listTodoTasks(listId, { ...odataParams, $top: TODO_TASK_PAGE_SIZE }), [], 1)
   }
 
+  // What changed in a list since a token, through Graph's delta query. Checked live 2026-10-30:
+  // delta refuses $select and the filtered extension expand, so it is sent with no query options at
+  // all; its continuation links carry only $skiptoken, and the last page's deltaLink only
+  // $deltatoken. A token is checked and encoded before it goes into a URL, and every link Graph
+  // returns is checked before it is followed. Hitting the page cap or a bad link returns no token,
+  // so a caller never moves past changes it didn't read.
+  const todoDeltaPath = (listId: string) => `${todoTasksPath(listId)}/delta`
+  const deltaPrefer = { headers: { Prefer: `odata.maxpagesize=${TODO_TASK_PAGE_SIZE}` } }
+
+  const deltaLinkToken = (link: string, listId: string, key: "$skiptoken" | "$deltatoken") => {
+    const url = URL.canParse(link) ? new URL(link) : undefined
+    const match = /^\/(v1\.0|beta)\/me\/todo\/lists\/([^/]+)\/tasks\/delta$/.exec(url?.pathname ?? "")
+    const keys = url ? [...url.searchParams.keys()] : []
+    const token = url?.searchParams.get(key) ?? ""
+    const ok =
+      url?.origin === GRAPH_API_BASE &&
+      !url.username &&
+      !url.password &&
+      !url.hash &&
+      match !== null &&
+      safeDecode(match[2]!) === safeDecode(listId) &&
+      keys.length === 1 &&
+      keys[0] === key &&
+      isDeltaToken(token)
+    return ok ? { token, version: match[1] as GraphApiVersion } : undefined
+  }
+
+  const todoTaskDelta = async (
+    listId: string,
+    deltaToken?: string,
+  ): Promise<Either<GraphApiError, TodoDeltaResult>> => {
+    if (deltaToken !== undefined && !isDeltaToken(deltaToken)) {
+      return Left({ type: "api", status: 400, message: "Badly formed token." })
+    }
+    const page = (query: string, version?: GraphApiVersion) =>
+      request<TodoDeltaPage>("GET", `${todoDeltaPath(listId)}${query}`, { ...deltaPrefer, version })
+    const step = async (
+      response: Either<GraphApiError, TodoDeltaPage>,
+      read: ReadonlyArray<TodoDeltaRecord>,
+      pages: number,
+    ): Promise<Either<GraphApiError, TodoDeltaResult>> => {
+      if (response.isLeft()) return Left(response.value as GraphApiError)
+      const body = response.value as Partial<TodoDeltaPage>
+      if (!Array.isArray(body.value))
+        return Left({ type: "parse", message: "A page of To Do changes had no value array." })
+      const records = [...read, ...body.value]
+      const next = body["@odata.nextLink"]
+      const done = body["@odata.deltaLink"]
+      if (next === undefined && done === undefined) {
+        return Left({ type: "parse", message: "Graph returned neither a next page nor a delta token." })
+      }
+      if (next === undefined) {
+        const last = deltaLinkToken(done!, listId, "$deltatoken")
+        return last === undefined
+          ? Left({ type: "api", message: "Invalid Graph To Do delta link." })
+          : Right({ records, deltaToken: last.token })
+      }
+      if (pages >= MAX_TODO_TASK_PAGES) {
+        return Left({
+          type: "api",
+          message: `The changes run past ${MAX_TODO_TASK_PAGES} pages of ${TODO_TASK_PAGE_SIZE} tasks; reading stopped there.`,
+        })
+      }
+      const skip = deltaLinkToken(next, listId, "$skiptoken")
+      if (skip === undefined) return Left({ type: "api", message: "Invalid Graph To Do continuation URL." })
+      return step(await page(`?$skiptoken=${encodeURIComponent(skip.token)}`, skip.version), records, pages + 1)
+    }
+    const first = deltaToken === undefined ? "" : `?$deltatoken=${encodeURIComponent(deltaToken)}`
+    return step(await page(first), [], 1)
+  }
+
   const createTodoTask = (listId: string, task: Record<string, unknown>) =>
     request<GraphTodoTask>("POST", `/me/todo/lists/${listId}/tasks`, { body: task })
 
   const updateTodoTask = (listId: string, taskId: string, task: Record<string, unknown>) =>
     request<GraphTodoTask>("PATCH", `/me/todo/lists/${listId}/tasks/${taskId}`, { body: task })
 
-  const getTodoTask = (listId: string, taskId: string) =>
-    request<GraphTodoTask>("GET", `/me/todo/lists/${listId}/tasks/${taskId}`)
+  const getTodoTask = (listId: string, taskId: string, odataParams?: ODataParams) =>
+    request<GraphTodoTask>("GET", `/me/todo/lists/${listId}/tasks/${taskId}`, { odataParams })
 
   // A task's open extensions. A PATCH replaces the whole extension (checked live 2026-10-30), so a
   // caller that means to change some fields reads, merges, and sends them all.
@@ -757,6 +834,7 @@ const createGraphClient = (auth: AuthStrategy) => {
     createTodoList,
     listTodoTasks,
     listAllTodoTasks,
+    todoTaskDelta,
     getTodoTaskExtension,
     createTodoTaskExtension,
     replaceTodoTaskExtension,

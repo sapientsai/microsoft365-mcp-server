@@ -26,6 +26,7 @@ const mockClient = {
   requestPaginated: vi.fn(),
   listTodoTasks: vi.fn(),
   listAllTodoTasks: vi.fn(),
+  todoTaskDelta: vi.fn(),
   getTodoTaskExtension: vi.fn(),
   createTodoTaskExtension: vi.fn(),
   replaceTodoTaskExtension: vi.fn(),
@@ -891,6 +892,175 @@ describe("set_todo_task_state", () => {
     })
     expect(result.isLeft()).toBe(true)
     expect(mockClient.getTodoTaskExtension).not.toHaveBeenCalled()
+  })
+})
+
+describe("list_todo_tasks change feed", () => {
+  const delta = (records: ReadonlyArray<Record<string, unknown>>, deltaToken = "next.token-1") =>
+    mockClient.todoTaskDelta.mockResolvedValue(Right({ records, deltaToken }))
+  const full = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    title: `Task ${id}`,
+    status: "notStarted",
+    importance: "normal",
+    ...extra,
+  })
+  // As Graph returned them live on 2026-10-30.
+  const REMOVED = { id: "gone-1", isReminderOn: false, hasAttachments: false, "@removed": { reason: "deleted" } }
+  const DAILY_RECURRENCE = {
+    pattern: { type: "daily", interval: 1 },
+    range: { type: "noEnd", startDate: "2026-10-30" },
+  }
+  const FINISHED_OCCURRENCE = full("done-occ", {
+    title: "Repeating daily",
+    status: "completed",
+    completedDateTime: { dateTime: "2026-10-30T00:00:00.0000000", timeZone: "UTC" },
+    dueDateTime: { dateTime: "2026-10-30T00:00:00.0000000", timeZone: "UTC" },
+    recurrence: DAILY_RECURRENCE,
+  })
+
+  it("starts a feed: prints every task as Graph sent it, and the token last", async () => {
+    delta([full("t1", { linkedResources: [{ externalId: "civala:mail:1" }] }), full("t2")])
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true })
+    expect(mockClient.todoTaskDelta).toHaveBeenCalledWith(LIST_ID, undefined)
+    expect(mockClient.getTodoTask).not.toHaveBeenCalled()
+    const lines = (result.value as string).split("\n")
+    expect(lines[0]).toBe("# To Do Tasks")
+    expect(lines).toContain("- **Task t1** [notStarted] (Link: civala:mail:1) (ID: t1)")
+    expect(lines.at(-1)).toBe("Delta token: next.token-1")
+  })
+
+  it("fills a first-call record that is missing a core field", async () => {
+    delta([{ id: "t1", status: "notStarted" }])
+    mockClient.getTodoTask.mockResolvedValue(Right(full("t1")))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true })
+    expect(mockClient.getTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { $expand: ["linkedResources"] })
+    expect(result.value).toContain("- **Task t1** [notStarted] (ID: t1)")
+  })
+
+  // Delta can't return extensions (live, 2026-10-30), so the first call says how to get them.
+  it("prints no Ext on the first call, and says how to get it", async () => {
+    delta([{ id: "t1" }])
+    mockClient.getTodoTask.mockResolvedValue(Right(full("t1")))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true, extension_name: "com.civala.assistant" })
+    expect(mockClient.getTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { $expand: ["linkedResources"] })
+    const text = result.value as string
+    expect(text).not.toContain("(Ext:")
+    expect(text).toContain("Note: the first delta call can't return extensions")
+  })
+
+  it("reads every changed task afresh with a token, extension included", async () => {
+    delta([{ id: "t1", importance: "high" }], "token-2")
+    mockClient.getTodoTask.mockResolvedValue(
+      Right(full("t1", { importance: "high", extensions: [{ extensionName: "com.civala.assistant", rank: 2 }] })),
+    )
+    const result = await listTodoTasks({
+      list_id: LIST_ID,
+      delta_token: "token-1",
+      extension_name: "com.civala.assistant",
+    })
+    expect(mockClient.todoTaskDelta).toHaveBeenCalledWith(LIST_ID, "token-1")
+    expect(mockClient.getTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", {
+      $expand: ["linkedResources", "extensions($filter=id eq 'com.civala.assistant')"],
+    })
+    const lines = (result.value as string).split("\n")
+    expect(lines[0]).toBe("# To Do Changes")
+    expect(lines).toContain('- **Task t1** [notStarted] [High importance] (Ext: {"rank":2}) (ID: t1)')
+    expect(lines.at(-1)).toBe("Delta token: token-2")
+  })
+
+  it("lists a removed task on its own line, with Graph's reason or without one", async () => {
+    delta([REMOVED, { id: "gone-2", "@removed": {} }])
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "token-1" })
+    const lines = (result.value as string).split("\n")
+    expect(lines).toContain("Removed: gone-1 (deleted)")
+    expect(lines).toContain("Removed: gone-2")
+    expect(mockClient.getTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("lists a task as removed when reading it finds it gone", async () => {
+    delta([full("t1")])
+    mockClient.getTodoTask.mockResolvedValue(Left({ type: "not_found", status: 404, message: "Not found" }))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "token-1" })
+    expect(result.value).toContain("Removed: t1")
+    expect(result.value).not.toContain("- **")
+  })
+
+  it("prints no token when a changed task can't be read", async () => {
+    delta([full("t1")])
+    mockClient.getTodoTask.mockResolvedValue(Left({ type: "network", message: "offline" }))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "token-1" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("no token was printed")
+    expect((result.value as Error).message).not.toContain("Delta token:")
+  })
+
+  it("prints a task that appears twice once, read afresh", async () => {
+    delta([full("t1", { title: "old" }), full("t1", { title: "newer" })])
+    mockClient.getTodoTask.mockResolvedValue(Right(full("t1", { title: "current" })))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true })
+    expect(mockClient.getTodoTask).toHaveBeenCalledTimes(1)
+    const items = (result.value as string).split("\n").filter((l) => l.startsWith("- **"))
+    expect(items).toEqual(["- **current** [notStarted] (ID: t1)"])
+  })
+
+  // The finished occurrence of a repeating task arrives as a new, already-completed id.
+  it("shows a completed repeating occurrence as a completed task that repeats", async () => {
+    delta([FINISHED_OCCURRENCE])
+    mockClient.getTodoTask.mockResolvedValue(Right(FINISHED_OCCURRENCE))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "token-1" })
+    expect(result.value).toContain(
+      "- **Repeating daily** [completed] (Due: 2026-10-30T00:00:00.0000000) (Repeats: every day from 2026-10-30) " +
+        "(Completed: 2026-10-30T00:00:00.0000000 UTC) (ID: done-occ)",
+    )
+  })
+
+  it("says so when nothing changed, and still prints the token", async () => {
+    delta([], "same.token")
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "same.token" })
+    expect(result.value).toBe("# To Do Changes\n\nNo changes.\n\nDelta token: same.token")
+  })
+
+  it.each([
+    ["an expired token", { status: 410, graphErrorCode: "syncStateNotFound", message: "expired" }],
+    ["syncStateNotFound under another status", { status: 400, graphErrorCode: "SyncStateNotFound", message: "x" }],
+    ["a 410 without a code", { status: 410, message: "Gone" }],
+    [
+      "a badly formed token (live, 2026-10-30)",
+      { status: 400, graphErrorCode: "BadRequest", message: "Badly formed token." },
+    ],
+  ])("tells the caller to start again for %s", async (_label, error) => {
+    mockClient.todoTaskDelta.mockResolvedValue(Left({ type: "api", ...error }))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "token-1" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Start again with delta: true")
+  })
+
+  it("doesn't call a first-call 400 a token problem", async () => {
+    mockClient.todoTaskDelta.mockResolvedValue(Left({ type: "api", status: 400, message: "bad list" }))
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true })
+    expect((result.value as Error).message).toContain("Failed to read changes")
+    expect((result.value as Error).message).not.toContain("Start again")
+  })
+
+  it("refuses fetch_all_pages with a change feed, which reads every page anyway", async () => {
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true, fetch_all_pages: true })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.todoTaskDelta).not.toHaveBeenCalled()
+  })
+
+  it("refuses a token this tool couldn't have printed, before calling Graph", async () => {
+    const result = await listTodoTasks({ list_id: LIST_ID, delta_token: "abc&$top=1" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Start again with delta: true")
+    expect(mockClient.todoTaskDelta).not.toHaveBeenCalled()
+  })
+
+  it("leaves the plain list alone when delta isn't asked for", async () => {
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [] }))
+    await listTodoTasks({ list_id: LIST_ID, delta: false })
+    expect(mockClient.todoTaskDelta).not.toHaveBeenCalled()
+    expect(mockClient.listTodoTasks).toHaveBeenCalled()
   })
 })
 

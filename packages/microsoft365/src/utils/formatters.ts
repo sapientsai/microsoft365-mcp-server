@@ -718,6 +718,39 @@ export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>, extensio
     ? "No tasks found."
     : `# To Do Tasks\n\n${tasks.map((t) => formatTodoTaskSummary(t, extensionName)).join("\n")}`
 
+export type TodoTaskChanges = {
+  /** True for the first call of a change feed, which returns every task. */
+  readonly first: boolean
+  readonly tasks: ReadonlyArray<GraphTodoTask>
+  readonly removed: ReadonlyArray<{ readonly id: string; readonly reason?: string }>
+  readonly deltaToken: string
+  readonly extensionName?: string
+  readonly notes?: ReadonlyArray<string>
+}
+
+/**
+ * A change feed's result: task lines in the TODO_LINE shape, then one "Removed: <id> (<reason>)"
+ * line per removed task, any notes, and the token on its own "Delta token: …" line last. None of
+ * the lines after the tasks starts with "- **", so a caller's item filter can't mistake them.
+ */
+export const formatTodoTaskChanges = (changes: TodoTaskChanges): string => {
+  const lines = changes.tasks.map((t) => formatTodoTaskSummary(t, changes.extensionName))
+  const removed = changes.removed.map(
+    (r) =>
+      `Removed: ${groupValue(r.id, TODO_EXTERNAL_ID_MAX).replace(/ /g, "")}${r.reason ? ` (${groupValue(r.reason)})` : ""}`,
+  )
+  const body =
+    lines.length + removed.length === 0 ? [changes.first ? "No tasks found." : "No changes."] : [...lines, ...removed]
+  return [
+    changes.first ? "# To Do Tasks" : "# To Do Changes",
+    "",
+    ...body,
+    "",
+    ...(changes.notes ?? []).map((n) => `Note: ${n}`),
+    `Delta token: ${changes.deltaToken}`,
+  ].join("\n")
+}
+
 const formatLinkedResource = (r: GraphLinkedResource): string => {
   const name = inlineText(r.displayName ?? r.applicationName ?? "Link", TODO_TITLE_MAX)
   const app = r.applicationName ? ` (${groupValue(r.applicationName)})` : ""
