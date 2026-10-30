@@ -183,6 +183,12 @@ Every requirement follows `AGENTS.md`:
     - an expired token, an error with the code `syncStateNotFound`, matched on the code whatever the status (Outlook commonly sends it as `410`);
     - any `410 Gone`, with or without a `Location` header.
   - Tests use recorded responses for: first page, next page, a removed task, a partial changed record filled by a GET, a filling GET that 404s, an expired token, a `410 Gone`, a page cap hit, a task listed twice, a removed record with no reason, and a completed repeating occurrence appearing as a new task.
+- **Checked live (2026-10-30),** in a throwaway list:
+  - **Query options.** Delta refuses `$select` ("Invalid request") and the filtered extension expand (400 "Parsing OData Select and Expand failed"). It accepts an unfiltered `$expand=extensions` but returns no extensions. It returns `linkedResources` without being asked. So the first call (`delta: true`) prints no Ext, and the tool says so.
+  - **Paging.** `@odata.nextLink` carries only `$skiptoken`, and the last page's `@odata.deltaLink` only `$deltatoken`, so the delta pager checks for exactly one of those and nothing else. PR 1's list pager, which compares `$expand`, would refuse every delta page. Tokens use only letters, digits, `_`, `-` and `.`. `Prefer: odata.maxpagesize` is honoured.
+  - **Changes.** An edit came back as the full task, not a partial one. Completing a repeating task returned the series, rolled forward, and the finished occurrence as a new id with `status: completed`, its own `createdDateTime`, and the series' `recurrence`. A task created and deleted between two calls didn't appear at all. Deleting a task that existed at the token returned `{"id", "@removed": {"reason": "deleted"}}` plus two stray booleans, so a removed record is detected by its `@removed` key.
+  - **A bad token** (unknown or one character changed) returns 400 `BadRequest` "Badly formed token.", a third restart signal. A real expiry (`syncStateNotFound`) and a `410` were not seen.
+  - **The fill GET.** A single-task GET accepts `$expand=linkedResources,extensions($filter=id eq '<name>')`, so token mode can print Ext.
 - **Settled by the docs** ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)):
   - Removed items carry `"@removed": {"reason": …}`, and "Possible **@removed** reasons can be `changed` or `deleted`."
   - "In case the token expires, the service should respond with a 40X-series error with error codes such as `syncStateNotFound`."
@@ -195,7 +201,8 @@ Every requirement follows `AGENTS.md`:
 - **Acceptance:**
   - A test with a recorded `flaggedEmails` response shows the link.
   - The tool description says the list is created by Outlook flags.
-- **Verify first:** whether Graph refuses writes to this list. If it does, the write tools return a clear `Left` for it instead of Graph's raw error.
+- **Settled live (2026-10-30):** Graph accepts writes to the Flagged email list. A test task was created there and deleted at once. So no refusal is needed.
+- **The `externalId` isn't the message id.** A flagged email's task carries `linkedResources` with `applicationName: "Outlook"`, an `externalId` such as `AAkALg…` that no mail tool uses, and a `webUrl` of the form `https://outlook.office365.com/owa/?ItemID=<id>&…`. That `ItemID` is the message's id in Outlook's older format. Swapping `/` for `-` and `+` for `_` gives the Graph id, and a GET of that id returned the flagged message (live, 2026-10-30). Microsoft doesn't document this mapping. So each such line also gets `(Mail: <Graph message id>)`, between Link and Ext, which the plugin matches against its mail lines. It is printed only when the URL parses, its host is an Outlook one, and the result holds only Graph id characters. `TODO_LINE` gains the group, so the plugin copies the pattern after PR 4, not PR 1.
 
 ### REQ-TODO-007: A narrow update that is safe to run unattended
 
@@ -226,6 +233,7 @@ Every requirement follows `AGENTS.md`:
   - Create a task due `2026-11-02` for an Eastern-time user and confirm To Do shows November 2.
   - If it shows November 1, take a caller-supplied `time_zone`, or send noon UTC, which lands on the same day from UTC−12 to UTC+11. Don't read the mailbox's time zone: that needs `MailboxSettings.Read`, which isn't in `DEFAULT_INTERACTIVE_SCOPES` (`auth/scopes.ts:76-99`) and would break "no new consent is needed". Add a test.
 - **This is a check first.** It may already be correct.
+- **Checked live (2026-10-30):** Graph stores a due date as a point in time. `2026-11-02T00:00` UTC reads back as `2026-11-01T19:00` with `Prefer: outlook.timezone="Eastern Standard Time"`, and Eastern midnight is stored as `05:00` UTC. To Do's own writes use midnight UTC: completing a repeating task rolled its due date to `2026-10-31T00:00` UTC and set `completedDateTime` to midnight UTC. That suggests the app reads the UTC date, which would make today's sending correct, but only a look at the app can confirm it. The change waits for that look.
 
 ## Decision requests
 
