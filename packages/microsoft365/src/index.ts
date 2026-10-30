@@ -1785,14 +1785,34 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "list_todo_tasks",
-    description: "List tasks in a To Do list",
+    description:
+      "List tasks in a To Do list, or what changed in it since your last call. For changes, call once with " +
+      "delta: true, which returns every task and a 'Delta token: …' line; keep the token and pass it as " +
+      "delta_token next time to get only the tasks added, changed or removed since (removed ones as " +
+      "'Removed: <id>' lines), and a new token. Completing a repeating task makes Graph keep the series and " +
+      "split off the finished occurrence as a new, already-completed task with a new id, so an unseen " +
+      "completed task is a done occurrence, not new work. Your own writes come back as changes too",
     parameters: z.object({
-      list_id: z.string().describe("To Do list ID"),
+      list_id: z.string().describe("To Do list ID. A delta token works only with the list it came from"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
       extension_name: z
         .string()
         .optional()
-        .describe("Print this extension's fields at the end of each task line, as (Ext: {...})"),
+        .describe(
+          "Print this extension's fields at the end of each task line, as (Ext: {...}). With a change feed, " +
+            "only calls with a delta_token can include them",
+        ),
+      delta: z
+        .boolean()
+        .optional()
+        .describe("Start a change feed: return every task and a first delta token. Always reads every page"),
+      delta_token: z
+        .string()
+        .optional()
+        .describe(
+          "The token from the last 'Delta token: …' line. Returns only what changed since. If the token is " +
+            "refused, start again with delta: true",
+        ),
     }),
     execute: async (params) => unwrapResult(await listTodoTasks(params)),
     domain: "todo",

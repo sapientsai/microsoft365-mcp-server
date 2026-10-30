@@ -3,9 +3,16 @@ import { Option } from "functype"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
-import { getGraphClient } from "../client/graph-client"
+import { getGraphClient, type TodoDeltaRecord, type TodoDeltaResult } from "../client/graph-client"
 import type { GraphApiError, GraphTodoList, GraphTodoTask, ODataResponse } from "../types"
-import { extensionJson, formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
+import { isDeltaToken } from "../utils/delta-token"
+import {
+  extensionJson,
+  formatTodoListList,
+  formatTodoTaskChanges,
+  formatTodoTaskDetail,
+  formatTodoTaskList,
+} from "../utils/formatters"
 import { displayableLinkUrl } from "../utils/link-url"
 import type { RecurrenceInput } from "../utils/recurrence"
 import { buildRecurrence, describeRecurrence, toDateOnly } from "../utils/recurrence"
@@ -137,12 +144,15 @@ export const listTodoTasks = async (params: {
   list_id: string
   fetch_all_pages?: boolean
   extension_name?: string
+  delta?: boolean
+  delta_token?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   const nameProblem = params.extension_name === undefined ? undefined : extensionNameProblem(params.extension_name)
   if (nameProblem) return Left(new UserError(nameProblem))
+  if (params.delta === true || params.delta_token !== undefined) return listTodoTaskChanges(client, params)
   const expand = taskExpand(params.extension_name)
 
   if (params.fetch_all_pages) {
@@ -519,4 +529,112 @@ export const setTodoTaskState = async (params: {
   return Right(
     `${changedTask ? `${saved}, and set` : "Set"} extension ${params.extension.name} on task ${params.task_id}. It now holds ${now}.`,
   )
+}
+
+type TodoClient = NonNullable<ReturnType<typeof requireClient>>
+
+const RESTART =
+  "Start again with delta: true, which returns every task and a new token. Graph sends this when a token " +
+  "is unknown, damaged or too old."
+
+// The three answers that mean a token can't be used again (seen or documented, 2026-10-30): any 410,
+// the code syncStateNotFound whatever its status, and a 400 to a call whose only input is the token
+// ("Badly formed token.").
+const isRestart = (error: GraphApiError, withToken: boolean): boolean =>
+  error.status === 410 ||
+  error.graphErrorCode?.toLowerCase() === "syncstatenotfound" ||
+  (withToken && error.status === 400)
+
+type Fill = { readonly kind: "task"; readonly task: GraphTodoTask } | { readonly kind: "gone"; readonly id: string }
+
+// One GET per task, run in turn. Delta records can carry only the changed properties, and a field left
+// out can't be told from one cleared, so a line is printed from the task itself, never from a partial.
+const fillTasks = async (
+  client: TodoClient,
+  listId: string,
+  ids: ReadonlyArray<string>,
+  extensionName: string | undefined,
+): Promise<Either<string, ReadonlyArray<Fill>>> =>
+  ids.reduce<Promise<Either<string, ReadonlyArray<Fill>>>>(
+    async (acc, id) => {
+      const soFar = await acc
+      if (soFar.isLeft()) return soFar
+      const got = await client.getTodoTask(listId, id, taskExpand(extensionName))
+      if (got.isRight())
+        return Right([...(soFar.value as ReadonlyArray<Fill>), { kind: "task", task: got.value as GraphTodoTask }])
+      const error = got.value as GraphApiError
+      return error.type === "not_found"
+        ? Right([...(soFar.value as ReadonlyArray<Fill>), { kind: "gone", id }])
+        : Left(`reading task ${id} failed: ${error.message}`)
+    },
+    Promise.resolve(Right([])),
+  )
+
+const hasCoreFields = (task: GraphTodoTask): boolean =>
+  task.title !== undefined && task.status !== undefined && task.importance !== undefined
+
+/**
+ * A change feed over one list. With delta: true and no token, every task and a first token; with a
+ * token, what was added, changed or removed since it, and the next token. The token is printed only
+ * when every page and every task was read, so a run that fails part-way repeats the same window next
+ * time instead of skipping it.
+ */
+const listTodoTaskChanges = async (
+  client: TodoClient,
+  params: { list_id: string; fetch_all_pages?: boolean; extension_name?: string; delta_token?: string },
+): Promise<Either<UserError, string>> => {
+  if (params.fetch_all_pages) {
+    return Left(new UserError("A change feed always reads every page, so don't pass fetch_all_pages with delta."))
+  }
+  const withToken = params.delta_token !== undefined
+  if (withToken && !isDeltaToken(params.delta_token!)) {
+    return Left(new UserError(`That isn't a delta token this tool printed. ${RESTART}`))
+  }
+
+  const delta = await client.todoTaskDelta(params.list_id, params.delta_token)
+  if (delta.isLeft()) {
+    const error = delta.value as GraphApiError
+    return Left(
+      new UserError(
+        isRestart(error, withToken)
+          ? `Graph won't accept this delta token (${error.message}). ${RESTART}`
+          : `Failed to read changes, so no token was printed: ${error.message}`,
+      ),
+    )
+  }
+  const { records, deltaToken } = delta.value as TodoDeltaResult
+
+  // Graph doesn't promise an order, and one task can appear more than once; such a task is read afresh.
+  const byId = records.reduce(
+    (m, r) => m.set(r.id, [...(m.get(r.id) ?? []), r]),
+    new Map<string, ReadonlyArray<TodoDeltaRecord>>(),
+  )
+  const entries = [...byId.entries()]
+  const removedOnly = entries.filter(([, rs]) => rs.every((r) => r["@removed"] !== undefined))
+  const live = entries.filter(([, rs]) => !rs.every((r) => r["@removed"] !== undefined))
+  // With a token, every live task is read afresh. On the first call, the delta record is printed as it
+  // came, unless it is missing a core field or appeared twice. Delta can't return extensions (live,
+  // 2026-10-30), so the first call prints none, and the GETs it makes leave the extension out too.
+  const toRead = live.filter(([, rs]) => withToken || rs.length > 1 || !hasCoreFields(rs[0]!)).map(([id]) => id)
+  const asIs = live.filter(([id]) => !toRead.includes(id)).map(([, rs]) => rs[0] as GraphTodoTask)
+  const extensionName = withToken ? params.extension_name : undefined
+
+  const filled = await fillTasks(client, params.list_id, toRead, extensionName)
+  if (filled.isLeft()) {
+    return Left(new UserError(`Failed to read changes, so no token was printed: ${filled.value as string}`))
+  }
+  const fills = filled.value as ReadonlyArray<Fill>
+  const tasks = [...asIs, ...fills.flatMap((f) => (f.kind === "task" ? [f.task] : []))]
+  const removed = [
+    ...removedOnly.map(([id, rs]) => ({ id, reason: rs.find((r) => r["@removed"]?.reason)?.["@removed"]?.reason })),
+    ...fills.flatMap((f) => (f.kind === "gone" ? [{ id: f.id }] : [])),
+  ]
+  const notes =
+    !withToken && params.extension_name !== undefined
+      ? [
+          "the first delta call can't return extensions, so these lines carry no Ext. Read the list once with " +
+            "list_todo_tasks and extension_name to get them; calls with a token include them.",
+        ]
+      : []
+  return Right(formatTodoTaskChanges({ first: !withToken, tasks, removed, deltaToken, extensionName, notes }))
 }

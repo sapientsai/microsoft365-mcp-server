@@ -386,3 +386,106 @@ describe("listAllTodoTasks", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(MAX_TODO_TASK_PAGES)
   })
 })
+
+describe("todoTaskDelta", () => {
+  const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+  const LIST = "AAMk-list="
+  const deltaUrl = (query: string, list = LIST) =>
+    `https://graph.microsoft.com/v1.0/me/todo/lists/${list}/tasks/delta${query}`
+  const page = (ids: ReadonlyArray<string>, links: Record<string, string>) =>
+    new Response(JSON.stringify({ value: ids.map((id) => ({ id })), ...links }))
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  // Shapes as Graph returned them live on 2026-10-30: nextLink carries only $skiptoken, deltaLink only $deltatoken.
+  it("starts with no query options, follows $skiptoken pages, and returns the final token", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(page(["t1"], { "@odata.nextLink": deltaUrl("?$skiptoken=l7WI-sk_1.a") }))
+      .mockResolvedValueOnce(page(["t2"], { "@odata.deltaLink": deltaUrl("?$deltatoken=l7WI-dt_2.b") }))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST)
+    expect(result.isRight()).toBe(true)
+    const { records, deltaToken } = result.value as { records: ReadonlyArray<{ id: string }>; deltaToken: string }
+    expect(records.map((r) => r.id)).toEqual(["t1", "t2"])
+    expect(deltaToken).toBe("l7WI-dt_2.b")
+    const [firstUrl, firstInit] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    expect(new URL(firstUrl).search).toBe("")
+    expect(new Headers(firstInit.headers).get("Prefer")).toBe("odata.maxpagesize=100")
+    const [secondUrl, secondInit] = fetchSpy.mock.calls[1] as [string, RequestInit]
+    expect(new URL(secondUrl).searchParams.get("$skiptoken")).toBe("l7WI-sk_1.a")
+    expect(new Headers(secondInit.headers).get("Prefer")).toBe("odata.maxpagesize=100")
+  })
+
+  it("sends a token as the only query option", async () => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(page([], { "@odata.deltaLink": deltaUrl("?$deltatoken=next.1") }))
+    vi.stubGlobal("fetch", fetchSpy)
+    await initializeGraphClient(auth).todoTaskDelta(LIST, "prev-token_9.x")
+    const url = new URL(fetchSpy.mock.calls[0]![0] as string)
+    expect(url.pathname).toBe(`/v1.0/me/todo/lists/${LIST}/tasks/delta`)
+    expect([...url.searchParams.entries()]).toEqual([["$deltatoken", "prev-token_9.x"]])
+  })
+
+  it.each([
+    ["a token holding & or #", "a&$select=x"],
+    ["an empty token", ""],
+  ])("refuses %s without calling Graph", async (_label, token) => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST, token)
+    expect(result.isLeft()).toBe(true)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["another host", `https://evil.example/v1.0/me/todo/lists/${LIST}/tasks/delta?$skiptoken=a`],
+    ["another list", deltaUrl("?$skiptoken=a", "OTHER")],
+    ["an extra query option", deltaUrl("?$skiptoken=a&$expand=x")],
+    ["a deltatoken where a skiptoken belongs", deltaUrl("?$deltatoken=a")],
+    ["the tasks path, not delta", `https://graph.microsoft.com/v1.0/me/todo/lists/${LIST}/tasks?$skiptoken=a`],
+    ["a token with odd characters", deltaUrl("?$skiptoken=a%20b")],
+  ])("refuses a continuation link to %s, and returns no token", async (_label, link) => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(page(["t1"], { "@odata.nextLink": link }))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST)
+    expect(result.isLeft()).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("refuses a delta link that carries more than the token", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(page([], { "@odata.deltaLink": deltaUrl("?$deltatoken=a&x=1") })),
+    )
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST)
+    expect(result.isLeft()).toBe(true)
+  })
+
+  it("fails when a page has neither a next page nor a token", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(page(["t1"], {})))
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST)
+    expect(result.isLeft()).toBe(true)
+  })
+
+  it("fails at the page cap instead of returning a token for a partial read", async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(page(["t"], { "@odata.nextLink": deltaUrl("?$skiptoken=more") })))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST)
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as { message: string }).message).toContain(`past ${MAX_TODO_TASK_PAGES} pages`)
+    expect(fetchSpy).toHaveBeenCalledTimes(MAX_TODO_TASK_PAGES)
+  })
+
+  it("passes Graph's own error through, status and code included", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { code: "BadRequest", message: "Badly formed token." } }), {
+          status: 400,
+        }),
+      ),
+    )
+    const result = await initializeGraphClient(auth).todoTaskDelta(LIST, "stale.token")
+    expect(result.value).toMatchObject({ status: 400, graphErrorCode: "BadRequest", message: "Badly formed token." })
+  })
+})
