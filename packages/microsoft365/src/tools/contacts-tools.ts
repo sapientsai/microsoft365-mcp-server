@@ -5,20 +5,30 @@ import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
+import { getAuthStatus } from "../auth"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphContact, GraphContactFolder, ODataResponse } from "../types"
 import { formatContactDetail, formatContactList } from "../utils/formatters"
 import { writeNewFile } from "../utils/local-file"
 
 // Graph answers a contact write without Contacts.ReadWrite with a bare "Access is denied", which
-// reads like a bad sign-in. Name the permission instead.
-const writeFailure = (action: string, error: GraphApiError): UserError =>
-  new UserError(
-    error.type === "forbidden" || error.status === 403
-      ? `Failed to ${action} contact: Graph refused it (${error.message}). The sign-in needs the Contacts.ReadWrite ` +
-          "permission: add it to the app registration, then sign in again."
-      : `Failed to ${action} contact: ${error.message}`,
+// reads like a bad sign-in. When the token's own scopes show that is the cause, say so, as driveError
+// in files-tools.ts does. A 403 from a token that holds the scope, or whose scopes can't be read, keeps
+// Graph's message, since the cause is then something else.
+const writeFailure = async (action: string, error: GraphApiError): Promise<UserError> => {
+  const plain = new UserError(`Failed to ${action} contact: ${error.message}`)
+  if (error.type !== "forbidden") return plain
+  const scopes = (await getAuthStatus()).fold(
+    () => [] as ReadonlyArray<string>,
+    (status) => status.scopes,
   )
+  const lacksWrite = scopes.length > 0 && !scopes.some((scope) => scope.toLowerCase() === "contacts.readwrite")
+  if (!lacksWrite) return plain
+  return new UserError(
+    `Failed to ${action} contact: ${error.message}. The signed-in token has no Contacts.ReadWrite permission, ` +
+      "so contacts can be read but not changed. Add Contacts.ReadWrite to the app registration and grant consent.",
+  )
+}
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -76,9 +86,8 @@ export const createContact = async (params: {
   if (params.job_title) contact.jobTitle = params.job_title
 
   const result = await client.createContact(contact)
-  return result
-    .mapLeft((error) => writeFailure("create", error))
-    .map((c) => `Contact created.\n\n${formatContactDetail(c)}`)
+  if (result.isLeft()) return Left(await writeFailure("create", result.value as GraphApiError))
+  return Right(`Contact created.\n\n${formatContactDetail(result.value as GraphContact)}`)
 }
 
 const BIRTHDAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/
@@ -141,9 +150,8 @@ export const updateContact = async (params: {
   if (Object.keys(updates).length === 0) return Left(new UserError("No fields to update."))
 
   const result = await client.updateContact(params.contact_id, updates)
-  return result
-    .mapLeft((error) => writeFailure("update", error))
-    .map((c) => `Contact updated.\n\n${formatContactDetail(c)}`)
+  if (result.isLeft()) return Left(await writeFailure("update", result.value as GraphApiError))
+  return Right(`Contact updated.\n\n${formatContactDetail(result.value as GraphContact)}`)
 }
 
 export const deleteContact = async (params: { contact_id: string }): Promise<Either<UserError, string>> => {
@@ -158,9 +166,8 @@ export const deleteContact = async (params: { contact_id: string }): Promise<Eit
   const contact = existing.value as GraphContact
 
   const result = await client.deleteContact(params.contact_id)
-  return result
-    .mapLeft((error) => writeFailure("delete", error))
-    .map(() => `Contact deleted: ${contact.displayName ?? params.contact_id}\n\n${formatContactDetail(contact)}`)
+  if (result.isLeft()) return Left(await writeFailure("delete", result.value as GraphApiError))
+  return Right(`Contact deleted: ${contact.displayName ?? params.contact_id}\n\n${formatContactDetail(contact)}`)
 }
 
 export const searchContacts = async (params: { query: string; top?: number }): Promise<Either<UserError, string>> => {
