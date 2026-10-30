@@ -143,9 +143,12 @@ starting from that link returns only what changed.
 - **Output:** the changed messages as records (4.1), the removed IDs, and a new `cursor`. Graph
   returns removals as `@removed` entries with `"reason": "deleted"`, which covers deletes and moves
   out of the folder.
-- **The server stays stateless.** The caller stores the cursor. The cursor wraps Graph's
-  `deltaLink`, so the server must accept only a Graph delta URL under the caller's own
-  `/me/mailFolders/.../messages/delta`. It must never accept an arbitrary URL.
+- **The server stays stateless.** The caller stores the cursor. The cursor is Graph's bare
+  `$deltatoken`, not the `deltaLink` URL (decided 2026-10-30 with To Do delta, in
+  `SAI_SPEC_To-Do-for-Civala-Assistant_2026-10-30.md`, DR-002). The server origin-checks each
+  `deltaLink`, prints only its token, and builds the next URL itself from the folder and the
+  token, so a caller never hands it a URL. Query options go only on the first call, because Graph
+  encodes them into the token.
 - **Documented quirks to handle in code:**
   - Delta can return events that do not match the initial filter, including read/unread changes
     and `@removed` entries.
