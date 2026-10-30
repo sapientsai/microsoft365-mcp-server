@@ -112,6 +112,7 @@ import {
   sendReply,
   sendReplyAll,
   setAccessTokenTool,
+  setTodoTaskState,
   summarizeSenders,
   switchAccountTool,
   updateContact,
@@ -124,6 +125,7 @@ import {
   uploadFile,
   uploadFileFromPath,
 } from "./tools"
+import { SET_TODO_TASK_STATE_PARAMS, TODO_EXTENSION_PARAM } from "./tools/todo-schemas"
 import type { ToolDefinition } from "./tools/tool-definitions"
 import {
   annotationsFor,
@@ -1787,6 +1789,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     parameters: z.object({
       list_id: z.string().describe("To Do list ID"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
+      extension_name: z
+        .string()
+        .optional()
+        .describe("Print this extension's fields at the end of each task line, as (Ext: {...})"),
     }),
     execute: async (params) => unwrapResult(await listTodoTasks(params)),
     domain: "todo",
@@ -1806,6 +1812,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       importance: z.string().optional().describe("Importance: low, normal, or high"),
       recurrence: RECURRENCE_PARAM.describe("Repeat pattern. Omit for a one-off task"),
       categories: TODO_CATEGORIES_PARAM,
+      extension: TODO_EXTENSION_PARAM.describe("Your own data on the task, which the person can't see or edit"),
       linked_resource: z
         .object({
           external_id: z
@@ -1849,6 +1856,19 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       ),
     }),
     execute: async (params) => unwrapResult(await updateTodoTask(params)),
+    domain: "todo",
+    readOnly: false,
+  },
+  {
+    name: "set_todo_task_state",
+    description:
+      "Set only a To Do task's status, importance and your own extension fields, for unattended use. It can't " +
+      "change the title, notes, dates or repeat pattern, or delete. The same call twice changes nothing more, so " +
+      "a failed call is safe to repeat. Completing a repeating task is refused; use update_todo_task. Complete " +
+      "only tasks you created, and change importance only on tasks carrying your extension, so the person's own " +
+      "choices are never overwritten",
+    parameters: SET_TODO_TASK_STATE_PARAMS,
+    execute: async (params) => unwrapResult(await setTodoTaskState(params)),
     domain: "todo",
     readOnly: false,
   },

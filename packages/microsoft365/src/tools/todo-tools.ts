@@ -5,10 +5,21 @@ import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphTodoList, GraphTodoTask, ODataResponse } from "../types"
-import { formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
+import { extensionJson, formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
 import { displayableLinkUrl } from "../utils/link-url"
 import type { RecurrenceInput } from "../utils/recurrence"
 import { buildRecurrence, describeRecurrence, toDateOnly } from "../utils/recurrence"
+import {
+  extensionExpand,
+  extensionFields,
+  extensionFieldsProblem,
+  type ExtensionInput,
+  extensionNameProblem,
+  extensionProblem,
+  type ExtensionValue,
+  toExtensionBody,
+  toExtensionPatch,
+} from "../utils/todo-extension"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -77,9 +88,6 @@ export const createTodoList = async (params: { display_name: string }): Promise<
     )
 }
 
-// A task's source lives in linkedResources, a relationship Graph returns only when expanded.
-const TASK_EXPAND = { $expand: ["linkedResources"] }
-
 export type LinkedResourceInput = {
   readonly external_id: string
   readonly application_name: string
@@ -119,24 +127,35 @@ const cleanCategories = (categories: ReadonlyArray<string>): ReadonlyArray<strin
   ...new Set(categories.map((c) => c.trim()).filter((c) => c !== "")),
 ]
 
+// A task's source lives in linkedResources, a relationship Graph returns only when expanded. With an
+// extension name, that one extension is expanded too, so its fields can print on each line.
+const taskExpand = (extensionName?: string) => ({
+  $expand: extensionName === undefined ? ["linkedResources"] : ["linkedResources", extensionExpand(extensionName)],
+})
+
 export const listTodoTasks = async (params: {
   list_id: string
   fetch_all_pages?: boolean
+  extension_name?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
+  const nameProblem = params.extension_name === undefined ? undefined : extensionNameProblem(params.extension_name)
+  if (nameProblem) return Left(new UserError(nameProblem))
+  const expand = taskExpand(params.extension_name)
+
   if (params.fetch_all_pages) {
-    const result = await client.listAllTodoTasks(params.list_id, TASK_EXPAND)
+    const result = await client.listAllTodoTasks(params.list_id, expand)
     return result
       .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
-      .map((items) => formatTodoTaskList(items))
+      .map((items) => formatTodoTaskList(items, params.extension_name))
   }
 
-  const result = await client.listTodoTasks(params.list_id, TASK_EXPAND)
+  const result = await client.listTodoTasks(params.list_id, expand)
   return result
     .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
-    .map((response) => formatTodoTaskList((response as ODataResponse<never>).value))
+    .map((response) => formatTodoTaskList((response as ODataResponse<GraphTodoTask>).value, params.extension_name))
 }
 
 export const createTodoTask = async (params: {
@@ -148,12 +167,15 @@ export const createTodoTask = async (params: {
   recurrence?: RecurrenceInput
   categories?: ReadonlyArray<string>
   linked_resource?: LinkedResourceInput
+  extension?: ExtensionInput
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   const linkProblem = params.linked_resource ? linkedResourceProblem(params.linked_resource) : undefined
   if (linkProblem) return Left(new UserError(linkProblem))
+  const extProblem = params.extension ? extensionProblem(params.extension) : undefined
+  if (extProblem) return Left(new UserError(extProblem))
 
   const task: Record<string, unknown> = { title: params.title }
   if (params.body) task.body = { contentType: "text", content: params.body }
@@ -175,6 +197,8 @@ export const createTodoTask = async (params: {
   }
 
   if (params.categories) task.categories = cleanCategories(params.categories)
+  // Created inside the task's own POST (checked live 2026-10-30), so there's no second call to fail.
+  if (params.extension) task.extensions = [toExtensionBody(params.extension.name, params.extension.fields)]
 
   // A caller that died after Graph created the task, but before it recorded that, retries the
   // create. With an external_id, the retry finds the task it already made instead of making a
@@ -183,7 +207,7 @@ export const createTodoTask = async (params: {
   // included. A list that can't be read in full refuses the create rather than risk the duplicate.
   if (params.linked_resource) {
     const externalId = params.linked_resource.external_id
-    const existing = await client.listAllTodoTasks(params.list_id, TASK_EXPAND)
+    const existing = await client.listAllTodoTasks(params.list_id, taskExpand(params.extension?.name))
     if (existing.isLeft()) {
       return Left(
         new UserError(
@@ -198,7 +222,7 @@ export const createTodoTask = async (params: {
     // AGENTS.md, Results, on an idempotent repeat.
     if (match) {
       return Right(
-        `A task with this external_id already exists, so none was created.\n\n${formatTodoTaskDetail(match)}`,
+        `A task with this external_id already exists, so none was created.\n\n${formatTodoTaskDetail(match, params.extension?.name)}`,
       )
     }
     task.linkedResources = [toLinkedResource(params.linked_resource)]
@@ -207,7 +231,7 @@ export const createTodoTask = async (params: {
   const result = await client.createTodoTask(params.list_id, task)
   return result
     .mapLeft((error) => new UserError(`Failed to create task: ${error.message}`))
-    .map((t) => `Task created.\n\n${formatTodoTaskDetail(t)}`)
+    .map((t) => `Task created.\n\n${formatTodoTaskDetail(t, params.extension?.name)}`)
 }
 
 export const deleteTodoTask = async (params: {
@@ -387,4 +411,112 @@ const describeUpdate = (requestedStatus: string | undefined, task: GraphTodoTask
       (v) => v,
     )
   return `Occurrence completed, and the series rolled forward.${next} The completed occurrence is now a separate task; this id still refers to the live series.`
+}
+
+export const TASK_STATUSES = ["notStarted", "inProgress", "completed", "waitingOnOthers", "deferred"] as const
+export const TASK_IMPORTANCES = ["low", "normal", "high"] as const
+export type TaskStatus = (typeof TASK_STATUSES)[number]
+export type TaskImportance = (typeof TASK_IMPORTANCES)[number]
+
+// Read the extension, apply the fields sent, and write the whole set back: a PATCH replaces every
+// field (checked live 2026-10-30), so sending only the new ones would delete the rest. A missing
+// extension is created instead.
+const writeExtension = async (
+  client: NonNullable<ReturnType<typeof requireClient>>,
+  listId: string,
+  taskId: string,
+  extension: ExtensionInput,
+): Promise<Either<string, Readonly<Record<string, ExtensionValue>>>> => {
+  const existing = await client.getTodoTaskExtension(listId, taskId, extension.name)
+  if (existing.isLeft()) {
+    const error = existing.value as GraphApiError
+    if (error.type !== "not_found") return Left(`reading the extension failed: ${error.message}`)
+    const created = await client.createTodoTaskExtension(
+      listId,
+      taskId,
+      toExtensionBody(extension.name, extension.fields),
+    )
+    return created.fold(
+      (e) => Left(`creating the extension failed: ${e.message}`),
+      () => Right(extension.fields),
+    )
+  }
+  const merged = { ...extensionFields(existing.value as Record<string, unknown>), ...extension.fields }
+  const tooBig = extensionFieldsProblem(merged)
+  if (tooBig) return Left(`the extension can't take these fields: ${tooBig}`)
+  const replaced = await client.replaceTodoTaskExtension(listId, taskId, extension.name, toExtensionPatch(merged))
+  return replaced.fold(
+    (e) => Left(`writing the extension failed: ${e.message}`),
+    () => Right(merged),
+  )
+}
+
+/**
+ * The narrow update an unattended caller makes: status, importance and its own extension fields on
+ * one task, nothing else. The same call twice leaves the task as one call does, which is why it
+ * refuses to complete a repeating task: each completion rolls the series on by one more occurrence.
+ *
+ * Calls run in a fixed order. A read comes first only to check a completion; the task's PATCH comes
+ * next; the extension last. A failure says what was saved and what wasn't, and the whole call can be
+ * repeated safely.
+ */
+export const setTodoTaskState = async (params: {
+  list_id: string
+  task_id: string
+  status?: TaskStatus
+  importance?: TaskImportance
+  extension?: ExtensionInput
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  if (params.status === undefined && params.importance === undefined && params.extension === undefined) {
+    return Left(new UserError("Pass at least one of status, importance or extension."))
+  }
+  const extProblem = params.extension ? extensionProblem(params.extension) : undefined
+  if (extProblem) return Left(new UserError(extProblem))
+
+  if (params.status === "completed") {
+    const existing = await client.getTodoTask(params.list_id, params.task_id)
+    if (existing.isLeft()) {
+      return Left(
+        new UserError(`Failed to read the task, so nothing was changed: ${(existing.value as GraphApiError).message}`),
+      )
+    }
+    if ((existing.value as GraphTodoTask).recurrence) {
+      return Left(
+        new UserError(
+          "This task repeats, and completing it rolls the series on to its next occurrence each time, so " +
+            "set_todo_task_state won't do it. Use update_todo_task, which is meant for attended use.",
+        ),
+      )
+    }
+  }
+
+  const fields: Record<string, string> = {
+    ...(params.status === undefined ? {} : { status: params.status }),
+    ...(params.importance === undefined ? {} : { importance: params.importance }),
+  }
+  const changedTask = Object.keys(fields).length > 0
+  if (changedTask) {
+    const patched = await client.updateTodoTask(params.list_id, params.task_id, fields)
+    if (patched.isLeft()) {
+      return Left(
+        new UserError(`Failed to update the task, so nothing was changed: ${(patched.value as GraphApiError).message}`),
+      )
+    }
+  }
+
+  const saved = changedTask ? `Set ${Object.keys(fields).join(" and ")}` : ""
+  if (params.extension === undefined) return Right(`${saved} on task ${params.task_id}.`)
+
+  const written = await writeExtension(client, params.list_id, params.task_id, params.extension)
+  if (written.isLeft()) {
+    const prefix = changedTask ? `${saved} on task ${params.task_id}, but ` : "Nothing was changed: "
+    return Left(new UserError(`${prefix}${written.value as string}. Repeating the call is safe.`))
+  }
+  const now = extensionJson(written.value as Record<string, ExtensionValue>)
+  return Right(
+    `${changedTask ? `${saved}, and set` : "Set"} extension ${params.extension.name} on task ${params.task_id}. It now holds ${now}.`,
+  )
 }

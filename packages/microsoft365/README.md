@@ -542,16 +542,17 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 > constrained HTML subset and silently drops unsupported CSS/tags, so a page can post
 > successfully yet render differently than the source.
 
-### To Do (6 tools)
+### To Do (7 tools)
 
-| Tool               | Description                         |
-| ------------------ | ----------------------------------- |
-| `list_todo_lists`  | List task lists                     |
-| `create_todo_list` | Create a task list                  |
-| `list_todo_tasks`  | List tasks in a list                |
-| `create_todo_task` | Create a task, optionally repeating |
-| `update_todo_task` | Update a task, or change its repeat |
-| `delete_todo_task` | Delete a task (no API undo)         |
+| Tool                  | Description                                                   |
+| --------------------- | ------------------------------------------------------------- |
+| `list_todo_lists`     | List task lists                                               |
+| `create_todo_list`    | Create a task list                                            |
+| `list_todo_tasks`     | List tasks in a list                                          |
+| `create_todo_task`    | Create a task, optionally repeating                           |
+| `update_todo_task`    | Update a task, or change its repeat                           |
+| `set_todo_task_state` | Set status, importance and your own fields, safely repeatable |
+| `delete_todo_task`    | Delete a task (no API undo)                                   |
 
 `create_todo_list` refuses a name an existing list already uses. Graph accepts a
 duplicate `displayName` and returns a second list indistinguishable from the first in
@@ -612,6 +613,23 @@ and any parentheses that could end a `(…)` group early. The pattern is pinned 
 reads fetch whole tasks, with `linkedResources` expanded. `list_todo_tasks` with
 `fetch_all_pages`, and the duplicate check, read at most 50 pages of 100 tasks and fail past
 that rather than return part of the list.
+
+**A caller can keep its own data on a task** in an open extension, which the person can't
+see or edit. `create_todo_task` and `set_todo_task_state` take `extension: { name, fields }`:
+a reverse-DNS `name` (one fixed name per app, such as `com.example.assistant`) and at most 20
+flat string, number or boolean fields, at most 2 KB as JSON. `list_todo_tasks` with
+`extension_name` prints those fields at the end of each line as `(Ext: {...})`, leaving out
+Graph's own name, id and type annotations. Graph replaces the whole extension on an update, so
+`set_todo_task_state` reads it, merges the fields sent, and writes the whole set back; fields
+it isn't sent keep their values.
+
+**`set_todo_task_state` is the update for unattended use.** It changes only `status`,
+`importance` and extension fields on one task, never the title, notes, dates or repeat
+pattern, and it can't delete. The same call twice leaves the task as one call does, so it is
+advertised as idempotent, and a failed call is safe to repeat. It is still marked destructive,
+because it overwrites values. Completing a repeating task is refused, since each completion
+rolls the series on by one more occurrence; use `update_todo_task` for that. When the task
+updates but the extension doesn't, the error says which part was saved.
 
 `delete_todo_task` has no undo through the API. Microsoft documents restoring a deleted
 task by hand from Outlook's Deleted Items folder, but that hasn't been checked for tasks

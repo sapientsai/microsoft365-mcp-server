@@ -343,6 +343,25 @@ describe("listAllTodoTasks", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
+  // The expand list_todo_tasks sends with extension_name, as Graph percent-encodes it in nextLink (live, 2026-10-30).
+  it("follows a continuation that carries a combined $expand with an extension filter", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        page(
+          ["t1"],
+          `https://graph.microsoft.com/v1.0/me/todo/lists/${LIST}/tasks?$top=100&$expand=linkedResources%2cextensions(%24filter%3did+eq+%27com.claude.test%27)&$skip=100`,
+        ),
+      )
+      .mockResolvedValueOnce(page(["t2"]))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST, {
+      $expand: ["linkedResources", "extensions($filter=id eq 'com.claude.test')"],
+    })
+    expect(result.isRight()).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
   // A continuation that dropped $expand would return untagged tasks, and a duplicate check would miss.
   it("refuses a continuation link that drops the first page's $expand", async () => {
     const fetchSpy = vi.fn().mockResolvedValueOnce(page(["t1"], nextLink(`/me/todo/lists/${LIST}/tasks`)))

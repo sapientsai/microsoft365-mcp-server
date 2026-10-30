@@ -571,6 +571,21 @@ const createGraphClient = (auth: AuthStrategy) => {
   const getTodoTask = (listId: string, taskId: string) =>
     request<GraphTodoTask>("GET", `/me/todo/lists/${listId}/tasks/${taskId}`)
 
+  // A task's open extensions. A PATCH replaces the whole extension (checked live 2026-10-30), so a
+  // caller that means to change some fields reads, merges, and sends them all.
+  const extensionPath = (listId: string, taskId: string) => `${todoTasksPath(listId)}/${taskId}/extensions`
+
+  const getTodoTaskExtension = (listId: string, taskId: string, name: string) =>
+    request<Record<string, unknown>>("GET", `${extensionPath(listId, taskId)}/${encodeURIComponent(name)}`)
+
+  const createTodoTaskExtension = (listId: string, taskId: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("POST", extensionPath(listId, taskId), { body })
+
+  const replaceTodoTaskExtension = (listId: string, taskId: string, name: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("PATCH", `${extensionPath(listId, taskId)}/${encodeURIComponent(name)}`, {
+      body,
+    })
+
   const deleteTodoTask = (listId: string, taskId: string) =>
     request<Record<string, never>>("DELETE", `/me/todo/lists/${listId}/tasks/${taskId}`)
 
@@ -742,6 +757,9 @@ const createGraphClient = (auth: AuthStrategy) => {
     createTodoList,
     listTodoTasks,
     listAllTodoTasks,
+    getTodoTaskExtension,
+    createTodoTaskExtension,
+    replaceTodoTaskExtension,
     createTodoTask,
     updateTodoTask,
     getTodoTask,

@@ -375,6 +375,8 @@ export type GraphTodoTask = {
   readonly recurrence?: GraphPatternedRecurrence
   readonly categories?: ReadonlyArray<string>
   readonly linkedResources?: ReadonlyArray<GraphLinkedResource>
+  /** Open extensions, present only when expanded. See utils/todo-extension.ts. */
+  readonly extensions?: ReadonlyArray<Readonly<Record<string, unknown>> & { readonly extensionName?: string }>
   readonly createdDateTime?: string
   readonly lastModifiedDateTime?: string
 }

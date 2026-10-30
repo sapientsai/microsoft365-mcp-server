@@ -212,6 +212,26 @@ describe("plugin contract: list_todo_tasks", () => {
     expect(TODO_LINE.exec(lines[0])?.[11]).toBe("AAMk-task=")
   })
 
+  it("parses the Ext group the formatter prints for a named extension", () => {
+    const todo = task({
+      linkedResources: [{ externalId: "civala:mail:AAMk1" }],
+      extensions: [
+        {
+          extensionName: "com.civala.assistant",
+          id: "microsoft.graph.openTypeExtension.com.civala.assistant",
+          "rank@odata.type": "#Int64",
+          rank: 1,
+          note: "a) b",
+        },
+      ],
+    })
+    const lines = itemLines(formatTodoTaskList([todo], "com.civala.assistant"))
+    const match = TODO_LINE.exec(lines[0])
+    expect(match?.[10]).toBe('{"rank":1,"note":"a) b"}')
+    expect(match?.[9]).toBe("civala:mail:AAMk1")
+    expect(match?.[11]).toBe(todo.id)
+  })
+
   // Ext is printed from REQ-TODO-003. Its JSON may hold ")", which the anchored ID group must survive.
   it("parses an Ext group whose JSON holds a parenthesis", () => {
     const line = '- **Reply to Bel** [notStarted] (Link: civala:mail:AAMk1) (Ext: {"rank":1,"note":"a) b"}) (ID: t1)'
