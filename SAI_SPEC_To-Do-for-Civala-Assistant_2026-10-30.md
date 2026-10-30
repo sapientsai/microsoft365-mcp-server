@@ -148,13 +148,18 @@ Every requirement follows `AGENTS.md`:
 - **Statement:** `list_todo_tasks` takes an optional `delta` mode (shape pending DR-002).
   - With `delta: true` and no token, it returns every task and a token.
   - With `delta_token`, it returns only the tasks added, changed or removed since that token, then the next token.
-  - **Parameters are fixed by the first call.** Graph encodes every query parameter into the token: "If you use any query parameter (other than `$deltatoken` and `$skiptoken`), you must specify it in the initial **delta** request" ([todoTask delta](https://learn.microsoft.com/en-us/graph/api/todotask-delta?view=graph-rest-1.0)). So `$select`, `$expand` and `extension_name` apply only with `delta: true`. With `delta_token`, the server sends the token and nothing else, and refuses `extension_name`. A token belongs to one list: the caller passes the same `list_id` it started with.
+  - **Parameters are fixed by the first call.** Graph encodes every query parameter into the token: "If you use any query parameter (other than `$deltatoken` and `$skiptoken`), you must specify it in the initial **delta** request" ([todoTask delta](https://learn.microsoft.com/en-us/graph/api/todotask-delta?view=graph-rest-1.0)). So `$select` and `$expand` go only on the `delta: true` call. With `delta_token`, the delta request carries the token and nothing else. A token belongs to one list: the caller passes the same `list_id` it started with.
+  - **`extension_name` with a token** is accepted, documented as "must match the first call", and used only for the GETs below. It never goes on the delta request.
   - **The token, not the URL.** The server parses each `@odata.deltaLink` with `new URL`, checks its origin, and prints only its `$deltatoken` value. On the next call it builds the URL itself from `list_id` and the token. A caller never hands the server a URL (DR-002).
-  - **Each call reads to the end.** The server follows every `@odata.nextLink` until it reaches a `@odata.deltaLink`, origin-checking each, with the same page cap as REQ-TODO-001. If it hits the cap or a page fails, it returns a `Left` and prints no token, so the next run starts from the last good token.
-  - **Changed records can be partial.** "Updated instances are represented by their **id** with *at least* the updated properties" ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)). A record missing title, status or importance is filled with one GET of that task before it is printed. If that GET returns 404, the task is listed as removed. If it fails otherwise, the call returns a `Left` and prints no token. Every printed line is then a full REQ-TODO-004 line.
-  - **Removed tasks get their own line,** after the task lines: `Removed: <id> (<reason>)`. It can't match the plugin's item filter, `line.startsWith("- **")` (`test/plugin-contract.spec.ts:21-25`), and the contract test pins it as `TODO_REMOVED_LINE`. `<reason>` is whatever Graph sends; the docs explain `changed` and `deleted` only for directory objects, so the tool doesn't interpret them.
+  - **Each call reads to the end.** The server follows every `@odata.nextLink` until it reaches a `@odata.deltaLink`, origin-checking each, with the same page cap as REQ-TODO-001 (a named constant, given in the error text). The first call sends `Prefer: odata.maxpagesize=…`, which the delta page lists as optional, so a large list such as Flagged email fits under the cap. If the server hits the cap or a page fails, it returns a `Left` and prints no token, so the next run starts from the last good token.
+  - **The pager.** `nextMessageScanPage` (`client/graph-client.ts:88-95`) checks one continuation link; it isn't a loop. Copy its checks (origin, no username, password or hash, a path regex for `/me/todo/lists/{id}/tasks` and `/tasks/delta`) into a capped loop. Don't wrap core's `fetchAllPages`.
+  - **Changed records can be partial.** "Updated instances are represented by their **id** with *at least* the updated properties" ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)), and a missing optional field can't be told from a cleared one. So:
+    - **With a token,** every non-removed record is printed from one GET of that task, with REQ-TODO-004's `$select`, `$expand=linkedResources`, and the extension expand when `extension_name` is set. Changes per run are few, so this is cheap.
+    - **On the first call** (`delta: true`), records are printed from the delta response, and only a record missing title, status or importance is filled by that GET.
+    - If a GET returns 404, the task is listed as removed. If it fails otherwise, the call returns a `Left` and prints no token. Every printed line is then a full REQ-TODO-004 line.
+  - **Removed tasks get their own line,** after the task lines: `Removed: <id> (<reason>)`, or `Removed: <id>` when `@removed` has no reason (the docs say it "might include" one). It can't match the plugin's item filter, `line.startsWith("- **")` (`test/plugin-contract.spec.ts:21-25`), and the contract test pins both forms as `TODO_REMOVED_LINE`. `<reason>` is whatever Graph sends; the docs explain `changed` and `deleted` only for directory objects, so the tool doesn't interpret them.
   - Delta lines carry the same fields as REQ-TODO-004, including Link and Ext: delta supports `$select`, `$top` and `$expand`.
-  - Within one call, a task listed more than once is printed once, with its last record.
+  - Within one call, a task listed more than once is printed once, from the GET above. Graph doesn't promise an order ("Don't assume a specific sequence"), so the last record isn't necessarily the newest.
   - Each tool description says that completing a repeating task makes the finished occurrence a new, already-completed task with a new id, so a caller must not read an unseen completed task as newly added work. This was seen live on 2026-10-28 (the comment in `todo-tools.ts`), not in Graph's docs, so the description doesn't cite the docs for it.
 - **Why:** Each run needs only what the person did since the last run: tasks completed, added, or removed. Re-reading a whole list every half hour is slow and makes the caller diff it.
 - **Acceptance:**
@@ -163,7 +168,7 @@ Every requirement follows `AGENTS.md`:
   - Both restart signals return a `Left` saying to start again with `delta: true`:
     - an expired token, an error with the code `syncStateNotFound`, matched on the code whatever the status (Outlook commonly sends it as `410`);
     - any `410 Gone`, with or without a `Location` header.
-  - Tests use recorded responses for: first page, next page, a removed task, a partial changed record filled by a GET, a filling GET that 404s, an expired token, a `410 Gone`, a page cap hit, a task listed twice, and a completed repeating occurrence appearing as a new task.
+  - Tests use recorded responses for: first page, next page, a removed task, a partial changed record filled by a GET, a filling GET that 404s, an expired token, a `410 Gone`, a page cap hit, a task listed twice, a removed record with no reason, and a completed repeating occurrence appearing as a new task.
 - **Settled by the docs** ([delta query overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)):
   - Removed items carry `"@removed": {"reason": …}`, and "Possible **@removed** reasons can be `changed` or `deleted`."
   - "In case the token expires, the service should respond with a 40X-series error with error codes such as `syncStateNotFound`."
@@ -181,12 +186,12 @@ Every requirement follows `AGENTS.md`:
 ### REQ-TODO-007: A narrow update that is safe to run unattended
 
 - **Priority:** Must, subject to DR-001.
-- **Statement:** A new tool, `set_todo_task_state`, sets only `status`, `importance`, `categories` and the extension from REQ-TODO-003 on one task. It can't change the title, notes, dates or recurrence, and it can't delete.
+- **Statement:** A new tool, `set_todo_task_state`, sets only `status`, `importance` and the extension from REQ-TODO-003 on one task. It can't change the title, notes, dates or recurrence, and it can't delete.
 - **Why:** These are the only changes the assistant makes unattended. Each is reversible and touches only the person's own task.
 - **Annotation:** set by DR-001. `idempotentHint: true` either way.
 - **Acceptance:**
   - Any other field is refused, `categories` included (REQ-TODO-002).
-  - Setting `status: completed` on a repeating task is refused, pointing to `update_todo_task`. Each such call completes another occurrence (`todo-tools.ts:290-308`), so it can't be idempotent.
+  - Setting `status: completed` on a repeating task is refused, pointing to `update_todo_task`. Each such call completes another occurrence (`todo-tools.ts:290-308`), so it can't be idempotent. `recurrence` isn't an argument, so the tool reads the task first, as `update_todo_task` does (`todo-tools.ts:229-235`), and a failed read refuses the update.
   - Extension fields merge, as REQ-TODO-003 says.
   - `MS365_READ_ONLY` hides it.
   - It retries on 429 only. The shared `request` path already does this for PATCH, so this is a test, not a new loop.
@@ -200,7 +205,7 @@ Every requirement follows `AGENTS.md`:
 - **Why:** `create_todo_task` sends `dueDateTime: { dateTime: <due_date>, timeZone: "UTC" }` (`todo-tools.ts:112`). For someone in America/New_York, midnight UTC is the evening before.
 - **Acceptance:**
   - Create a task due `2026-11-02` for an Eastern-time user and confirm To Do shows November 2.
-  - If it shows November 1, take a caller-supplied `time_zone`, or send noon UTC, which lands on the same day from UTC−11 to UTC+11. Don't read the mailbox's time zone: that needs `MailboxSettings.Read`, which isn't in `DEFAULT_INTERACTIVE_SCOPES` (`auth/scopes.ts:76-99`) and would break "no new consent is needed". Add a test.
+  - If it shows November 1, take a caller-supplied `time_zone`, or send noon UTC, which lands on the same day from UTC−12 to UTC+11. Don't read the mailbox's time zone: that needs `MailboxSettings.Read`, which isn't in `DEFAULT_INTERACTIVE_SCOPES` (`auth/scopes.ts:76-99`) and would break "no new consent is needed". Add a test.
 - **This is a check first.** It may already be correct.
 
 ## Decision requests
