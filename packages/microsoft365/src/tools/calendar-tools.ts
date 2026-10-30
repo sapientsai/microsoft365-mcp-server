@@ -151,11 +151,21 @@ const allDayRange = (
   return { start: `${first}T00:00:00`, end: `${nextDay(last)}T00:00:00` }
 }
 
+export const SHOW_AS = ["free", "tentative", "busy", "oof", "workingElsewhere"] as const
+export type ShowAs = (typeof SHOW_AS)[number]
+
+// Graph marks every new event busy. Outlook marks an all-day event free, and back to busy when it
+// becomes timed again; a staff day or school carnival marked busy would block the whole day in
+// everyone's free/busy view. Follow Outlook unless the caller says otherwise.
+const showAsFor = (showAs: ShowAs | undefined, allDay: boolean | undefined): ShowAs | undefined =>
+  showAs ?? (allDay === true ? "free" : allDay === false ? "busy" : undefined)
+
 export const createEvent = async (params: {
   subject: string
   start: string
   end?: string
   all_day?: boolean
+  show_as?: ShowAs
   time_zone?: string
   location?: string
   body?: string
@@ -183,6 +193,8 @@ export const createEvent = async (params: {
     end: { dateTime: range.end, timeZone },
   }
   if (params.all_day) event.isAllDay = true
+  const showAs = showAsFor(params.show_as, params.all_day ? true : undefined)
+  if (showAs) event.showAs = showAs
 
   if (params.location) event.location = { displayName: params.location }
   if (params.body) event.body = { contentType: params.content_type ?? "Text", content: params.body }
@@ -216,6 +228,7 @@ export const updateEvent = async (params: {
   start?: string
   end?: string
   all_day?: boolean
+  show_as?: ShowAs
   time_zone?: string
   location?: string
   body?: string
@@ -253,6 +266,8 @@ export const updateEvent = async (params: {
     if (params.start) updates.start = { dateTime: params.start, timeZone }
     if (params.end) updates.end = { dateTime: params.end, timeZone }
   }
+  const showAs = showAsFor(params.show_as, params.all_day)
+  if (showAs) updates.showAs = showAs
   if (params.location) updates.location = { displayName: params.location }
   if (params.body) updates.body = { contentType: params.content_type ?? "Text", content: params.body }
   if (params.attendees) {

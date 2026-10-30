@@ -459,6 +459,11 @@ Graph its midnight-to-midnight span with the exclusive end. Pass `time_zone` (fo
 `Australia/Perth`): Graph pins an all-day event to midnight in that zone, so the UTC default
 shows it a day out elsewhere.
 
+Both also take `show_as` (`free`, `tentative`, `busy`, `oof`, `workingElsewhere`). Left out,
+it follows Outlook rather than Graph: an all-day event is `free` (Graph would make it `busy`
+and block the whole day in free/busy), a timed one stays `busy`, and `update_event` switches
+it when `all_day` changes.
+
 ### Contacts (7 tools)
 
 | Tool              | Description                                                   |

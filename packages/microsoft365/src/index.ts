@@ -114,6 +114,7 @@ import {
   sendReplyAll,
   setAccessTokenTool,
   setTodoTaskState,
+  SHOW_AS,
   summarizeSenders,
   switchAccountTool,
   updateContact,
@@ -262,6 +263,14 @@ const ALL_DAY_PARAM = z
   .describe(
     "All-day event: start and end are dates (YYYY-MM-DD) and end is the last day, inclusive. " +
       "Set time_zone to the calendar's zone (e.g. Australia/Perth). Default: false.",
+  )
+
+const SHOW_AS_PARAM = z
+  .enum(SHOW_AS)
+  .optional()
+  .describe(
+    "How the time shows in free/busy: free, tentative, busy, oof (out of office) or workingElsewhere. " +
+      "Default follows Outlook: free for an all-day event, busy for a timed one.",
   )
 
 const CALENDAR_ID_PARAM = z
@@ -890,6 +899,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
             "inclusive) and defaults to start.",
         ),
       all_day: ALL_DAY_PARAM,
+      show_as: SHOW_AS_PARAM,
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("Event location"),
       body: z.string().optional().describe("Event description"),
@@ -935,6 +945,13 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe(
           "true makes it an all-day event (needs start); false makes it a timed event (needs start and end). " +
             "Omit to leave it as it is.",
+        ),
+      show_as: z
+        .enum(SHOW_AS)
+        .optional()
+        .describe(
+          "How the time shows in free/busy: free, tentative, busy, oof or workingElsewhere. Omit to leave it, " +
+            "except that changing all_day follows Outlook: free when it becomes all-day, busy when it becomes timed.",
         ),
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("New location"),

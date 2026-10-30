@@ -438,6 +438,7 @@ describe("calendar-tools", () => {
           start: { dateTime: "2026-11-06T00:00:00", timeZone: perth },
           end: { dateTime: "2026-11-08T00:00:00", timeZone: perth },
           isAllDay: true,
+          showAs: "free",
         },
         undefined,
       )
@@ -515,6 +516,7 @@ describe("calendar-tools", () => {
           isAllDay: true,
           start: { dateTime: "2026-11-06T00:00:00", timeZone: perth },
           end: { dateTime: "2026-11-07T00:00:00", timeZone: perth },
+          showAs: "free",
         },
         undefined,
       )
@@ -540,7 +542,54 @@ describe("calendar-tools", () => {
         end: "2026-11-06T10:00:00",
       })
       expect(mockClient.updateEvent).toHaveBeenCalledOnce()
-      expect(mockClient.updateEvent.mock.calls[0][1]).toMatchObject({ isAllDay: false })
+      expect(mockClient.updateEvent.mock.calls[0][1]).toMatchObject({ isAllDay: false, showAs: "busy" })
+    })
+  })
+  // Outlook marks an all-day event free; Graph would mark it busy and block the day for everyone.
+  describe("show_as", () => {
+    it("create_event leaves a timed event to Graph's default (busy)", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06T09:00:00", end: "2026-11-06T10:00:00" })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("showAs")
+    })
+
+    it("an explicit show_as wins over the all-day default", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "Camp", start: "2026-11-06", all_day: true, show_as: "oof" })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({ isAllDay: true, showAs: "oof" })
+    })
+
+    it("create_event passes show_as through on a timed event", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({
+        subject: "x",
+        start: "2026-11-06T09:00:00",
+        end: "2026-11-06T10:00:00",
+        show_as: "tentative",
+      })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({ showAs: "tentative" })
+    })
+
+    it("update_event without all_day or show_as leaves showAs alone", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", subject: "Renamed" })
+
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event sets show_as on its own", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", show_as: "free" })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { showAs: "free" }, undefined)
     })
   })
 })
