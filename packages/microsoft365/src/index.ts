@@ -112,8 +112,11 @@ import {
   sendReply,
   sendReplyAll,
   setAccessTokenTool,
+  setTodoTaskState,
   summarizeSenders,
   switchAccountTool,
+  TASK_IMPORTANCES,
+  TASK_STATUSES,
   updateContact,
   updateDraft,
   updateEvent,
@@ -296,6 +299,17 @@ const TODO_CATEGORIES_PARAM = z
   .array(z.string())
   .optional()
   .describe("Category names, matching the person's Outlook categories")
+
+// A caller's own data on a task, as a Graph open extension. Use one fixed name per app: Graph warns
+// against naming extensions in a variable manner.
+const TODO_EXTENSION_PARAM = z
+  .object({
+    name: z.string().describe("Reverse-DNS extension name, one fixed name per app, e.g. com.example.assistant"),
+    fields: z
+      .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+      .describe("At most 20 flat fields (string, number or boolean), at most 2 KB as JSON"),
+  })
+  .optional()
 
 const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Auth Tools ===
@@ -1787,6 +1801,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     parameters: z.object({
       list_id: z.string().describe("To Do list ID"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
+      extension_name: z
+        .string()
+        .optional()
+        .describe("Print this extension's fields at the end of each task line, as (Ext: {...})"),
     }),
     execute: async (params) => unwrapResult(await listTodoTasks(params)),
     domain: "todo",
@@ -1806,6 +1824,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       importance: z.string().optional().describe("Importance: low, normal, or high"),
       recurrence: RECURRENCE_PARAM.describe("Repeat pattern. Omit for a one-off task"),
       categories: TODO_CATEGORIES_PARAM,
+      extension: TODO_EXTENSION_PARAM.describe("Your own data on the task, which the person can't see or edit"),
       linked_resource: z
         .object({
           external_id: z
@@ -1849,6 +1868,27 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       ),
     }),
     execute: async (params) => unwrapResult(await updateTodoTask(params)),
+    domain: "todo",
+    readOnly: false,
+  },
+  {
+    name: "set_todo_task_state",
+    description:
+      "Set only a To Do task's status, importance and your own extension fields, for unattended use. It can't " +
+      "change the title, notes, dates or repeat pattern, or delete. The same call twice changes nothing more, so " +
+      "a failed call is safe to repeat. Completing a repeating task is refused; use update_todo_task. Complete " +
+      "only tasks you created, and change importance only on tasks carrying your extension, so the person's own " +
+      "choices are never overwritten",
+    parameters: z.object({
+      list_id: z.string().describe("To Do list ID"),
+      task_id: z.string().describe("Task ID"),
+      status: z.enum(TASK_STATUSES).optional().describe("New status"),
+      importance: z.enum(TASK_IMPORTANCES).optional().describe("New importance"),
+      extension: TODO_EXTENSION_PARAM.describe(
+        "Fields to set in your extension. Fields you leave out keep their values; a missing extension is created",
+      ),
+    }),
+    execute: async (params) => unwrapResult(await setTodoTaskState(params)),
     domain: "todo",
     readOnly: false,
   },

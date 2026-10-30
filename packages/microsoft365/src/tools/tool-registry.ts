@@ -32,6 +32,8 @@ export type ToolMeta = {
    * people, such as invites and assignments.
    */
   readonly additive?: true
+  /** Repeating a call with the same arguments changes nothing more; advertised as idempotentHint: true. */
+  readonly idempotent?: true
   /** Reaches beyond this server's own tool set; advertised as openWorldHint: true. */
   readonly openWorld?: true
 }
@@ -406,6 +408,17 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
     orgOnly: false,
   },
   { name: "update_todo_task", title: "Update To Do Task", domain: "todo", readOnly: false, orgOnly: false },
+  // Overwrites status and importance, so destructive under MCP's definition (only additive updates
+  // are non-destructive), but the same call twice changes nothing more. See SAI_SPEC_To-Do-for-
+  // Civala-Assistant_2026-10-30.md, DR-001.
+  {
+    name: "set_todo_task_state",
+    title: "Set To Do Task State",
+    idempotent: true,
+    domain: "todo",
+    readOnly: false,
+    orgOnly: false,
+  },
   { name: "delete_todo_task", title: "Delete To Do Task", domain: "todo", readOnly: false, orgOnly: false },
   // Query
   {
@@ -433,6 +446,7 @@ export type ToolAnnotations = {
   readonly title: string
   readonly readOnlyHint: boolean
   readonly destructiveHint?: boolean
+  readonly idempotentHint?: true
   readonly openWorldHint?: true
 }
 
@@ -446,6 +460,7 @@ export const toolAnnotations = (meta: ToolMeta): ToolAnnotations => ({
   title: meta.title,
   readOnlyHint: meta.readOnly,
   ...(meta.readOnly ? {} : { destructiveHint: meta.additive !== true }),
+  ...(meta.idempotent ? { idempotentHint: true } : {}),
   ...(meta.openWorld ? { openWorldHint: true } : {}),
 })
 

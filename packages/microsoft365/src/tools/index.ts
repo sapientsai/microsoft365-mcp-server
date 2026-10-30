@@ -88,6 +88,9 @@ export {
   deleteTodoTask,
   listTodoLists,
   listTodoTasks,
+  setTodoTaskState,
+  TASK_IMPORTANCES,
+  TASK_STATUSES,
   updateTodoTask,
 } from "./todo-tools"
 export { getMe, getUser, listUsers } from "./users-tools"

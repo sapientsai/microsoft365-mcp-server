@@ -311,4 +311,14 @@ describe("tool-registry", () => {
       expect(DOMAIN_DESCRIPTIONS.rag.toLowerCase()).toContain("text")
     })
   })
+
+  describe("idempotentHint", () => {
+    it("marks set_todo_task_state destructive and idempotent, and no other tool idempotent", () => {
+      const state = TOOL_METADATA.find((m) => m.name === "set_todo_task_state")!
+      expect(toolAnnotations(state)).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: true })
+      expect(TOOL_METADATA.filter((m) => toolAnnotations(m).idempotentHint === true).map((m) => m.name)).toEqual([
+        "set_todo_task_state",
+      ])
+    })
+  })
 })

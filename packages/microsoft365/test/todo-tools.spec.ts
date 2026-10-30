@@ -7,7 +7,14 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { createTodoList, createTodoTask, deleteTodoTask, listTodoTasks, updateTodoTask } from "../src/tools/todo-tools"
+import {
+  createTodoList,
+  createTodoTask,
+  deleteTodoTask,
+  listTodoTasks,
+  setTodoTaskState,
+  updateTodoTask,
+} from "../src/tools/todo-tools"
 
 const mockClient = {
   createTodoTask: vi.fn(),
@@ -19,6 +26,9 @@ const mockClient = {
   requestPaginated: vi.fn(),
   listTodoTasks: vi.fn(),
   listAllTodoTasks: vi.fn(),
+  getTodoTaskExtension: vi.fn(),
+  createTodoTaskExtension: vi.fn(),
+  replaceTodoTaskExtension: vi.fn(),
 }
 
 const QUARTERLY = {
@@ -711,5 +721,175 @@ describe("categories", () => {
     mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
     await updateTodoTask({ list_id: LIST_ID, task_id: "t1", categories: [] })
     expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { categories: [] })
+  })
+})
+
+const EXT = "com.civala.assistant"
+const graphExtension = (fields: Record<string, unknown>) => ({
+  extensionName: EXT,
+  id: `microsoft.graph.openTypeExtension.${EXT}`,
+  "rank@odata.type": "#Int64",
+  ...fields,
+})
+
+describe("extensions on create and list", () => {
+  it("creates the extension inside the task's own POST", async () => {
+    mockClient.createTodoTask.mockResolvedValue(Right({ id: "new", extensions: [graphExtension({ rank: 1 })] }))
+    const result = await createTodoTask({
+      list_id: LIST_ID,
+      title: "Reply",
+      extension: { name: EXT, fields: { rank: 1, tier: "top" } },
+    })
+    expect(mockClient.createTodoTask).toHaveBeenCalledWith(LIST_ID, {
+      title: "Reply",
+      extensions: [{ "@odata.type": "microsoft.graph.openTypeExtension", extensionName: EXT, rank: 1, tier: "top" }],
+    })
+    expect(result.value).toContain(`- Extension ${EXT}: {"rank":1}`)
+  })
+
+  it("refuses an invalid extension before calling Graph", async () => {
+    const result = await createTodoTask({ list_id: LIST_ID, title: "x", extension: { name: "nodots", fields: {} } })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.createTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("expands the named extension and prints only its fields, last before the ID", async () => {
+    mockClient.listTodoTasks.mockResolvedValue(
+      Right({ value: [{ id: "t1", title: "Reply", extensions: [graphExtension({ rank: 2, note: "a\u2028b" })] }] }),
+    )
+    const result = await listTodoTasks({ list_id: LIST_ID, extension_name: EXT })
+    expect(mockClient.listTodoTasks).toHaveBeenCalledWith(LIST_ID, {
+      $expand: ["linkedResources", `extensions($filter=id eq '${EXT}')`],
+    })
+    expect(result.value).toContain('- **Reply** (Ext: {"rank":2,"note":"a b"}) (ID: t1)')
+  })
+
+  it("prints no Ext group for a task without the extension", async () => {
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [{ id: "t2", title: "Mine" }] }))
+    const result = await listTodoTasks({ list_id: LIST_ID, extension_name: EXT })
+    expect(result.value).toContain("- **Mine** (ID: t2)")
+  })
+
+  it("refuses an extension_name that could break out of the filter", async () => {
+    const result = await listTodoTasks({ list_id: LIST_ID, extension_name: "com.x') or (true" })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.listTodoTasks).not.toHaveBeenCalled()
+  })
+})
+
+describe("set_todo_task_state", () => {
+  it("needs something to set", async () => {
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1" })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("sets status and importance in one PATCH, without reading the task first", async () => {
+    mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "inProgress", importance: "high" })
+    expect(result.isRight()).toBe(true)
+    expect(mockClient.getTodoTask).not.toHaveBeenCalled()
+    expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { status: "inProgress", importance: "high" })
+  })
+
+  // Each completion of a repeating task rolls the series on, so the call couldn't be repeated safely.
+  it("refuses to complete a repeating task, and changes nothing", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", recurrence: QUARTERLY }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "completed" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("update_todo_task")
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("completes a one-off task after reading it", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1" }))
+    mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1", status: "completed" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "completed" })
+    expect(result.isRight()).toBe(true)
+    expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { status: "completed" })
+  })
+
+  it("refuses to complete when the task can't be read", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Left({ type: "network", message: "offline" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "completed" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("nothing was changed")
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
+  // A PATCH replaces the whole extension (live, 2026-10-30), so fields not sent must be sent back.
+  it("merges extension fields by reading them and writing the whole set back", async () => {
+    mockClient.getTodoTaskExtension.mockResolvedValue(Right(graphExtension({ rank: 1, tier: "top", pinned: true })))
+    mockClient.replaceTodoTaskExtension.mockResolvedValue(Right({}))
+    const result = await setTodoTaskState({
+      list_id: LIST_ID,
+      task_id: "t1",
+      extension: { name: EXT, fields: { rank: 2 } },
+    })
+    expect(result.isRight()).toBe(true)
+    expect(mockClient.replaceTodoTaskExtension).toHaveBeenCalledWith(LIST_ID, "t1", EXT, {
+      "@odata.type": "microsoft.graph.openTypeExtension",
+      rank: 2,
+      tier: "top",
+      pinned: true,
+    })
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("creates the extension when the task has none", async () => {
+    mockClient.getTodoTaskExtension.mockResolvedValue(
+      Left({ type: "not_found", status: 404, message: "Extension Id not found" }),
+    )
+    mockClient.createTodoTaskExtension.mockResolvedValue(Right({}))
+    const result = await setTodoTaskState({
+      list_id: LIST_ID,
+      task_id: "t1",
+      extension: { name: EXT, fields: { rank: 3 } },
+    })
+    expect(result.isRight()).toBe(true)
+    expect(mockClient.createTodoTaskExtension).toHaveBeenCalledWith(LIST_ID, "t1", {
+      "@odata.type": "microsoft.graph.openTypeExtension",
+      extensionName: EXT,
+      rank: 3,
+    })
+  })
+
+  it("refuses a merge that would pass the field cap, before writing", async () => {
+    const twenty = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, i]))
+    mockClient.getTodoTaskExtension.mockResolvedValue(Right(graphExtension(twenty)))
+    const result = await setTodoTaskState({
+      list_id: LIST_ID,
+      task_id: "t1",
+      extension: { name: EXT, fields: { extra: 1 } },
+    })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.replaceTodoTaskExtension).not.toHaveBeenCalled()
+  })
+
+  it("says what was saved when the extension fails after the task was updated", async () => {
+    mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
+    mockClient.getTodoTaskExtension.mockResolvedValue(Left({ type: "network", message: "offline" }))
+    const result = await setTodoTaskState({
+      list_id: LIST_ID,
+      task_id: "t1",
+      importance: "high",
+      extension: { name: EXT, fields: { rank: 1 } },
+    })
+    expect(result.isLeft()).toBe(true)
+    const message = (result.value as Error).message
+    expect(message).toContain("Set importance on task t1, but reading the extension failed: offline")
+    expect(message).toContain("Repeating the call is safe")
+  })
+
+  it("changes nothing when the task PATCH fails, and doesn't touch the extension", async () => {
+    mockClient.updateTodoTask.mockResolvedValue(Left({ type: "api", message: "bad" }))
+    const result = await setTodoTaskState({
+      list_id: LIST_ID,
+      task_id: "t1",
+      importance: "high",
+      extension: { name: EXT, fields: { rank: 1 } },
+    })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.getTodoTaskExtension).not.toHaveBeenCalled()
   })
 })

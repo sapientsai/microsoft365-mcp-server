@@ -29,6 +29,7 @@ import type {
 } from "../types"
 import { displayableLinkUrl } from "./link-url"
 import { describeRecurrence } from "./recurrence"
+import { extensionFields, type ExtensionValue, findExtension } from "./todo-extension"
 
 // Mail
 // The fields formatMessageSummary reads. list_messages $selects exactly these, so a field read here
@@ -648,20 +649,38 @@ const groupValue = (value: string, max: number = TODO_VALUE_MAX): string => inli
 const linkedExternalIds = (task: GraphTodoTask): ReadonlyArray<string> =>
   (task.linkedResources ?? []).flatMap((r) => (r.externalId ? [groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)] : []))
 
+// An extension's fields as one line of JSON. String values are one-lined first: JSON.stringify
+// escapes CR and LF but leaves U+2028 and U+2029 as they are.
+const EXTENSION_VALUE_MAX = 500
+
+const extensionJson = (fields: Readonly<Record<string, ExtensionValue>>): string =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(fields).map(([k, v]) => [k, typeof v === "string" ? inlineText(v, EXTENSION_VALUE_MAX) : v]),
+    ),
+  )
+
+const taskExtension = (task: GraphTodoTask, name: string | undefined): string | undefined => {
+  if (name === undefined) return undefined
+  const extension = findExtension(task.extensions, name)
+  return extension === undefined ? undefined : extensionJson(extensionFields(extension))
+}
+
 const IMPORTANCE_LABELS: Readonly<Record<string, string>> = { high: "High importance", low: "Low importance" }
 
 /**
  * One task as one line, in the fixed order the Civala Assistant parses (test/plugin-contract.spec.ts):
  *
  *   - **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>)
- *     (Modified: …) (Categories: a, b) (Link: <externalId>) (ID: <id>)
+ *     (Modified: …) (Categories: a, b) (Link: <externalId>) (Ext: <JSON>) (ID: <id>)
  *
  * A part Graph didn't return is left out rather than filled in, because a caller reads every value
  * on the line as Graph's. Importance shows only when it isn't normal, labelled as mail lines label it,
  * so it can't be mistaken for a status. Graph's own values go through the same cleaning as the
  * person's, so an unexpected one can't end a "(Label: …)" group early either.
  */
-export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
+export const formatTodoTaskSummary = (task: GraphTodoTask, extensionName?: string): string => {
+  const extension = taskExtension(task, extensionName)
   const completed = task.completedDateTime?.dateTime
   const completedZone = task.completedDateTime?.timeZone ? ` ${task.completedDateTime.timeZone}` : ""
   const categories = (task.categories ?? []).map((c) => groupValue(c)).filter((c) => c !== "")
@@ -678,12 +697,15 @@ export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
     task.lastModifiedDateTime ? ` (Modified: ${groupValue(task.lastModifiedDateTime)})` : "",
     categories.length > 0 ? ` (Categories: ${categories.join(", ")})` : "",
     links.length > 0 ? ` (Link: ${links.join(", ")})` : "",
+    extension === undefined ? "" : ` (Ext: ${extension})`,
     ` (ID: ${task.id})`,
   ].join("")
 }
 
-export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
-  tasks.length === 0 ? "No tasks found." : `# To Do Tasks\n\n${tasks.map(formatTodoTaskSummary).join("\n")}`
+export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>, extensionName?: string): string =>
+  tasks.length === 0
+    ? "No tasks found."
+    : `# To Do Tasks\n\n${tasks.map((t) => formatTodoTaskSummary(t, extensionName)).join("\n")}`
 
 const formatLinkedResource = (r: GraphLinkedResource): string => {
   const name = inlineText(r.displayName ?? r.applicationName ?? "Link", TODO_TITLE_MAX)
@@ -694,7 +716,8 @@ const formatLinkedResource = (r: GraphLinkedResource): string => {
   return `- Link: ${name}${app}${id}${url}`
 }
 
-export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
+export const formatTodoTaskDetail = (task: GraphTodoTask, extensionName?: string): string => {
+  const extension = taskExtension(task, extensionName)
   const body = Option(task.body?.content).fold(
     () => "",
     (v) => v,
@@ -716,7 +739,7 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   )}
 - Completed: ${task.completedDateTime?.dateTime ?? "N/A"}
 - Reminder: ${task.isReminderOn ? "Yes" : "No"}
-- Categories: ${categories.length > 0 ? categories.join(", ") : "None"}
+- Categories: ${categories.length > 0 ? categories.join(", ") : "None"}${extension === undefined ? "" : `\n- Extension ${extensionName}: ${extension}`}
 - Created: ${task.createdDateTime ?? ""}
 - Modified: ${task.lastModifiedDateTime ?? ""}${linkSection}
 
