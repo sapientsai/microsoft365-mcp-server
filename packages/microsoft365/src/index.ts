@@ -291,6 +291,12 @@ const RECURRENCE_PARAM = z
   })
   .optional()
 
+// A To Do category is the displayName of one of the person's Outlook categories.
+const TODO_CATEGORIES_PARAM = z
+  .array(z.string())
+  .optional()
+  .describe("Category names, matching the person's Outlook categories")
+
 const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Auth Tools ===
   {
@@ -1788,7 +1794,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "create_todo_task",
-    description: "Create a new To Do task, optionally recurring",
+    description:
+      "Create a new To Do task, optionally recurring. With linked_resource, the task is tagged with its source, " +
+      "and a create whose external_id is already on a task in the list returns that task instead of a second " +
+      "copy, so a retry is safe. That check reads the whole list first",
     parameters: z.object({
       list_id: z.string().describe("To Do list ID"),
       title: z.string().describe("Task title"),
@@ -1796,6 +1805,21 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       due_date: z.string().optional().describe("Due date (ISO format). Required when recurrence is set"),
       importance: z.string().optional().describe("Importance: low, normal, or high"),
       recurrence: RECURRENCE_PARAM.describe("Repeat pattern. Omit for a one-off task"),
+      categories: TODO_CATEGORIES_PARAM,
+      linked_resource: z
+        .object({
+          external_id: z
+            .string()
+            .describe(
+              "Your key for the source, e.g. 'civala:mail:<message id>'. At most 200 characters, with no line " +
+                "break, |, (, ) or comma. One task per external_id per list",
+            ),
+          application_name: z.string().describe("The source app, e.g. 'Outlook'"),
+          web_url: z.string().optional().describe("An http(s) link back to the source, shown in To Do"),
+          display_name: z.string().optional().describe("A label for the link. Defaults to application_name"),
+        })
+        .optional()
+        .describe("Tag the task with where it came from. Stored as the task's linkedResources"),
     }),
     execute: async (params) => unwrapResult(await createTodoTask(params)),
     domain: "todo",
@@ -1820,6 +1844,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       body: z.string().optional().describe("New body/notes"),
       recurrence: RECURRENCE_PARAM.describe("Replace the repeat pattern"),
       clear_recurrence: z.boolean().optional().describe("Remove the repeat pattern, making the task one-off"),
+      categories: TODO_CATEGORIES_PARAM.describe(
+        "Replace the task's categories with these names. Pass [] to clear them",
+      ),
     }),
     execute: async (params) => unwrapResult(await updateTodoTask(params)),
     domain: "todo",

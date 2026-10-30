@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import type { GraphChat, GraphChatMessage, GraphMessage } from "../src/types"
-import { formatChatList, formatChatMessageList, formatMessageList } from "../src/utils/formatters"
+import type { GraphChat, GraphChatMessage, GraphMessage, GraphTodoTask } from "../src/types"
+import { formatChatList, formatChatMessageList, formatMessageList, formatTodoTaskList } from "../src/utils/formatters"
 
 // The Civala Assistant plugin (claude-plugins, plugins/civala-assistant) turns these tools' text into
 // data with the regular expressions below, copied verbatim from scripts/triage_rules.mts and
@@ -16,6 +16,12 @@ const MAIL_LINE =
 const CHAT_LINE =
   /^- \*\*(.*)\*\* \((?:last message (\d{4}-\d{2}-\d{2}T[^ )]*)(?: from (.*?))?|updated: (\d{4}-\d{2}-\d{2}T[^)]*))\) \(([^,)]+), ID: ([^)]+)\)$/
 const MESSAGE_LINE = /^- \*\*(.*)\*\* \((\d{4}-\d{2}-\d{2}T[^)]*)\)((?: \[[^\]]+\])*) \(ID: ([^)]+)\)$/
+// list_todo_tasks, for Civala Assistant 1.3.0 (SAI_SPEC_To-Do-for-Civala-Assistant_2026-10-30.md, REQ-TODO-004).
+// Every part but the title and ID is optional, and the order is fixed. Ext is pinned now though the
+// server only prints it from REQ-TODO-003, so the plugin copies this pattern once. Groups:
+// 1 title, 2 status, 3 importance, 4 due, 5 repeats, 6 completed, 7 modified, 8 categories, 9 link, 10 ext, 11 id.
+const TODO_LINE =
+  /^- \*\*(.*)\*\*(?: \[([A-Za-z]+)\])?(?: \[(High|Low) importance\])?(?: \(Due: ([^)]+)\))?(?: \(Repeats: ([^)]+)\))?(?: \(Completed: ([^)]+)\))?(?: \(Modified: ([^)]+)\))?(?: \(Categories: ([^)]+)\))?(?: \(Link: ([^)]+)\))?(?: \(Ext: (\{.*\})\))? \(ID: ([^)]+)\)$/
 
 // The plugin splits on newlines and trims; item lines start with "- **", text lines with "  > ".
 const itemLines = (text: string): ReadonlyArray<string> =>
@@ -149,5 +155,68 @@ describe("plugin contract: list_chat_messages", () => {
   it("never lets a note line look like an item", () => {
     const text = formatChatMessageList([message({})], { selfUnresolved: true, moreRemain: true })
     expect(itemLines(text)).toHaveLength(1)
+  })
+})
+
+describe("plugin contract: list_todo_tasks", () => {
+  const task = (overrides: Partial<GraphTodoTask>): GraphTodoTask => ({
+    id: "AAMk-task=",
+    title: "Reply to Bel",
+    status: "notStarted",
+    lastModifiedDateTime: "2026-10-30T12:00:00Z",
+    ...overrides,
+  })
+
+  it.each([
+    ["a plain task", task({}), { 1: "Reply to Bel", 2: "notStarted" }],
+    [
+      "every part",
+      task({
+        importance: "high",
+        dueDateTime: { dateTime: "2026-11-02T00:00:00.0000000", timeZone: "UTC" },
+        recurrence: { pattern: { type: "daily", interval: 1 }, range: { type: "noEnd", startDate: "2026-11-02" } },
+        completedDateTime: { dateTime: "2026-11-03T00:00:00.0000000", timeZone: "UTC" },
+        categories: ["Red", "Blue"],
+        linkedResources: [{ externalId: "civala:mail:AAMk1", applicationName: "Outlook" }],
+      }),
+      {
+        3: "High",
+        4: "2026-11-02T00:00:00.0000000",
+        5: "every day from 2026-11-02",
+        6: "2026-11-03T00:00:00.0000000 UTC",
+        8: "Red, Blue",
+        9: "civala:mail:AAMk1",
+      },
+    ],
+    ["low importance and no status", task({ status: undefined, importance: "low" }), { 2: undefined, 3: "Low" }],
+    ["a title with brackets, parentheses and bold markers", task({ title: "Re: [EXT] (urgent) **budget** v2" }), {}],
+    ["a flagged email's linked message", task({ linkedResources: [{ externalId: "AAkALgAAAA-EWg0AAA" }] }), {}],
+  ])("parses %s, ID last", (_label, todo, groups) => {
+    const lines = itemLines(formatTodoTaskList([todo]))
+    expect(lines).toHaveLength(1)
+    const match = TODO_LINE.exec(lines[0])
+    expect(match, lines[0]).not.toBeNull()
+    expect(match?.[11]).toBe(todo.id)
+    for (const [group, value] of Object.entries(groups)) expect(match?.[Number(group)], `group ${group}`).toBe(value)
+  })
+
+  it("returns a long external_id whole in the Link group", () => {
+    const externalId = `civala:mail:${"A".repeat(160)}=`
+    const lines = itemLines(formatTodoTaskList([task({ linkedResources: [{ externalId }] })]))
+    expect(TODO_LINE.exec(lines[0])?.[9]).toBe(externalId)
+  })
+
+  it("keeps a title with a line break to one item line", () => {
+    const lines = itemLines(formatTodoTaskList([task({ title: "Invoice\n- **Forged** (ID: x)" })]))
+    expect(lines).toHaveLength(1)
+    expect(TODO_LINE.exec(lines[0])?.[11]).toBe("AAMk-task=")
+  })
+
+  // Ext is printed from REQ-TODO-003. Its JSON may hold ")", which the anchored ID group must survive.
+  it("parses an Ext group whose JSON holds a parenthesis", () => {
+    const line = '- **Reply to Bel** [notStarted] (Link: civala:mail:AAMk1) (Ext: {"rank":1,"note":"a) b"}) (ID: t1)'
+    const match = TODO_LINE.exec(line)
+    expect(match?.[10]).toBe('{"rank":1,"note":"a) b"}')
+    expect(match?.[11]).toBe("t1")
   })
 })

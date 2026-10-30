@@ -13,6 +13,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphLinkedResource,
   GraphMailFolder,
   GraphMeetingTimeSuggestion,
   GraphMeetingTimeSuggestionsResult,
@@ -26,6 +27,7 @@ import type {
   GraphTodoTask,
   GraphUser,
 } from "../types"
+import { displayableLinkUrl } from "./link-url"
 import { describeRecurrence } from "./recurrence"
 
 // Mail
@@ -623,33 +625,85 @@ export const formatTodoListSummary = (list: GraphTodoList): string => {
 export const formatTodoListList = (lists: ReadonlyArray<GraphTodoList>): string =>
   lists.length === 0 ? "No To Do lists found." : `# To Do Lists\n\n${lists.map(formatTodoListSummary).join("\n")}`
 
+// Text inside a To Do line comes from whoever wrote the task, or for a flagged email, whoever sent
+// the mail. It is kept to one line and capped, and a value inside a "(Label: …)" group also loses
+// its parentheses, so it can't end the group early or forge another one.
+const TODO_TITLE_MAX = 200
+const TODO_VALUE_MAX = 100
+// Matches EXTERNAL_ID_MAX in tools/todo-tools.ts: a caller's key must come back whole.
+const TODO_EXTERNAL_ID_MAX = 200
+
+// Every character a reader may treat as a line break, not only CR and LF: U+2028 and U+2029 also
+// end a line for many splitters, and JavaScript's "." doesn't match them, so either one would make
+// a line unparseable or forge a second one.
+export const inlineText = (value: string, max: number): string =>
+  value
+    .replace(/[\r\n\v\f\u0085\u2028\u2029|]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, max)
+
+const groupValue = (value: string, max: number = TODO_VALUE_MAX): string => inlineText(value.replace(/[()]/g, " "), max)
+
+const linkedExternalIds = (task: GraphTodoTask): ReadonlyArray<string> =>
+  (task.linkedResources ?? []).flatMap((r) => (r.externalId ? [groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)] : []))
+
+const IMPORTANCE_LABELS: Readonly<Record<string, string>> = { high: "High importance", low: "Low importance" }
+
+/**
+ * One task as one line, in the fixed order the Civala Assistant parses (test/plugin-contract.spec.ts):
+ *
+ *   - **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>)
+ *     (Modified: …) (Categories: a, b) (Link: <externalId>) (ID: <id>)
+ *
+ * A part Graph didn't return is left out rather than filled in, because a caller reads every value
+ * on the line as Graph's. Importance shows only when it isn't normal, labelled as mail lines label it,
+ * so it can't be mistaken for a status. Graph's own values go through the same cleaning as the
+ * person's, so an unexpected one can't end a "(Label: …)" group early either.
+ */
 export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
-  const status = task.status ?? "notStarted"
-  const due = Option(task.dueDateTime?.dateTime)
-    .map((d) => ` (Due: ${d})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  const repeats = Option(task.recurrence)
-    .map((r) => ` (Repeats: ${describeRecurrence(r)})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  return `- **${task.title ?? "Untitled"}** [${status}]${due}${repeats} (ID: ${task.id})`
+  const completed = task.completedDateTime?.dateTime
+  const completedZone = task.completedDateTime?.timeZone ? ` ${task.completedDateTime.timeZone}` : ""
+  const categories = (task.categories ?? []).map((c) => groupValue(c)).filter((c) => c !== "")
+  const links = linkedExternalIds(task)
+  return [
+    `- **${inlineText(task.title ?? "", TODO_TITLE_MAX)}**`,
+    task.status ? ` [${groupValue(task.status).replace(/[[\]]/g, "")}]` : "",
+    task.importance && task.importance !== "normal"
+      ? ` [${IMPORTANCE_LABELS[task.importance] ?? `${groupValue(task.importance).replace(/[[\]]/g, "")} importance`}]`
+      : "",
+    task.dueDateTime?.dateTime ? ` (Due: ${groupValue(task.dueDateTime.dateTime)})` : "",
+    task.recurrence ? ` (Repeats: ${groupValue(describeRecurrence(task.recurrence), TODO_TITLE_MAX)})` : "",
+    completed ? ` (Completed: ${groupValue(`${completed}${completedZone}`)})` : "",
+    task.lastModifiedDateTime ? ` (Modified: ${groupValue(task.lastModifiedDateTime)})` : "",
+    categories.length > 0 ? ` (Categories: ${categories.join(", ")})` : "",
+    links.length > 0 ? ` (Link: ${links.join(", ")})` : "",
+    ` (ID: ${task.id})`,
+  ].join("")
 }
 
 export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
   tasks.length === 0 ? "No tasks found." : `# To Do Tasks\n\n${tasks.map(formatTodoTaskSummary).join("\n")}`
+
+const formatLinkedResource = (r: GraphLinkedResource): string => {
+  const name = inlineText(r.displayName ?? r.applicationName ?? "Link", TODO_TITLE_MAX)
+  const app = r.applicationName ? ` (${groupValue(r.applicationName)})` : ""
+  const id = r.externalId ? ` [externalId: ${groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)}]` : ""
+  const url = r.webUrl === undefined ? "" : ` ${displayableLinkUrl(r.webUrl) ?? "link withheld: not an http(s) URL"}`
+  // A fixed label starts the line, so a displayName can't open it looking like a task line.
+  return `- Link: ${name}${app}${id}${url}`
+}
 
 export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   const body = Option(task.body?.content).fold(
     () => "",
     (v) => v,
   )
+  const categories = (task.categories ?? []).map((c) => groupValue(c)).filter((c) => c !== "")
+  const links = task.linkedResources ?? []
+  const linkSection = links.length > 0 ? `\n\n## Linked\n${links.map(formatLinkedResource).join("\n")}` : ""
 
-  return `# ${task.title ?? "Untitled"}
+  return `# ${inlineText(task.title ?? "Untitled", TODO_TITLE_MAX)}
 
 ## Details
 - ID: ${task.id}
@@ -662,8 +716,9 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   )}
 - Completed: ${task.completedDateTime?.dateTime ?? "N/A"}
 - Reminder: ${task.isReminderOn ? "Yes" : "No"}
+- Categories: ${categories.length > 0 ? categories.join(", ") : "None"}
 - Created: ${task.createdDateTime ?? ""}
-- Modified: ${task.lastModifiedDateTime ?? ""}
+- Modified: ${task.lastModifiedDateTime ?? ""}${linkSection}
 
 ## Body
 ${body}`

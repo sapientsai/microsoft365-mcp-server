@@ -35,6 +35,7 @@ Mail subjects, sender names and addresses, file and attachment names, and link U
 ## Results
 
 - When an operation changes nothing (every item failed, the batch call failed, the breaker was open), return a `Left` / `UserError` so the MCP result carries `isError`. A partial success stays `Right`, with the failures listed. Otherwise the caller reports work as done that never happened.
+- The one exception is an idempotent repeat: a write that finds its own earlier success already in place (for example `create_todo_task` with an `external_id` a task already carries) returns a `Right` that names the existing item. The caller wanted that item to exist, and it does, so a retry must not read as a failure.
 
 ## Pull requests
 

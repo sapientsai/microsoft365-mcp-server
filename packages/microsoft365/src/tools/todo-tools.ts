@@ -1,11 +1,12 @@
 import { UserError } from "fastmcp"
 import { Option } from "functype"
 import type { Either } from "functype/either"
-import { Left } from "functype/either"
+import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphTodoList, GraphTodoTask, ODataResponse } from "../types"
 import { formatTodoListList, formatTodoTaskDetail, formatTodoTaskList } from "../utils/formatters"
+import { displayableLinkUrl } from "../utils/link-url"
 import type { RecurrenceInput } from "../utils/recurrence"
 import { buildRecurrence, describeRecurrence, toDateOnly } from "../utils/recurrence"
 
@@ -76,6 +77,48 @@ export const createTodoList = async (params: { display_name: string }): Promise<
     )
 }
 
+// A task's source lives in linkedResources, a relationship Graph returns only when expanded.
+const TASK_EXPAND = { $expand: ["linkedResources"] }
+
+export type LinkedResourceInput = {
+  readonly external_id: string
+  readonly application_name: string
+  readonly web_url?: string
+  readonly display_name?: string
+}
+
+// externalId is the key a caller looks a task up by, so it has to come back exactly as sent. Output
+// can't clean it without breaking that match, so an unsafe one is refused here instead.
+const EXTERNAL_ID_MAX = 200
+
+const linkedResourceProblem = (link: LinkedResourceInput): string | undefined => {
+  if (link.external_id.trim() === "") return "linked_resource.external_id must not be empty."
+  if (link.external_id.length > EXTERNAL_ID_MAX) {
+    return `linked_resource.external_id is longer than ${EXTERNAL_ID_MAX} characters.`
+  }
+  // A comma would make two linked ids on one line ambiguous, since the list line joins them with ", ".
+  if (/[\r\n\v\f\u0085\u2028\u2029|(),]/.test(link.external_id)) {
+    return "linked_resource.external_id must not contain a line break, |, (, ) or a comma."
+  }
+  if (link.application_name.trim() === "") return "linked_resource.application_name must not be empty."
+  if (link.web_url !== undefined && displayableLinkUrl(link.web_url) === undefined) {
+    return "linked_resource.web_url must be an http: or https: URL."
+  }
+  return undefined
+}
+
+// Graph's linkedResource docs list displayName as required, so it falls back to the app's name.
+const toLinkedResource = (link: LinkedResourceInput): Record<string, string> => ({
+  externalId: link.external_id,
+  applicationName: link.application_name,
+  displayName: link.display_name ?? link.application_name,
+  ...(link.web_url === undefined ? {} : { webUrl: link.web_url }),
+})
+
+const cleanCategories = (categories: ReadonlyArray<string>): ReadonlyArray<string> => [
+  ...new Set(categories.map((c) => c.trim()).filter((c) => c !== "")),
+]
+
 export const listTodoTasks = async (params: {
   list_id: string
   fetch_all_pages?: boolean
@@ -84,13 +127,13 @@ export const listTodoTasks = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphTodoTask>(`/me/todo/lists/${params.list_id}/tasks`)
+    const result = await client.listAllTodoTasks(params.list_id, TASK_EXPAND)
     return result
       .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
       .map((items) => formatTodoTaskList(items))
   }
 
-  const result = await client.listTodoTasks(params.list_id)
+  const result = await client.listTodoTasks(params.list_id, TASK_EXPAND)
   return result
     .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
     .map((response) => formatTodoTaskList((response as ODataResponse<never>).value))
@@ -103,9 +146,14 @@ export const createTodoTask = async (params: {
   due_date?: string
   importance?: string
   recurrence?: RecurrenceInput
+  categories?: ReadonlyArray<string>
+  linked_resource?: LinkedResourceInput
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const linkProblem = params.linked_resource ? linkedResourceProblem(params.linked_resource) : undefined
+  if (linkProblem) return Left(new UserError(linkProblem))
 
   const task: Record<string, unknown> = { title: params.title }
   if (params.body) task.body = { contentType: "text", content: params.body }
@@ -124,6 +172,36 @@ export const createTodoTask = async (params: {
     const recurrence = buildRecurrence(params.recurrence, params.due_date)
     if (typeof recurrence === "string") return Left(new UserError(recurrence))
     task.recurrence = recurrence
+  }
+
+  if (params.categories) task.categories = cleanCategories(params.categories)
+
+  // A caller that died after Graph created the task, but before it recorded that, retries the
+  // create. With an external_id, the retry finds the task it already made instead of making a
+  // second one. Graph can't filter on linkedResources ("CollectionNavigationNode operation is not
+  // supported", checked live 2026-10-30), so every page is read and matched here, completed tasks
+  // included. A list that can't be read in full refuses the create rather than risk the duplicate.
+  if (params.linked_resource) {
+    const externalId = params.linked_resource.external_id
+    const existing = await client.listAllTodoTasks(params.list_id, TASK_EXPAND)
+    if (existing.isLeft()) {
+      return Left(
+        new UserError(
+          `Failed to read the list's tasks, so the task was not created: ${(existing.value as GraphApiError).message}`,
+        ),
+      )
+    }
+    const match = (existing.value as ReadonlyArray<GraphTodoTask>).find((t) =>
+      (t.linkedResources ?? []).some((r) => r.externalId === externalId),
+    )
+    // Already there is the outcome the caller wanted, so it is a success, not an error: see
+    // AGENTS.md, Results, on an idempotent repeat.
+    if (match) {
+      return Right(
+        `A task with this external_id already exists, so none was created.\n\n${formatTodoTaskDetail(match)}`,
+      )
+    }
+    task.linkedResources = [toLinkedResource(params.linked_resource)]
   }
 
   const result = await client.createTodoTask(params.list_id, task)
@@ -182,6 +260,7 @@ export const updateTodoTask = async (params: {
   body?: string
   recurrence?: RecurrenceInput
   clear_recurrence?: boolean
+  categories?: ReadonlyArray<string>
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -207,6 +286,8 @@ export const updateTodoTask = async (params: {
   if (params.status) updates.status = params.status
   if (params.importance) updates.importance = params.importance
   if (params.body) updates.body = { contentType: "text", content: params.body }
+  // Replaces the task's categories; an empty list clears them.
+  if (params.categories) updates.categories = cleanCategories(params.categories)
 
   // Graph clears a recurrence by an explicit null; omitting the property leaves the
   // existing pattern in place, so the two cases cannot share a code path.

@@ -2,7 +2,7 @@ import type { AuthStrategy } from "@sapientsai/ms-graph-core"
 import { Left, Right } from "functype/either"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { getGraphClient, initializeGraphClient } from "../src/client/graph-client"
+import { getGraphClient, initializeGraphClient, MAX_TODO_TASK_PAGES } from "../src/client/graph-client"
 
 // Phase 2b: graph-client no longer imports the server auth module — it receives an
 // AuthStrategy. These tests lock that seam.
@@ -296,5 +296,74 @@ describe("nextMessageScanPage in another mailbox", () => {
     expect(result.isLeft()).toBe(true)
     expect((result.value as { message: string }).message).toBe("Invalid Graph message continuation URL.")
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe("listAllTodoTasks", () => {
+  const auth: AuthStrategy = { getAccessToken: () => Promise.resolve(Right("T")) }
+  const LIST = "AAMk-list="
+  const page = (ids: ReadonlyArray<string>, next?: string) =>
+    new Response(JSON.stringify({ value: ids.map((id) => ({ id })), ...(next ? { "@odata.nextLink": next } : {}) }))
+  const nextLink = (path: string) => `https://graph.microsoft.com/v1.0${path}?$top=100&$skip=100`
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("follows the list's own continuation links to the end, expanding linkedResources", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        page(
+          ["t1"],
+          `https://graph.microsoft.com/v1.0/me/todo/lists/${LIST}/tasks?$top=100&$expand=linkedResources&$skip=100`,
+        ),
+      )
+      .mockResolvedValueOnce(page(["t2"]))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST, { $expand: ["linkedResources"] })
+    expect(result.isRight()).toBe(true)
+    expect((result.value as ReadonlyArray<{ id: string }>).map((t) => t.id)).toEqual(["t1", "t2"])
+    const first = new URL(fetchSpy.mock.calls[0]![0] as string)
+    expect(first.searchParams.get("$top")).toBe("100")
+    expect(first.searchParams.get("$expand")).toBe("linkedResources")
+    expect(first.searchParams.has("$select")).toBe(false)
+    expect(fetchSpy.mock.calls[1]![0]).toContain("$skip=100")
+  })
+
+  it.each([
+    ["another host", `https://evil.example/v1.0/me/todo/lists/${LIST}/tasks?$skip=1`],
+    ["another list", nextLink("/me/todo/lists/OTHER/tasks")],
+    ["another user's list", nextLink(`/users/x@y.com/todo/lists/${LIST}/tasks`)],
+    ["credentials in the link", `https://u:p@graph.microsoft.com/v1.0/me/todo/lists/${LIST}/tasks?$skip=1`],
+  ])("refuses a continuation link to %s, and returns no partial list", async (_label, link) => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(page(["t1"], link))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST)
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as { message: string }).message).toBe("Invalid Graph To Do continuation URL.")
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  // A continuation that dropped $expand would return untagged tasks, and a duplicate check would miss.
+  it("refuses a continuation link that drops the first page's $expand", async () => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(page(["t1"], nextLink(`/me/todo/lists/${LIST}/tasks`)))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST, { $expand: ["linkedResources"] })
+    expect(result.isLeft()).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("fails on a page with no value array instead of throwing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({}))))
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST)
+    expect(result.isLeft()).toBe(true)
+  })
+
+  it("fails, rather than returning a short list, when the page cap is reached", async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(page(["t"], nextLink(`/me/todo/lists/${LIST}/tasks`))))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await initializeGraphClient(auth).listAllTodoTasks(LIST)
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as { message: string }).message).toContain(`more than ${MAX_TODO_TASK_PAGES} pages`)
+    expect(fetchSpy).toHaveBeenCalledTimes(MAX_TODO_TASK_PAGES)
   })
 })
