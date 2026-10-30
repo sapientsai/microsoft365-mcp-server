@@ -453,6 +453,12 @@ a shared calendar is only found through that calendar, so pass `calendar_id` to
 your own `/me/calendars`, so `MS365_ALLOWED_MAILBOXES` does not limit it; Microsoft's
 sharing does.
 
+`create_event` and `update_event` take `all_day`. With it, `start` and `end` are dates
+(`YYYY-MM-DD`) and `end` is the last day, inclusive, defaulting to `start`; the server sends
+Graph its midnight-to-midnight span with the exclusive end. Pass `time_zone` (for example
+`Australia/Perth`): Graph pins an all-day event to midnight in that zone, so the UTC default
+shows it a day out elsewhere.
+
 ### Contacts (7 tools)
 
 | Tool              | Description                                                   |

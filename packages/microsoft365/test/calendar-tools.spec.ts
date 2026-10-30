@@ -414,4 +414,133 @@ describe("calendar-tools", () => {
       expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html", undefined)
     })
   })
+
+  // Graph stores an all-day event midnight to midnight with an exclusive end; callers name the
+  // last day. Compass's staff days and carnivals are the motivating case.
+  describe("all-day events", () => {
+    const perth = "Australia/Perth"
+
+    it("create_event sends isAllDay with midnight times and the day after the last day as end", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      const result = await createEvent({
+        subject: "Swimming carnival",
+        start: "2026-11-06",
+        end: "2026-11-07",
+        all_day: true,
+        time_zone: perth,
+      })
+
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.createEvent).toHaveBeenCalledWith(
+        {
+          subject: "Swimming carnival",
+          start: { dateTime: "2026-11-06T00:00:00", timeZone: perth },
+          end: { dateTime: "2026-11-08T00:00:00", timeZone: perth },
+          isAllDay: true,
+        },
+        undefined,
+      )
+    })
+
+    it("defaults end to start, giving a one-day event", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "Last day of term", start: "2026-12-18", all_day: true, time_zone: perth })
+
+      const sent = mockClient.createEvent.mock.calls[0][0] as Record<string, { dateTime: string }>
+      expect(sent.start!.dateTime).toBe("2026-12-18T00:00:00")
+      expect(sent.end!.dateTime).toBe("2026-12-19T00:00:00")
+    })
+
+    it("rolls the end over month and year boundaries", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "NYE", start: "2026-12-31", all_day: true })
+      await createEvent({ subject: "Leap", start: "2028-02-28", end: "2028-02-29", all_day: true })
+
+      expect((mockClient.createEvent.mock.calls[0][0] as { end: { dateTime: string } }).end.dateTime).toBe(
+        "2027-01-01T00:00:00",
+      )
+      expect((mockClient.createEvent.mock.calls[1][0] as { end: { dateTime: string } }).end.dateTime).toBe(
+        "2028-03-01T00:00:00",
+      )
+    })
+
+    it("accepts a midnight datetime as a date", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "PD day", start: "2026-11-13T00:00:00", all_day: true })
+
+      expect((mockClient.createEvent.mock.calls[0][0] as { end: { dateTime: string } }).end.dateTime).toBe(
+        "2026-11-14T00:00:00",
+      )
+    })
+
+    it.each([
+      ["a time of day", { start: "2026-11-06T09:00:00" }],
+      ["a malformed date", { start: "6/11/2026" }],
+      ["an impossible date", { start: "2026-02-30" }],
+      ["an end before the start", { start: "2026-11-06", end: "2026-11-05" }],
+    ])("refuses %s before calling Graph", async (_label, dates) => {
+      const result = await createEvent({ subject: "x", all_day: true, ...dates })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+    })
+
+    it("still requires end for a timed event", async () => {
+      const result = await createEvent({ subject: "x", start: "2026-11-06T09:00:00" })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+    })
+
+    it("does not send isAllDay for a timed event", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06T09:00:00", end: "2026-11-06T10:00:00" })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("isAllDay")
+    })
+
+    it("update_event all_day: true rewrites the span and sets isAllDay", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-06", time_zone: perth })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          isAllDay: true,
+          start: { dateTime: "2026-11-06T00:00:00", timeZone: perth },
+          end: { dateTime: "2026-11-07T00:00:00", timeZone: perth },
+        },
+        undefined,
+      )
+    })
+
+    it("update_event all_day: true without start is refused", async () => {
+      const result = await updateEvent({ event_id: "evt-123", all_day: true })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.updateEvent).not.toHaveBeenCalled()
+    })
+
+    it("update_event all_day: false needs both times, then clears isAllDay", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      const missing = await updateEvent({ event_id: "evt-123", all_day: false, start: "2026-11-06T09:00:00" })
+      expect(missing.isLeft()).toBe(true)
+
+      await updateEvent({
+        event_id: "evt-123",
+        all_day: false,
+        start: "2026-11-06T09:00:00",
+        end: "2026-11-06T10:00:00",
+      })
+      expect(mockClient.updateEvent).toHaveBeenCalledOnce()
+      expect(mockClient.updateEvent.mock.calls[0][1]).toMatchObject({ isAllDay: false })
+    })
+  })
 })

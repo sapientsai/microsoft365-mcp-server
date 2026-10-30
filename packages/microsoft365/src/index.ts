@@ -254,6 +254,16 @@ const MAILBOX_PARAM = z
       "Only addresses this server is configured to allow will be accepted.",
   )
 
+// All-day events need a time zone to land on the right day: Graph stores them midnight to
+// midnight in time_zone, and UTC (the default) shows a day early or late outside UTC.
+const ALL_DAY_PARAM = z
+  .boolean()
+  .optional()
+  .describe(
+    "All-day event: start and end are dates (YYYY-MM-DD) and end is the last day, inclusive. " +
+      "Set time_zone to the calendar's zone (e.g. Australia/Perth). Default: false.",
+  )
+
 const CALENDAR_ID_PARAM = z
   .string()
   .optional()
@@ -871,8 +881,15 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description: "Create a new calendar event",
     parameters: z.object({
       subject: z.string().describe("Event subject/title"),
-      start: z.string().describe("Start date/time (ISO format)"),
-      end: z.string().describe("End date/time (ISO format)"),
+      start: z.string().describe("Start date/time (ISO format), or the first day (YYYY-MM-DD) when all_day is true"),
+      end: z
+        .string()
+        .optional()
+        .describe(
+          "End date/time (ISO format). Required unless all_day is true; then it is the last day (YYYY-MM-DD, " +
+            "inclusive) and defaults to start.",
+        ),
+      all_day: ALL_DAY_PARAM,
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("Event location"),
       body: z.string().optional().describe("Event description"),
@@ -901,8 +918,24 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     parameters: z.object({
       event_id: z.string().describe("The event ID to update"),
       subject: z.string().optional().describe("New subject"),
-      start: z.string().optional().describe("New start date/time (ISO format)"),
-      end: z.string().optional().describe("New end date/time (ISO format)"),
+      start: z
+        .string()
+        .optional()
+        .describe("New start date/time (ISO format), or the first day (YYYY-MM-DD) when all_day is true"),
+      end: z
+        .string()
+        .optional()
+        .describe(
+          "New end date/time (ISO format), or the last day (YYYY-MM-DD, inclusive) when all_day is true; " +
+            "defaults to start then",
+        ),
+      all_day: z
+        .boolean()
+        .optional()
+        .describe(
+          "true makes it an all-day event (needs start); false makes it a timed event (needs start and end). " +
+            "Omit to leave it as it is.",
+        ),
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("New location"),
       body: z.string().optional().describe("New description"),
