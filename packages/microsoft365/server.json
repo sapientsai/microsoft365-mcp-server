@@ -6,12 +6,12 @@
     "url": "https://github.com/sapientsai/microsoft365-mcp-server",
     "source": "github"
   },
-  "version": "1.2.21",
+  "version": "1.2.22",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "microsoft365-mcp-server",
-      "version": "1.2.21",
+      "version": "1.2.22",
       "transport": {
         "type": "stdio"
       },
