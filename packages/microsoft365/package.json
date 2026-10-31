@@ -69,22 +69,22 @@
   },
   "homepage": "https://github.com/sapientsai/microsoft365-mcp-server#readme",
   "dependencies": {
-    "@azure/identity": "^4.14.0",
+    "@azure/identity": "^4.14.1",
     "exceljs": "^4.4.0",
-    "fastmcp": "^4.22.10",
-    "functype": "^1.19.0",
-    "functype-log": "^1.19.0",
+    "fastmcp": "^4.23.8",
+    "functype": "^1.22.0",
+    "functype-log": "^1.22.0",
     "mammoth": "^1.13.0",
     "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@azure/msal-node": "^6.0.1",
+    "@azure/msal-node": "^7.1.2",
     "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/node": "^24.19.2",
-    "ts-builds": "^4.0.0",
-    "tsdown": "^0.23.1"
+    "ts-builds": "^4.0.2",
+    "tsdown": "^0.23.4"
   },
   "engines": {
     "node": ">=22.16"

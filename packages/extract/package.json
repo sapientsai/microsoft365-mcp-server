@@ -33,15 +33,15 @@
   "prettier": "ts-builds/prettier",
   "dependencies": {
     "exceljs": "^4.4.0",
-    "functype": "^1.19.0",
+    "functype": "^1.22.0",
     "mammoth": "^1.13.0",
     "unpdf": "^1.9.1"
   },
   "devDependencies": {
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/node": "^24.19.2",
-    "ts-builds": "^4.0.0",
-    "tsdown": "^0.23.1"
+    "ts-builds": "^4.0.2",
+    "tsdown": "^0.23.4"
   },
   "engines": {
     "node": ">=22.16"
