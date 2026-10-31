@@ -68,6 +68,7 @@ import {
   graphQuery,
   listAccountsTool,
   listAttachments,
+  listCalendars,
   listCalendarView,
   listChannelMessages,
   listChannels,
@@ -251,6 +252,20 @@ const MAILBOX_PARAM = z
     "Email address of another mailbox to act on (delegated or shared), e.g. 'someone@example.com'. " +
       "Omit for your own mailbox; required when this server signs in as an application. " +
       "Only addresses this server is configured to allow will be accepted.",
+  )
+
+const CALENDAR_ID_PARAM = z
+  .string()
+  .optional()
+  .describe("ID of the calendar to use, from list_calendars. Omit for your default calendar.")
+
+// An event in a calendar someone shared with you is only reachable through that calendar.
+const CALENDAR_EVENT_ID_PARAM = z
+  .string()
+  .optional()
+  .describe(
+    "ID of the calendar the event is in, from list_calendars. Needed for a calendar shared with you by " +
+      "someone else; may be omitted for your own calendars.",
   )
 
 // The flat shape here mirrors Graph's patternedRecurrence without making the caller
@@ -765,6 +780,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
 
   // === Calendar Tools ===
   {
+    name: "list_calendars",
+    description:
+      "List the calendars you can see: your own, and any shared with you. Returns each calendar's ID for the " +
+      "calendar_id parameter of the event tools, and marks the default calendar and any you cannot edit.",
+    parameters: z.object({}),
+    execute: async () => unwrapResult(await listCalendars()),
+    domain: "calendar",
+    readOnly: true,
+  },
+  {
     name: "list_events",
     description:
       "List calendar event resources (/me/events). Returns series masters for recurring meetings, NOT individual occurrences. " +
@@ -773,6 +798,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       top: z.number().optional().describe("Number of events to return (default: 25)"),
       filter: z.string().optional().describe("OData filter expression"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
+      calendar_id: CALENDAR_ID_PARAM,
     }),
     execute: async (params) => unwrapResult(await listEvents(params)),
     domain: "calendar",
@@ -787,6 +813,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       start_date_time: z.string().describe("Window start (ISO 8601, e.g. 2026-05-22T00:00:00Z)"),
       end_date_time: z.string().describe("Window end (ISO 8601, e.g. 2026-05-29T00:00:00Z)"),
       top: z.number().optional().describe("Max events to return (default: 50)"),
+      calendar_id: CALENDAR_ID_PARAM,
     }),
     execute: async (params) => unwrapResult(await listCalendarView(params)),
     domain: "calendar",
@@ -833,6 +860,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .enum(["text", "html"])
         .optional()
         .describe("Body format: 'text' (default) has Graph strip the HTML server-side; 'html' returns the raw markup"),
+      calendar_id: CALENDAR_EVENT_ID_PARAM,
     }),
     execute: async (params) => unwrapResult(await getEvent(params)),
     domain: "calendar",
@@ -861,6 +889,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .boolean()
         .optional()
         .describe("Add a Teams meeting to the event; joinUrl is returned in the event details (default: false)"),
+      calendar_id: CALENDAR_ID_PARAM,
     }),
     execute: async (params) => unwrapResult(await createEvent(params)),
     domain: "calendar",
@@ -888,6 +917,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe(
           "Add a Teams meeting to the event. One-way per Graph: once enabled it cannot be turned off or re-provisioned. Default: false.",
         ),
+      calendar_id: CALENDAR_EVENT_ID_PARAM,
     }),
     execute: async (params) => unwrapResult(await updateEvent(params)),
     domain: "calendar",
@@ -898,6 +928,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description: "Delete a calendar event",
     parameters: z.object({
       event_id: z.string().describe("The event ID to delete"),
+      calendar_id: CALENDAR_EVENT_ID_PARAM,
     }),
     execute: async (params) => unwrapResult(await deleteEvent(params)),
     domain: "calendar",

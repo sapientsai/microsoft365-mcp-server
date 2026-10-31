@@ -4,6 +4,7 @@ export {
   deleteEvent,
   findMeetingAvailability,
   getEvent,
+  listCalendars,
   listCalendarView,
   listEvents,
   respondToEvent,

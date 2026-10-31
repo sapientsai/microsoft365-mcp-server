@@ -177,6 +177,7 @@ You need an Azure AD (Entra ID) app registration:
 | `Mail.Read`, `Mail.Send`                       | Email                                          |
 | `Calendars.ReadWrite`                          | Calendar                                       |
 | `Calendars.Read.Shared`                        | Calendar free/busy (find_meeting_availability) |
+| `Calendars.ReadWrite.Shared` (optional)        | Writing to calendars others shared with you    |
 | `Contacts.Read`                                | Contacts                                       |
 | `Contacts.ReadWrite`                           | Creating, updating and deleting contacts       |
 | `Files.ReadWrite`                              | OneDrive                                       |
@@ -425,10 +426,11 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 > the client to read the PDF or image with whatever it already has. That keeps
 > rasterising and OCR out of this server.
 
-### Calendar (8 tools)
+### Calendar (9 tools)
 
 | Tool                        | Description                                                     |
 | --------------------------- | --------------------------------------------------------------- |
+| `list_calendars`            | List your calendars and those shared with you, with their IDs   |
 | `list_events`               | List calendar events                                            |
 | `list_calendar_view`        | List event instances in a date range (expands recurring series) |
 | `find_meeting_availability` | Suggest meeting times where all participants are free           |
@@ -437,6 +439,19 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 | `update_event`              | Update an existing event                                        |
 | `delete_event`              | Delete an event                                                 |
 | `respond_to_event`          | Accept, decline or tentatively accept an invitation             |
+
+`list_events`, `list_calendar_view`, `get_event`, `create_event`, `update_event` and
+`delete_event` take an optional `calendar_id` from `list_calendars`. Without one they use
+your default calendar, as before. Your own secondary calendars need nothing more than
+`Calendars.ReadWrite`. A calendar someone else shared with you needs
+`Calendars.ReadWrite.Shared` to write to it (`Calendars.Read.Shared`, already in the
+defaults, covers reading). Add it the same way as the mail `.Shared` scopes under
+[Other Mailboxes](#other-mailboxes-delegated-and-shared): `MS365_EXTRA_SCOPES` in OAuth
+proxy mode, or as a delegated permission on the app registration otherwise. An event in
+a shared calendar is only found through that calendar, so pass `calendar_id` to
+`get_event`, `update_event` and `delete_event` too. A shared calendar is reached through
+your own `/me/calendars`, so `MS365_ALLOWED_MAILBOXES` does not limit it; Microsoft's
+sharing does.
 
 ### Contacts (7 tools)
 

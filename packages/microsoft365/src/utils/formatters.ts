@@ -4,6 +4,7 @@ import { Option } from "functype"
 import type {
   GraphAttachment,
   GraphBucket,
+  GraphCalendar,
   GraphCallTranscript,
   GraphChannel,
   GraphChannelMessage,
@@ -189,6 +190,24 @@ ${body}`
 }
 
 // Calendar
+// Another user picks the name of a calendar they share with you, and their own display address,
+// so neither may break onto a line of its own.
+const calendarText = (value: string): string => value.replace(/[\r\n]+/g, " ").slice(0, 120)
+
+export const formatCalendarSummary = (calendar: GraphCalendar): string => {
+  const flags = [calendar.isDefaultCalendar ? "default" : undefined, calendar.canEdit ? undefined : "read-only"]
+    .filter(Boolean)
+    .join(", ")
+  const owner = Option(calendar.owner?.address).fold(
+    () => "",
+    (address) => ` — owner ${calendarText(address)}`,
+  )
+  return `- **${calendarText(calendar.name ?? "(Unnamed)")}**${flags ? ` [${flags}]` : ""}${owner} (ID: ${calendar.id})`
+}
+
+export const formatCalendarList = (calendars: ReadonlyArray<GraphCalendar>): string =>
+  calendars.length === 0 ? "No calendars found." : `# Calendars\n\n${calendars.map(formatCalendarSummary).join("\n")}`
+
 export const formatEventSummary = (event: GraphEvent): string => {
   const start = Option(event.start?.dateTime).fold(
     () => "",

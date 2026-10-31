@@ -189,25 +189,38 @@ const createGraphClient = (auth: AuthStrategy) => {
     })
 
   // Calendar
-  const listEvents = (odataParams?: ODataParams) =>
-    request<ODataResponse<GraphEvent>>("GET", "/me/events", { odataParams })
+  // Without a calendar ID, events go to the default calendar. With one, the path goes through
+  // /me/calendars/{id}, which is the only way to reach a calendar someone else shared with you:
+  // /me/events/{id} does not find their events.
+  const eventsPath = (calendarId?: string) => (calendarId ? `/me/calendars/${calendarId}/events` : "/me/events")
+
+  const listEvents = (odataParams?: ODataParams, calendarId?: string) =>
+    request<ODataResponse<GraphEvent>>("GET", eventsPath(calendarId), { odataParams })
 
   // calendarView expands recurring series into individual instances within [start, end].
   // Required by Graph: startDateTime/endDateTime as query params on the path.
-  const listCalendarView = (startDateTime: string, endDateTime: string, odataParams?: ODataParams) => {
-    const path = `/me/calendarView?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}`
+  const listCalendarView = (
+    startDateTime: string,
+    endDateTime: string,
+    odataParams?: ODataParams,
+    calendarId?: string,
+  ) => {
+    const base = calendarId ? `/me/calendars/${calendarId}/calendarView` : "/me/calendarView"
+    const path = `${base}?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}`
     return request<ODataResponse<GraphEvent>>("GET", path, { odataParams })
   }
 
-  const getEvent = (id: string, bodyContentType?: "text" | "html") =>
-    request<GraphEvent>("GET", `/me/events/${id}`, bodyFormat(bodyContentType))
+  const getEvent = (id: string, bodyContentType?: "text" | "html", calendarId?: string) =>
+    request<GraphEvent>("GET", `${eventsPath(calendarId)}/${id}`, bodyFormat(bodyContentType))
 
-  const createEvent = (event: Record<string, unknown>) => request<GraphEvent>("POST", "/me/events", { body: event })
+  const createEvent = (event: Record<string, unknown>, calendarId?: string) =>
+    request<GraphEvent>("POST", eventsPath(calendarId), { body: event })
 
-  const updateEvent = (id: string, event: Record<string, unknown>) =>
-    request<GraphEvent>("PATCH", `/me/events/${id}`, { body: event })
+  const updateEvent = (id: string, event: Record<string, unknown>, calendarId?: string) =>
+    request<GraphEvent>("PATCH", `${eventsPath(calendarId)}/${id}`, { body: event })
 
-  const deleteEvent = (id: string) => request<Record<string, never>>("DELETE", `/me/events/${id}`)
+  const deleteEvent = (id: string, calendarId?: string) =>
+    request<Record<string, never>>("DELETE", `${eventsPath(calendarId)}/${id}`)
 
   // accept, decline and tentativelyAccept take the same body; Graph answers 202 with no content.
   const respondToEvent = (

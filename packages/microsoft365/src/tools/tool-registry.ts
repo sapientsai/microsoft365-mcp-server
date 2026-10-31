@@ -185,6 +185,7 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
     transportOnly: "httpStream",
   },
   // Calendar
+  { name: "list_calendars", title: "List Calendars", domain: "calendar", readOnly: true, orgOnly: false },
   { name: "list_events", title: "List Calendar Events", domain: "calendar", readOnly: true, orgOnly: false },
   {
     name: "list_calendar_view",

@@ -48,11 +48,14 @@ describe("calendar-tools", () => {
       })
       expect(result.isRight()).toBe(true)
       expect(result.value).toContain("Event created")
-      expect(mockClient.createEvent).toHaveBeenCalledWith({
-        subject: "Meeting",
-        start: { dateTime: "2026-04-07T10:00:00", timeZone: "UTC" },
-        end: { dateTime: "2026-04-07T11:00:00", timeZone: "UTC" },
-      })
+      expect(mockClient.createEvent).toHaveBeenCalledWith(
+        {
+          subject: "Meeting",
+          start: { dateTime: "2026-04-07T10:00:00", timeZone: "UTC" },
+          end: { dateTime: "2026-04-07T11:00:00", timeZone: "UTC" },
+        },
+        undefined,
+      )
     })
 
     it("should create event with custom time zone", async () => {
@@ -68,6 +71,7 @@ describe("calendar-tools", () => {
           start: { dateTime: "2026-04-07T10:00:00", timeZone: "America/New_York" },
           end: { dateTime: "2026-04-07T11:00:00", timeZone: "America/New_York" },
         }),
+        undefined,
       )
     })
 
@@ -83,6 +87,7 @@ describe("calendar-tools", () => {
         expect.objectContaining({
           location: { displayName: "Conference Room A" },
         }),
+        undefined,
       )
     })
 
@@ -98,6 +103,7 @@ describe("calendar-tools", () => {
         expect.objectContaining({
           body: { contentType: "Text", content: "Agenda items" },
         }),
+        undefined,
       )
     })
 
@@ -114,6 +120,7 @@ describe("calendar-tools", () => {
         expect.objectContaining({
           body: { contentType: "HTML", content: "<h1>Agenda</h1>" },
         }),
+        undefined,
       )
     })
 
@@ -144,6 +151,7 @@ describe("calendar-tools", () => {
             { emailAddress: { address: "bob@example.com" }, type: "required" },
           ],
         }),
+        undefined,
       )
     })
 
@@ -169,23 +177,31 @@ describe("calendar-tools", () => {
       const result = await updateEvent({ event_id: "evt-123", subject: "Updated Meeting" })
       expect(result.isRight()).toBe(true)
       expect(result.value).toContain("Event updated")
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { subject: "Updated Meeting" })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { subject: "Updated Meeting" }, undefined)
     })
 
     it("should update event with Text body by default", async () => {
       mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
       await updateEvent({ event_id: "evt-123", body: "New agenda" })
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
-        body: { contentType: "Text", content: "New agenda" },
-      })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          body: { contentType: "Text", content: "New agenda" },
+        },
+        undefined,
+      )
     })
 
     it("should update event with HTML body", async () => {
       mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
       await updateEvent({ event_id: "evt-123", body: "<p>New agenda</p>", content_type: "HTML" })
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
-        body: { contentType: "HTML", content: "<p>New agenda</p>" },
-      })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          body: { contentType: "HTML", content: "<p>New agenda</p>" },
+        },
+        undefined,
+      )
     })
 
     it("should update event time with custom timezone", async () => {
@@ -196,10 +212,14 @@ describe("calendar-tools", () => {
         end: "2026-04-07T15:00:00",
         time_zone: "America/Chicago",
       })
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
-        start: { dateTime: "2026-04-07T14:00:00", timeZone: "America/Chicago" },
-        end: { dateTime: "2026-04-07T15:00:00", timeZone: "America/Chicago" },
-      })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          start: { dateTime: "2026-04-07T14:00:00", timeZone: "America/Chicago" },
+          end: { dateTime: "2026-04-07T15:00:00", timeZone: "America/Chicago" },
+        },
+        undefined,
+      )
     })
 
     it("should update attendees from comma-separated string", async () => {
@@ -208,21 +228,29 @@ describe("calendar-tools", () => {
         event_id: "evt-123",
         attendees: "alice@example.com, bob@example.com",
       })
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
-        attendees: [
-          { emailAddress: { address: "alice@example.com" }, type: "required" },
-          { emailAddress: { address: "bob@example.com" }, type: "required" },
-        ],
-      })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          attendees: [
+            { emailAddress: { address: "alice@example.com" }, type: "required" },
+            { emailAddress: { address: "bob@example.com" }, type: "required" },
+          ],
+        },
+        undefined,
+      )
     })
 
     it("should enable Teams meeting when online_meeting=true", async () => {
       mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
       await updateEvent({ event_id: "evt-123", online_meeting: true })
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", {
-        isOnlineMeeting: true,
-        onlineMeetingProvider: "teamsForBusiness",
-      })
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          isOnlineMeeting: true,
+          onlineMeetingProvider: "teamsForBusiness",
+        },
+        undefined,
+      )
     })
 
     it("should not send online meeting flags when online_meeting=false", async () => {
@@ -242,10 +270,15 @@ describe("calendar-tools", () => {
         end_date_time: "2026-05-29T00:00:00Z",
       })
       expect(result.isRight()).toBe(true)
-      expect(mockClient.listCalendarView).toHaveBeenCalledWith("2026-05-22T00:00:00Z", "2026-05-29T00:00:00Z", {
-        $top: 50,
-        $orderby: "start/dateTime",
-      })
+      expect(mockClient.listCalendarView).toHaveBeenCalledWith(
+        "2026-05-22T00:00:00Z",
+        "2026-05-29T00:00:00Z",
+        {
+          $top: 50,
+          $orderby: "start/dateTime",
+        },
+        undefined,
+      )
     })
 
     it("should honor custom top", async () => {
@@ -259,6 +292,7 @@ describe("calendar-tools", () => {
         "2026-05-22T00:00:00Z",
         "2026-05-29T00:00:00Z",
         expect.objectContaining({ $top: 100 }),
+        undefined,
       )
     })
 
@@ -368,7 +402,7 @@ describe("calendar-tools", () => {
 
       const result = await getEvent({ event_id: "e1" })
 
-      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "text")
+      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "text", undefined)
       expect(result.value).toContain("Join here")
     })
 
@@ -377,7 +411,7 @@ describe("calendar-tools", () => {
 
       await getEvent({ event_id: "e1", body_format: "html" })
 
-      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html")
+      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html", undefined)
     })
   })
 })

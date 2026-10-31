@@ -116,6 +116,14 @@ export type GraphAttachment = {
   readonly "@odata.type"?: string
 }
 
+export type GraphCalendar = {
+  readonly id: string
+  readonly name?: string
+  readonly isDefaultCalendar?: boolean
+  readonly canEdit?: boolean
+  readonly owner?: { readonly name?: string; readonly address?: string }
+}
+
 export type GraphEvent = {
   readonly id: string
   readonly subject?: string
