@@ -14,6 +14,7 @@ import type {
   GraphDriveItem,
   GraphEvent,
   GraphGroup,
+  GraphLinkedResource,
   GraphMailFolder,
   GraphMeetingTimeSuggestion,
   GraphMeetingTimeSuggestionsResult,
@@ -27,7 +28,10 @@ import type {
   GraphTodoTask,
   GraphUser,
 } from "../types"
+import { displayableLinkUrl } from "./link-url"
+import { linkedMessageId } from "./outlook-link"
 import { describeRecurrence } from "./recurrence"
+import { extensionFields, type ExtensionValue, findExtension } from "./todo-extension"
 
 // Mail
 // The fields formatMessageSummary reads. list_messages $selects exactly these, so a field read here
@@ -642,33 +646,156 @@ export const formatTodoListSummary = (list: GraphTodoList): string => {
 export const formatTodoListList = (lists: ReadonlyArray<GraphTodoList>): string =>
   lists.length === 0 ? "No To Do lists found." : `# To Do Lists\n\n${lists.map(formatTodoListSummary).join("\n")}`
 
-export const formatTodoTaskSummary = (task: GraphTodoTask): string => {
-  const status = task.status ?? "notStarted"
-  const due = Option(task.dueDateTime?.dateTime)
-    .map((d) => ` (Due: ${d})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  const repeats = Option(task.recurrence)
-    .map((r) => ` (Repeats: ${describeRecurrence(r)})`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
-  return `- **${task.title ?? "Untitled"}** [${status}]${due}${repeats} (ID: ${task.id})`
+// Text inside a To Do line comes from whoever wrote the task, or for a flagged email, whoever sent
+// the mail. It is kept to one line and capped, and a value inside a "(Label: …)" group also loses
+// its parentheses, so it can't end the group early or forge another one.
+const TODO_TITLE_MAX = 200
+const TODO_VALUE_MAX = 100
+// Matches EXTERNAL_ID_MAX in tools/todo-tools.ts: a caller's key must come back whole.
+const TODO_EXTERNAL_ID_MAX = 200
+// Graph's task ids run about 150 characters; the cap only stops a runaway value, never a real id.
+const TODO_ID_MAX = 1000
+
+// Every character a reader may treat as a line break, not only CR and LF: U+2028 and U+2029 also
+// end a line for many splitters, and JavaScript's "." doesn't match them, so either one would make
+// a line unparseable or forge a second one.
+export const inlineText = (value: string, max: number): string =>
+  value
+    .replace(/[\r\n\v\f\u0085\u2028\u2029|]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, max)
+
+const groupValue = (value: string, max: number = TODO_VALUE_MAX): string => inlineText(value.replace(/[()]/g, " "), max)
+
+const linkedExternalIds = (task: GraphTodoTask): ReadonlyArray<string> =>
+  (task.linkedResources ?? []).flatMap((r) => (r.externalId ? [groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)] : []))
+
+// The Graph id of each email a task links to (a flagged email's task), so a caller can match the
+// task to its mail. Already checked to hold only id characters.
+const linkedMessageIds = (task: GraphTodoTask): ReadonlyArray<string> =>
+  (task.linkedResources ?? []).flatMap((r) => {
+    const id = linkedMessageId(r)
+    return id === undefined ? [] : [id]
+  })
+
+// An extension's fields as one line of JSON. String values are one-lined first: JSON.stringify
+// escapes CR and LF but leaves U+2028 and U+2029 as they are.
+const EXTENSION_VALUE_MAX = 500
+
+export const extensionJson = (fields: Readonly<Record<string, ExtensionValue>>): string =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(fields).map(([k, v]) => [k, typeof v === "string" ? inlineText(v, EXTENSION_VALUE_MAX) : v]),
+    ),
+  )
+
+const taskExtension = (task: GraphTodoTask, name: string | undefined): string | undefined => {
+  if (name === undefined) return undefined
+  const extension = findExtension(task.extensions, name)
+  return extension === undefined ? undefined : extensionJson(extensionFields(extension))
 }
 
-export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>): string =>
-  tasks.length === 0 ? "No tasks found." : `# To Do Tasks\n\n${tasks.map(formatTodoTaskSummary).join("\n")}`
+const IMPORTANCE_LABELS: Readonly<Record<string, string>> = { high: "High importance", low: "Low importance" }
 
-export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
+/**
+ * One task as one line, in the fixed order the Civala Assistant parses (test/plugin-contract.spec.ts):
+ *
+ *   - **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>)
+ *     (Modified: …) (Categories: a, b) (Link: <externalId>) (Mail: <message id>) (Ext: <JSON>) (ID: <id>)
+ *
+ * A part Graph didn't return is left out rather than filled in, because a caller reads every value
+ * on the line as Graph's. Importance shows only when it isn't normal, labelled as mail lines label it,
+ * so it can't be mistaken for a status. Graph's own values go through the same cleaning as the
+ * person's, so an unexpected one can't end a "(Label: …)" group early either.
+ */
+export const formatTodoTaskSummary = (task: GraphTodoTask, extensionName?: string): string => {
+  const extension = taskExtension(task, extensionName)
+  const completed = task.completedDateTime?.dateTime
+  const completedZone = task.completedDateTime?.timeZone ? ` ${task.completedDateTime.timeZone}` : ""
+  const categories = (task.categories ?? []).map((c) => groupValue(c)).filter((c) => c !== "")
+  const links = linkedExternalIds(task)
+  const mail = linkedMessageIds(task)
+  return [
+    `- **${inlineText(task.title ?? "", TODO_TITLE_MAX)}**`,
+    task.status ? ` [${groupValue(task.status).replace(/[[\]]/g, "")}]` : "",
+    task.importance && task.importance !== "normal"
+      ? ` [${IMPORTANCE_LABELS[task.importance] ?? `${groupValue(task.importance).replace(/[[\]]/g, "")} importance`}]`
+      : "",
+    task.dueDateTime?.dateTime ? ` (Due: ${groupValue(task.dueDateTime.dateTime)})` : "",
+    task.recurrence ? ` (Repeats: ${groupValue(describeRecurrence(task.recurrence), TODO_TITLE_MAX)})` : "",
+    completed ? ` (Completed: ${groupValue(`${completed}${completedZone}`)})` : "",
+    task.lastModifiedDateTime ? ` (Modified: ${groupValue(task.lastModifiedDateTime)})` : "",
+    categories.length > 0 ? ` (Categories: ${categories.join(", ")})` : "",
+    links.length > 0 ? ` (Link: ${links.join(", ")})` : "",
+    mail.length > 0 ? ` (Mail: ${mail.join(", ")})` : "",
+    extension === undefined ? "" : ` (Ext: ${extension})`,
+    // Graph mints the id, but it is still the one value a line ends on, so it is cleaned like the rest.
+    ` (ID: ${groupValue(task.id, TODO_ID_MAX).replace(/ /g, "")})`,
+  ].join("")
+}
+
+export const formatTodoTaskList = (tasks: ReadonlyArray<GraphTodoTask>, extensionName?: string): string =>
+  tasks.length === 0
+    ? "No tasks found."
+    : `# To Do Tasks\n\n${tasks.map((t) => formatTodoTaskSummary(t, extensionName)).join("\n")}`
+
+export type TodoTaskChanges = {
+  /** True for the first call of a change feed, which returns every task. */
+  readonly first: boolean
+  readonly tasks: ReadonlyArray<GraphTodoTask>
+  readonly removed: ReadonlyArray<{ readonly id: string; readonly reason?: string }>
+  readonly deltaToken: string
+  readonly extensionName?: string
+  readonly notes?: ReadonlyArray<string>
+}
+
+/**
+ * A change feed's result: task lines in the TODO_LINE shape, then one "Removed: <id> (<reason>)"
+ * line per removed task, any notes, and the token on its own "Delta token: …" line last. None of
+ * the lines after the tasks starts with "- **", so a caller's item filter can't mistake them.
+ */
+export const formatTodoTaskChanges = (changes: TodoTaskChanges): string => {
+  const lines = changes.tasks.map((t) => formatTodoTaskSummary(t, changes.extensionName))
+  const removed = changes.removed.map(
+    (r) => `Removed: ${groupValue(r.id, TODO_ID_MAX).replace(/ /g, "")}${r.reason ? ` (${groupValue(r.reason)})` : ""}`,
+  )
+  const body =
+    lines.length + removed.length === 0 ? [changes.first ? "No tasks found." : "No changes."] : [...lines, ...removed]
+  return [
+    changes.first ? "# To Do Tasks" : "# To Do Changes",
+    "",
+    ...body,
+    "",
+    ...(changes.notes ?? []).map((n) => `Note: ${n}`),
+    `Delta token: ${changes.deltaToken}`,
+  ].join("\n")
+}
+
+const formatLinkedResource = (r: GraphLinkedResource): string => {
+  const name = inlineText(r.displayName ?? r.applicationName ?? "Link", TODO_TITLE_MAX)
+  const app = r.applicationName ? ` (${groupValue(r.applicationName)})` : ""
+  const id = r.externalId ? ` [externalId: ${groupValue(r.externalId, TODO_EXTERNAL_ID_MAX)}]` : ""
+  const message = Option(linkedMessageId(r)).fold(
+    () => "",
+    (m) => ` [message: ${m}]`,
+  )
+  const url = r.webUrl === undefined ? "" : ` ${displayableLinkUrl(r.webUrl) ?? "link withheld: not an http(s) URL"}`
+  // A fixed label starts the line, so a displayName can't open it looking like a task line.
+  return `- Link: ${name}${app}${id}${message}${url}`
+}
+
+export const formatTodoTaskDetail = (task: GraphTodoTask, extensionName?: string): string => {
+  const extension = taskExtension(task, extensionName)
   const body = Option(task.body?.content).fold(
     () => "",
     (v) => v,
   )
+  const categories = (task.categories ?? []).map((c) => groupValue(c)).filter((c) => c !== "")
+  const links = task.linkedResources ?? []
+  const linkSection = links.length > 0 ? `\n\n## Linked\n${links.map(formatLinkedResource).join("\n")}` : ""
 
-  return `# ${task.title ?? "Untitled"}
+  return `# ${inlineText(task.title ?? "Untitled", TODO_TITLE_MAX)}
 
 ## Details
 - ID: ${task.id}
@@ -681,8 +808,9 @@ export const formatTodoTaskDetail = (task: GraphTodoTask): string => {
   )}
 - Completed: ${task.completedDateTime?.dateTime ?? "N/A"}
 - Reminder: ${task.isReminderOn ? "Yes" : "No"}
+- Categories: ${categories.length > 0 ? categories.join(", ") : "None"}${extension === undefined ? "" : `\n- Extension ${extensionName}: ${extension}`}
 - Created: ${task.createdDateTime ?? ""}
-- Modified: ${task.lastModifiedDateTime ?? ""}
+- Modified: ${task.lastModifiedDateTime ?? ""}${linkSection}
 
 ## Body
 ${body}`

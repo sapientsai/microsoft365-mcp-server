@@ -179,6 +179,7 @@ You need an Azure AD (Entra ID) app registration:
 | `Calendars.Read.Shared`                        | Calendar free/busy (find_meeting_availability) |
 | `Calendars.ReadWrite.Shared` (optional)        | Writing to calendars others shared with you    |
 | `Contacts.Read`                                | Contacts                                       |
+| `Contacts.ReadWrite`                           | Creating, updating and deleting contacts       |
 | `Files.ReadWrite`                              | OneDrive                                       |
 | `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites                               |
 | `Chat.ReadWrite`                               | Teams chats                                    |
@@ -555,16 +556,17 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 > constrained HTML subset and silently drops unsupported CSS/tags, so a page can post
 > successfully yet render differently than the source.
 
-### To Do (6 tools)
+### To Do (7 tools)
 
-| Tool               | Description                         |
-| ------------------ | ----------------------------------- |
-| `list_todo_lists`  | List task lists                     |
-| `create_todo_list` | Create a task list                  |
-| `list_todo_tasks`  | List tasks in a list                |
-| `create_todo_task` | Create a task, optionally repeating |
-| `update_todo_task` | Update a task, or change its repeat |
-| `delete_todo_task` | Delete a task (no API undo)         |
+| Tool                  | Description                                                   |
+| --------------------- | ------------------------------------------------------------- |
+| `list_todo_lists`     | List task lists                                               |
+| `create_todo_list`    | Create a task list                                            |
+| `list_todo_tasks`     | List tasks in a list, or what changed since a delta token     |
+| `create_todo_task`    | Create a task, optionally repeating                           |
+| `update_todo_task`    | Update a task, or change its repeat                           |
+| `set_todo_task_state` | Set status, importance and your own fields, safely repeatable |
+| `delete_todo_task`    | Delete a task (no API undo)                                   |
 
 `create_todo_list` refuses a name an existing list already uses. Graph accepts a
 duplicate `displayName` and returns a second list indistinguishable from the first in
@@ -596,6 +598,74 @@ weekly-on-Saturday task moved to a Monday lands on the next Saturday — and the
 says so when that happens. Passing `due_date` with a different `recurrence.start_date`
 is refused, since both set when the series starts. So is moving a task with an `endDate`
 range past its end date: pass `recurrence` with a later `end_date`, or `clear_recurrence`.
+
+**Tagging a task with its source makes a create safe to repeat.** `create_todo_task`
+takes an optional `linked_resource` (`external_id`, `application_name`, and optionally
+`web_url` and `display_name`), stored as the task's `linkedResources`. When a task in
+the list already carries that `external_id`, the tool returns it and creates nothing, so
+a caller that died between Graph's create and its own record of it can simply retry.
+That check reads every page of the list first, completed tasks included, because Graph
+can't filter on `linkedResources`; if the list can't be read in full, the create is
+refused. An `external_id` is a lookup key, so one with a line break, `|`, `(`, `)` or a
+comma, or over 200 characters, is refused, and a `web_url` must be `http:` or `https:`.
+`display_name` defaults to `application_name`, since Graph lists it as required.
+
+`create_todo_task` and `update_todo_task` also take `categories`, the names of the person's
+Outlook categories. On an
+update they replace the task's categories, and `[]` clears them.
+
+**Task lines have a fixed shape** for callers that parse them:
+
+```
+- **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>) (Modified: …) (Categories: a, b) (Link: <externalId>) (Mail: <message id>) (Ext: <JSON>) (ID: <id>)
+```
+
+A part Graph didn't return is left out, never filled with a default. Importance shows only
+when it isn't `normal`, as `[High importance]` or `[Low importance]`, the way mail lines show it. Titles, categories and link ids are kept to one line, and lose `|`
+and any parentheses that could end a `(…)` group early. The pattern is pinned in
+`test/plugin-contract.spec.ts`. Graph refuses `$select` on To Do task lists, so these
+reads fetch whole tasks, with `linkedResources` expanded. `list_todo_tasks` with
+`fetch_all_pages`, and the duplicate check, read at most 50 pages of 100 tasks and fail past
+that rather than return part of the list.
+
+**A caller can keep its own data on a task** in an open extension, which the person can't
+see or edit. `create_todo_task` and `set_todo_task_state` take `extension: { name, fields }`:
+a reverse-DNS `name` (one fixed name per app, such as `com.example.assistant`) and at most 20
+flat string, number or boolean fields, at most 2 KB as JSON. `list_todo_tasks` with
+`extension_name` prints those fields at the end of each line as `(Ext: {...})`, leaving out
+Graph's own name, id and type annotations. Graph replaces the whole extension on an update, so
+`set_todo_task_state` reads it, merges the fields sent, and writes the whole set back; fields
+it isn't sent keep their values.
+
+**`set_todo_task_state` is the update for unattended use.** It changes only `status`,
+`importance` and extension fields on one task, never the title, notes, dates or repeat
+pattern, and it can't delete. The same call twice leaves the task as one call does, so it is
+advertised as idempotent, and a failed call is safe to repeat. It is still marked destructive,
+because it overwrites values. Completing a repeating task is refused, since each completion
+rolls the series on by one more occurrence; use `update_todo_task` for that. When the task
+updates but the extension doesn't, the error says which part was saved.
+
+**`list_todo_tasks` can report what changed since your last call.** Call it once with
+`delta: true`: it returns every task and ends with a `Delta token: …` line. Keep the token
+and pass it back as `delta_token`; the next call returns only the tasks added, changed or
+removed since, each removed one as a `Removed: <id> (<reason>)` line, and a new token. A
+token belongs to the list it came from. With a token, every changed task is read afresh, so
+its line is complete, and `extension_name` adds its `(Ext: …)` fields; the first call can't
+include extensions, since Graph's delta query doesn't return them. Each call reads every
+page, at most 50 pages of 100, and prints a token only when it read everything, so a run
+that fails part-way repeats the same window next time. When Graph refuses a token (it is
+unknown, damaged or too old), the error says to start again with `delta: true`.
+Completing a repeating task keeps the series and splits off the finished occurrence as a
+new, already-completed task with a new id, which shows up as a change; it is a done
+occurrence, not new work. Your own writes come back as changes too.
+
+**The Flagged Emails list** (`wellknownListName: flaggedEmails`) holds the emails flagged
+in Outlook. Each of its tasks links to its email, but the link's `externalId` isn't an id any
+mail tool takes, so each such line also carries `(Mail: <message id>)`: the Graph id that
+`get_message` and the mail list lines use. It comes from the link's Outlook web URL, whose
+`ItemID` holds the same id in Outlook's older format; Microsoft doesn't document that mapping,
+so the id is shown only when the URL is an `https:` Outlook one and the result holds only id
+characters. Graph accepts writes to this list like any other.
 
 `delete_todo_task` has no undo through the API. Microsoft documents restoring a deleted
 task by hand from Outlook's Deleted Items folder, but that hasn't been checked for tasks

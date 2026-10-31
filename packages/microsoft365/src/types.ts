@@ -381,6 +381,19 @@ export type GraphTodoTask = {
   readonly dueDateTime?: { readonly dateTime?: string; readonly timeZone?: string }
   readonly completedDateTime?: { readonly dateTime?: string; readonly timeZone?: string }
   readonly recurrence?: GraphPatternedRecurrence
+  readonly categories?: ReadonlyArray<string>
+  readonly linkedResources?: ReadonlyArray<GraphLinkedResource>
+  /** Open extensions, present only when expanded. See utils/todo-extension.ts. */
+  readonly extensions?: ReadonlyArray<Readonly<Record<string, unknown>> & { readonly extensionName?: string }>
   readonly createdDateTime?: string
   readonly lastModifiedDateTime?: string
+}
+
+/** Where a task came from: an email, a chat, or any item a caller names by externalId. */
+export type GraphLinkedResource = {
+  readonly id?: string
+  readonly externalId?: string
+  readonly webUrl?: string
+  readonly applicationName?: string
+  readonly displayName?: string
 }

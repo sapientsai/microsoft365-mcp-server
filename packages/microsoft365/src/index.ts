@@ -113,6 +113,7 @@ import {
   sendReply,
   sendReplyAll,
   setAccessTokenTool,
+  setTodoTaskState,
   summarizeSenders,
   switchAccountTool,
   updateContact,
@@ -125,6 +126,7 @@ import {
   uploadFile,
   uploadFileFromPath,
 } from "./tools"
+import { SET_TODO_TASK_STATE_PARAMS, TODO_EXTENSION_PARAM } from "./tools/todo-schemas"
 import type { ToolDefinition } from "./tools/tool-definitions"
 import {
   annotationsFor,
@@ -305,6 +307,12 @@ const RECURRENCE_PARAM = z
     recurrence_time_zone: z.string().optional().describe("Time zone for the range, e.g. 'W. Australia Standard Time'"),
   })
   .optional()
+
+// A To Do category is the displayName of one of the person's Outlook categories.
+const TODO_CATEGORIES_PARAM = z
+  .array(z.string())
+  .optional()
+  .describe("Category names, matching the person's Outlook categories")
 
 const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   // === Auth Tools ===
@@ -1808,10 +1816,36 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "list_todo_tasks",
-    description: "List tasks in a To Do list",
+    description:
+      "List tasks in a To Do list, or what changed in it since your last call. For changes, call once with " +
+      "delta: true, which returns every task and a 'Delta token: …' line; keep the token and pass it as " +
+      "delta_token next time to get only the tasks added, changed or removed since (removed ones as " +
+      "'Removed: <id> (<reason>)' lines), and a new token. Completing a repeating task makes Graph keep the " +
+      "series and split off the finished occurrence as a new, already-completed task with a new id, so an " +
+      "unseen completed task is a done occurrence, not new work. Your own writes come back as changes too. " +
+      "The Flagged Emails list (wellknownListName flaggedEmails) holds the emails flagged in Outlook; each of " +
+      "its tasks carries (Mail: <message id>), the id the mail tools use, when its Outlook link parses",
     parameters: z.object({
-      list_id: z.string().describe("To Do list ID"),
+      list_id: z.string().describe("To Do list ID. A delta token works only with the list it came from"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
+      extension_name: z
+        .string()
+        .optional()
+        .describe(
+          "Print this extension's fields at the end of each task line, as (Ext: {...}). With a change feed, " +
+            "only calls with a delta_token can include them",
+        ),
+      delta: z
+        .boolean()
+        .optional()
+        .describe("Start a change feed: return every task and a first delta token. Always reads every page"),
+      delta_token: z
+        .string()
+        .optional()
+        .describe(
+          "The token from the last 'Delta token: …' line. Returns only what changed since. If the token is " +
+            "refused, start again with delta: true",
+        ),
     }),
     execute: async (params) => unwrapResult(await listTodoTasks(params)),
     domain: "todo",
@@ -1819,7 +1853,10 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
   },
   {
     name: "create_todo_task",
-    description: "Create a new To Do task, optionally recurring",
+    description:
+      "Create a new To Do task, optionally recurring. With linked_resource, the task is tagged with its source, " +
+      "and a create whose external_id is already on a task in the list returns that task instead of a second " +
+      "copy, so a retry is safe. That check reads the whole list first",
     parameters: z.object({
       list_id: z.string().describe("To Do list ID"),
       title: z.string().describe("Task title"),
@@ -1827,6 +1864,22 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       due_date: z.string().optional().describe("Due date (ISO format). Required when recurrence is set"),
       importance: z.string().optional().describe("Importance: low, normal, or high"),
       recurrence: RECURRENCE_PARAM.describe("Repeat pattern. Omit for a one-off task"),
+      categories: TODO_CATEGORIES_PARAM,
+      extension: TODO_EXTENSION_PARAM.describe("Your own data on the task, which the person can't see or edit"),
+      linked_resource: z
+        .object({
+          external_id: z
+            .string()
+            .describe(
+              "Your key for the source, e.g. 'civala:mail:<message id>'. At most 200 characters, with no line " +
+                "break, |, (, ) or comma. One task per external_id per list",
+            ),
+          application_name: z.string().describe("The source app, e.g. 'Outlook'"),
+          web_url: z.string().optional().describe("An http(s) link back to the source, shown in To Do"),
+          display_name: z.string().optional().describe("A label for the link. Defaults to application_name"),
+        })
+        .optional()
+        .describe("Tag the task with where it came from. Stored as the task's linkedResources"),
     }),
     execute: async (params) => unwrapResult(await createTodoTask(params)),
     domain: "todo",
@@ -1851,8 +1904,24 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       body: z.string().optional().describe("New body/notes"),
       recurrence: RECURRENCE_PARAM.describe("Replace the repeat pattern"),
       clear_recurrence: z.boolean().optional().describe("Remove the repeat pattern, making the task one-off"),
+      categories: TODO_CATEGORIES_PARAM.describe(
+        "Replace the task's categories with these names. Pass [] to clear them",
+      ),
     }),
     execute: async (params) => unwrapResult(await updateTodoTask(params)),
+    domain: "todo",
+    readOnly: false,
+  },
+  {
+    name: "set_todo_task_state",
+    description:
+      "Set only a To Do task's status, importance and your own extension fields, for unattended use. It can't " +
+      "change the title, notes, dates or repeat pattern, or delete. The same call twice changes nothing more, so " +
+      "a failed call is safe to repeat. Completing a repeating task is refused; use update_todo_task. Complete " +
+      "only tasks you created, and change importance only on tasks carrying your extension, so the person's own " +
+      "choices are never overwritten",
+    parameters: SET_TODO_TASK_STATE_PARAMS,
+    execute: async (params) => unwrapResult(await setTodoTaskState(params)),
     domain: "todo",
     readOnly: false,
   },
