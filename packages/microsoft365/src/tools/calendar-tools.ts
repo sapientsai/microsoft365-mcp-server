@@ -3,13 +3,14 @@ import type { Either } from "functype/either"
 import { Left } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
-import type { GraphEvent, ODataResponse } from "../types"
+import type { GraphCalendar, GraphEvent, ODataResponse } from "../types"
 import {
   formatCalendarList,
   formatEventDetail,
   formatEventList,
   formatMeetingTimeSuggestions,
 } from "../utils/formatters"
+import { isGraphId } from "../utils/graph-id"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -17,24 +18,24 @@ const requireClient = () => {
   return client.orThrow()
 }
 
-// Graph calendar IDs are base64 in its URL-safe form. calendar_id goes into the request path, so
-// anything else is refused before it reaches Graph: a "/" or "." would let a caller resolve the
-// path out of /me/calendars, e.g. to /users/{someone}/events, past MS365_ALLOWED_MAILBOXES.
-const CALENDAR_ID = /^[A-Za-z0-9_=+-]+$/
-
 const invalidCalendarId = (calendarId: string | undefined): UserError | undefined =>
-  calendarId === undefined || CALENDAR_ID.test(calendarId)
+  calendarId === undefined || isGraphId(calendarId)
     ? undefined
     : new UserError("calendar_id is not a calendar ID. Use an ID exactly as list_calendars returns it.")
+
+const invalidEventId = (eventId: string): UserError | undefined =>
+  isGraphId(eventId)
+    ? undefined
+    : new UserError("event_id is not an event ID. Use an ID exactly as list_events or list_calendar_view returns it.")
 
 export const listCalendars = async (): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const result = await client.listCalendars({ $select: ["id", "name", "isDefaultCalendar", "canEdit", "owner"] })
-  return result
-    .mapLeft((error) => new UserError(`Failed to list calendars: ${error.message}`))
-    .map((response) => formatCalendarList(response.value))
+  const result = await client.requestPaginated<GraphCalendar>("/me/calendars", {
+    odataParams: { $select: ["id", "name", "isDefaultCalendar", "canEdit", "owner"] },
+  })
+  return result.mapLeft((error) => new UserError(`Failed to list calendars: ${error.message}`)).map(formatCalendarList)
 }
 
 export const listEvents = async (params: {
@@ -82,6 +83,8 @@ export const getEvent = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
   const badCalendar = invalidCalendarId(params.calendar_id)
   if (badCalendar) return Left(badCalendar)
+  const badEvent = invalidEventId(params.event_id)
+  if (badEvent) return Left(badEvent)
 
   // Text by default, unlike get_message: an event body is almost always a Teams invite, whose HTML
   // is layout markup around a join link and the same details the event already carries.
@@ -186,6 +189,8 @@ export const updateEvent = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
   const badCalendar = invalidCalendarId(params.calendar_id)
   if (badCalendar) return Left(badCalendar)
+  const badEvent = invalidEventId(params.event_id)
+  if (badEvent) return Left(badEvent)
 
   const updates: Record<string, unknown> = {}
   const timeZone = params.time_zone ?? "UTC"
@@ -222,6 +227,8 @@ export const deleteEvent = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
   const badCalendar = invalidCalendarId(params.calendar_id)
   if (badCalendar) return Left(badCalendar)
+  const badEvent = invalidEventId(params.event_id)
+  if (badEvent) return Left(badEvent)
 
   const result = await client.deleteEvent(params.event_id, params.calendar_id)
   return result
@@ -249,6 +256,8 @@ export const respondToEvent = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+  const badEvent = invalidEventId(params.event_id)
+  if (badEvent) return Left(badEvent)
 
   const sendResponse = params.send_response ?? true
   const body = params.comment === undefined ? { sendResponse } : { comment: params.comment, sendResponse }

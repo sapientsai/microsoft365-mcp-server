@@ -15,7 +15,6 @@ import type {
   GraphAttachment,
   GraphBatchResponse,
   GraphBucket,
-  GraphCalendar,
   GraphChannel,
   GraphChannelMessage,
   GraphChat,
@@ -194,9 +193,6 @@ const createGraphClient = (auth: AuthStrategy) => {
   // /me/calendars/{id}, which is the only way to reach a calendar someone else shared with you:
   // /me/events/{id} does not find their events.
   const eventsPath = (calendarId?: string) => (calendarId ? `/me/calendars/${calendarId}/events` : "/me/events")
-
-  const listCalendars = (odataParams?: ODataParams) =>
-    request<ODataResponse<GraphCalendar>>("GET", "/me/calendars", { odataParams })
 
   const listEvents = (odataParams?: ODataParams, calendarId?: string) =>
     request<ODataResponse<GraphEvent>>("GET", eventsPath(calendarId), { odataParams })
@@ -769,7 +765,6 @@ const createGraphClient = (auth: AuthStrategy) => {
     createForwardDraft,
     searchMessages,
     // Calendar
-    listCalendars,
     listEvents,
     listCalendarView,
     getEvent,

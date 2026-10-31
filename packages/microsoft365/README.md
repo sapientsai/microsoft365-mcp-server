@@ -449,7 +449,9 @@ defaults, covers reading). Add it the same way as the mail `.Shared` scopes unde
 [Other Mailboxes](#other-mailboxes-delegated-and-shared): `MS365_EXTRA_SCOPES` in OAuth
 proxy mode, or as a delegated permission on the app registration otherwise. An event in
 a shared calendar is only found through that calendar, so pass `calendar_id` to
-`get_event`, `update_event` and `delete_event` too.
+`get_event`, `update_event` and `delete_event` too. A shared calendar is reached through
+your own `/me/calendars`, so `MS365_ALLOWED_MAILBOXES` does not limit it; Microsoft's
+sharing does.
 
 ### Contacts (7 tools)
 

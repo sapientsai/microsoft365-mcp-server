@@ -14,6 +14,7 @@ import {
   listCalendars,
   listCalendarView,
   listEvents,
+  respondToEvent,
   updateEvent,
 } from "../src/tools/calendar-tools"
 
@@ -178,6 +179,22 @@ describe("calendar selection", () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     })
 
+    it.each(escapes)("refuses %j as an event_id on every tool that takes one", async (event_id) => {
+      const results = await Promise.all([
+        getEvent({ event_id }),
+        getEvent({ event_id, calendar_id: CAL }),
+        updateEvent({ event_id, subject: "s" }),
+        deleteEvent({ event_id }),
+        respondToEvent({ event_id, response: "accept" }),
+      ])
+
+      for (const result of results) {
+        expect(result.isLeft()).toBe(true)
+        expect(String((result.value as Error).message)).toContain("event_id is not an event ID")
+      }
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
     it("accepts the IDs Graph actually returns", async () => {
       const real =
         "AQMkAGI0YjA3OTNhLWY2MDEtNGZlYy1hNzU2LTE4NDFiODgAOWY5YjIARgAAA21H8EOdtS1OnJvQVWYqcPAHACaS2MH8V4lAgZP71e9CGOEAAAIBBgAAACaS2MH8V4lAgZP71e9CGOEAAAKdJgAAAA=="
@@ -186,6 +203,27 @@ describe("calendar selection", () => {
       expect(result.isRight()).toBe(true)
       expect(fetchSpy).toHaveBeenCalledOnce()
     })
+  })
+
+  it("list_calendars follows nextLink, so a long list is not cut short", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            value: [{ id: "cal-1", name: "Calendar", isDefaultCalendar: true, canEdit: true }],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/calendars?$skiptoken=page2",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ value: [{ id: "cal-2", name: "Holidays", canEdit: false }] })),
+      )
+
+    const result = await listCalendars()
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(result.value).toContain("(ID: cal-1)")
+    expect(result.value).toContain("(ID: cal-2)")
   })
 
   // A calendar shared with you is named by its owner; the name must not start a line of its own.
