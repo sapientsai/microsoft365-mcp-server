@@ -464,6 +464,11 @@ it follows Outlook rather than Graph: an all-day event is `free` (Graph would ma
 and block the whole day in free/busy), a timed one stays `busy`, and `update_event` switches
 it when `all_day` changes.
 
+They also take `reminder_minutes`, which turns the reminder on that many minutes before the
+start, and `reminder: false`, which turns it off. Left out, `create_event` gets Graph's
+15-minute reminder (for an all-day event, 23:45 the night before; Outlook's own default is a
+mailbox setting the API cannot read), and `update_event` leaves the reminder as it is.
+
 ### Contacts (7 tools)
 
 | Tool              | Description                                                   |

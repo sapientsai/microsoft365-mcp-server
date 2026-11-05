@@ -160,12 +160,30 @@ export type ShowAs = (typeof SHOW_AS)[number]
 const showAsFor = (showAs: ShowAs | undefined, allDay: boolean | undefined): ShowAs | undefined =>
   showAs ?? (allDay === true ? "free" : allDay === false ? "busy" : undefined)
 
+// Graph gives every new event a 15-minute reminder, which for an all-day event fires at 23:45 the
+// night before. Outlook's own default comes from a mailbox setting the API cannot read, so the
+// caller sets it: reminder_minutes turns the reminder on with that lead time, reminder: false
+// turns it off. Left out, Graph's default (on create) or the event's current reminder (on update)
+// stays.
+const reminderFields = (
+  reminder: boolean | undefined,
+  minutes: number | undefined,
+): Record<string, unknown> | UserError => {
+  if (minutes !== undefined) {
+    if (reminder === false) return new UserError("reminder: false cannot be combined with reminder_minutes.")
+    return { isReminderOn: true, reminderMinutesBeforeStart: minutes }
+  }
+  return reminder === undefined ? {} : { isReminderOn: reminder }
+}
+
 export const createEvent = async (params: {
   subject: string
   start: string
   end?: string
   all_day?: boolean
   show_as?: ShowAs
+  reminder?: boolean
+  reminder_minutes?: number
   time_zone?: string
   location?: string
   body?: string
@@ -195,6 +213,9 @@ export const createEvent = async (params: {
   if (params.all_day) event.isAllDay = true
   const showAs = showAsFor(params.show_as, params.all_day ? true : undefined)
   if (showAs) event.showAs = showAs
+  const reminder = reminderFields(params.reminder, params.reminder_minutes)
+  if (reminder instanceof UserError) return Left(reminder)
+  Object.assign(event, reminder)
 
   if (params.location) event.location = { displayName: params.location }
   if (params.body) event.body = { contentType: params.content_type ?? "Text", content: params.body }
@@ -229,6 +250,8 @@ export const updateEvent = async (params: {
   end?: string
   all_day?: boolean
   show_as?: ShowAs
+  reminder?: boolean
+  reminder_minutes?: number
   time_zone?: string
   location?: string
   body?: string
@@ -268,6 +291,9 @@ export const updateEvent = async (params: {
   }
   const showAs = showAsFor(params.show_as, params.all_day)
   if (showAs) updates.showAs = showAs
+  const reminder = reminderFields(params.reminder, params.reminder_minutes)
+  if (reminder instanceof UserError) return Left(reminder)
+  Object.assign(updates, reminder)
   if (params.location) updates.location = { displayName: params.location }
   if (params.body) updates.body = { contentType: params.content_type ?? "Text", content: params.body }
   if (params.attendees) {

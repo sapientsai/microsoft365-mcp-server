@@ -226,6 +226,11 @@ export const formatEventSummary = (event: GraphEvent): string => {
 export const formatEventList = (events: ReadonlyArray<GraphEvent>): string =>
   events.length === 0 ? "No events found." : `# Events\n\n${events.map(formatEventSummary).join("\n")}`
 
+const reminderLine = (event: GraphEvent): string =>
+  event.isReminderOn === undefined
+    ? ""
+    : `\n- Reminder: ${event.isReminderOn ? `${event.reminderMinutesBeforeStart ?? "?"} minutes before` : "Off"}`
+
 export const formatEventDetail = (event: GraphEvent): string => {
   const organizer = Option(event.organizer?.emailAddress)
     .map((e) => `${e.name ?? ""} <${e.address ?? ""}>`)
@@ -273,7 +278,7 @@ export const formatEventDetail = (event: GraphEvent): string => {
 - Location: ${event.location?.displayName ?? "None"}
 - Organizer: ${organizer}
 - All Day: ${event.isAllDay ? "Yes" : "No"}
-- Cancelled: ${event.isCancelled ? "Yes" : "No"}${meetingUrl}
+- Cancelled: ${event.isCancelled ? "Yes" : "No"}${reminderLine(event)}${meetingUrl}
 
 ## Attendees
 ${attendees}

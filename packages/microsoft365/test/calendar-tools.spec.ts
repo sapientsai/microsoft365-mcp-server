@@ -592,4 +592,91 @@ describe("calendar-tools", () => {
       expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { showAs: "free" }, undefined)
     })
   })
+  // Graph's default reminder for an all-day event fires at 23:45 the night before.
+  describe("reminders", () => {
+    it("create_event leaves the reminder to Graph when neither option is given", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06", all_day: true })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("isReminderOn")
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("reminderMinutesBeforeStart")
+    })
+
+    it("create_event with reminder_minutes turns the reminder on with that lead time", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "Swimming", start: "2026-11-23", all_day: true, reminder_minutes: 1080 })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({
+        isReminderOn: true,
+        reminderMinutesBeforeStart: 1080,
+      })
+    })
+
+    it("create_event with reminder: false turns the reminder off", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06", all_day: true, reminder: false })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({ isReminderOn: false })
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("reminderMinutesBeforeStart")
+    })
+
+    it("refuses reminder: false together with reminder_minutes", async () => {
+      const result = await createEvent({
+        subject: "x",
+        start: "2026-11-06",
+        all_day: true,
+        reminder: false,
+        reminder_minutes: 30,
+      })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+    })
+
+    it("update_event changes only the reminder", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", reminder: false })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { isReminderOn: false }, undefined)
+    })
+
+    it("update_event sets a new lead time", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", reminder_minutes: 60 })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        { isReminderOn: true, reminderMinutesBeforeStart: 60 },
+        undefined,
+      )
+    })
+
+    it("update_event without reminder options leaves the reminder alone", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", subject: "Renamed" })
+
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("isReminderOn")
+    })
+
+    it("event details show the reminder", async () => {
+      mockClient.updateEvent.mockResolvedValue(
+        Right({ ...mockEvent, isReminderOn: true, reminderMinutesBeforeStart: 1080 }),
+      )
+
+      const result = await updateEvent({ event_id: "evt-123", reminder_minutes: 1080 })
+
+      expect(
+        result.fold(
+          () => "",
+          (v) => v,
+        ),
+      ).toContain("- Reminder: 1080 minutes before")
+    })
+  })
 })

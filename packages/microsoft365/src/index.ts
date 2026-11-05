@@ -273,6 +273,21 @@ const SHOW_AS_PARAM = z
       "Default follows Outlook: free for an all-day event, busy for a timed one.",
   )
 
+const REMINDER_PARAM = z
+  .boolean()
+  .optional()
+  .describe("false turns the event's reminder off; true turns it on. Omit to leave it as it is.")
+
+const REMINDER_MINUTES_PARAM = z
+  .number()
+  .int()
+  .min(0)
+  .optional()
+  .describe(
+    "Minutes before the start to remind, which also turns the reminder on. For an all-day event the start " +
+      "is midnight, so 1080 reminds at 6 pm the evening before. Graph's default is 15.",
+  )
+
 const CALENDAR_ID_PARAM = z
   .string()
   .optional()
@@ -900,6 +915,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         ),
       all_day: ALL_DAY_PARAM,
       show_as: SHOW_AS_PARAM,
+      reminder: REMINDER_PARAM,
+      reminder_minutes: REMINDER_MINUTES_PARAM,
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("Event location"),
       body: z.string().optional().describe("Event description"),
@@ -953,6 +970,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
           "How the time shows in free/busy: free, tentative, busy, oof or workingElsewhere. Omit to leave it, " +
             "except that changing all_day follows Outlook: free when it becomes all-day, busy when it becomes timed.",
         ),
+      reminder: REMINDER_PARAM,
+      reminder_minutes: REMINDER_MINUTES_PARAM,
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("New location"),
       body: z.string().optional().describe("New description"),
