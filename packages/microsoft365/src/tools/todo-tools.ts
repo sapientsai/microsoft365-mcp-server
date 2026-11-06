@@ -1,7 +1,7 @@
-import { UserError } from "fastmcp"
 import { Option } from "functype"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getGraphClient, type TodoDeltaRecord, type TodoDeltaResult } from "../client/graph-client"
 import type { GraphApiError, GraphTodoList, GraphTodoTask, ODataResponse } from "../types"

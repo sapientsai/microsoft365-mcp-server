@@ -8,15 +8,21 @@ const server = vi.hoisted(() => ({
   put: vi.fn(),
   instructions: "",
 }))
-vi.mock("fastmcp", async (original) => ({
-  ...(await original<typeof import("fastmcp")>()),
-  FastMCP: class {
-    constructor(options: { instructions: string }) {
-      server.instructions = options.instructions
+vi.mock("somamcp/node", async (original) => ({
+  ...(await original<typeof import("somamcp/node")>()),
+  createServer: (options: { instructions: string }) => {
+    server.instructions = options.instructions
+    return {
+      addTool: server.addTool,
+      start: server.start,
+      // Recorded per method and path, the way the tests below look a route up.
+      addRoute: (route: { method: string | string[]; path: string; handler: unknown }) => {
+        for (const method of [route.method].flat()) {
+          if (method === "POST") server.post(route.path, route.handler)
+          if (method === "PUT") server.put(route.path, route.handler)
+        }
+      },
     }
-    addTool = server.addTool
-    start = server.start
-    getApp = () => ({ post: server.post, put: server.put })
   },
 }))
 vi.mock("../src/auth", async (original) => ({

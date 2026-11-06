@@ -1,6 +1,6 @@
-import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getAuthStatus, setAccessToken } from "../auth"
 import { listAccounts, setDefaultAccount } from "../auth/account-registry"
@@ -28,7 +28,7 @@ export const setAccessTokenTool = (params: {
   return Right("Access token updated successfully.")
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute
+// eslint-disable-next-line @typescript-eslint/require-await -- SomaMCP requires async execute
 export const listAccountsTool = async (): Promise<Either<UserError, string>> => {
   const accounts = listAccounts()
 
@@ -46,7 +46,7 @@ export const listAccountsTool = async (): Promise<Either<UserError, string>> => 
   return Right(`# Accounts\n\n${lines.join("\n")}`)
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute
+// eslint-disable-next-line @typescript-eslint/require-await -- SomaMCP requires async execute
 export const switchAccountTool = async (params: { account_id: string }): Promise<Either<UserError, string>> => {
   const result = setDefaultAccount(params.account_id)
   if (result.isLeft())

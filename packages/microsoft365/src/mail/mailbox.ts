@@ -32,8 +32,8 @@
 
 import { createHash } from "node:crypto"
 
-import { UserError } from "fastmcp"
 import { type Either, Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getAccessToken, getAuthMode } from "../auth/auth-manager"
 import { getContextToken } from "../auth/token-context"
