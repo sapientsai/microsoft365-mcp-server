@@ -461,8 +461,9 @@ shows it a day out elsewhere.
 
 Both also take `show_as` (`free`, `tentative`, `busy`, `oof`, `workingElsewhere`). Left out,
 it follows Outlook rather than Graph: an all-day event is `free` (Graph would make it `busy`
-and block the whole day in free/busy), a timed one stays `busy`, and `update_event` switches
-it when `all_day` changes.
+and block the whole day in free/busy), and a timed one stays `busy`. `update_event` switches
+it only when `all_day` really changes the event, which takes one extra read: moving an
+all-day event keeps the status it has.
 
 They also take `reminder_minutes`, which turns the reminder on that many minutes before the
 start, and `reminder: false`, which turns it off. Left out, `create_event` gets Graph's

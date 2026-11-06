@@ -1,6 +1,6 @@
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
-import { Left } from "functype/either"
+import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphCalendar, GraphEvent, ODataResponse } from "../types"
@@ -146,7 +146,9 @@ const allDayRange = (
   const first = ALL_DAY_DATE.exec(start)?.[1]
   const last = ALL_DAY_DATE.exec(lastDay ?? start)?.[1]
   if (!first || !last || !isRealDate(first) || !isRealDate(last))
-    return new UserError("For an all-day event, start and end are dates (YYYY-MM-DD) with no time of day.")
+    return new UserError(
+      "For an all-day event, start and end are dates (YYYY-MM-DD), with no time of day or time zone.",
+    )
   if (last < first) return new UserError("For an all-day event, end (the last day) cannot be before start.")
   return { start: `${first}T00:00:00`, end: `${nextDay(last)}T00:00:00` }
 }
@@ -159,6 +161,20 @@ export type ShowAs = (typeof SHOW_AS)[number]
 // everyone's free/busy view. Follow Outlook unless the caller says otherwise.
 const showAsFor = (showAs: ShowAs | undefined, allDay: boolean | undefined): ShowAs | undefined =>
   showAs ?? (allDay === true ? "free" : allDay === false ? "busy" : undefined)
+
+// all_day also has to be passed to move an all-day event, because that is what works out the
+// exclusive end. So only a real change of state takes the Outlook default: moving a vacation marked
+// oof must not turn it free. Knowing which it is takes one read, and only when show_as is left out.
+const showAsOnUpdate = async (
+  client: NonNullable<ReturnType<typeof requireClient>>,
+  params: { event_id: string; all_day?: boolean; show_as?: ShowAs; calendar_id?: string },
+): Promise<Either<UserError, ShowAs | undefined>> => {
+  if (params.show_as !== undefined || params.all_day === undefined) return Right(params.show_as)
+  const current = await client.getEvent(params.event_id, "text", params.calendar_id)
+  return current
+    .mapLeft((error) => new UserError(`Failed to read the event before updating it: ${error.message}`))
+    .map((event) => ((event.isAllDay ?? false) === params.all_day ? undefined : showAsFor(undefined, params.all_day)))
+}
 
 // Graph gives every new event a 15-minute reminder, which for an all-day event fires at 23:45 the
 // night before. Outlook's own default comes from a mailbox setting the API cannot read, so the
@@ -281,7 +297,7 @@ export const updateEvent = async (params: {
     updates.end = { dateTime: allDay.end, timeZone }
   } else {
     if (params.all_day === false) {
-      // Graph rejects a timed event left on its old midnight-to-midnight span without new times.
+      // A now-timed event needs its own times, or it would keep its old midnight-to-midnight span.
       if (!params.start || !params.end)
         return Left(new UserError("all_day: false needs both start and end times for the now-timed event."))
       updates.isAllDay = false
@@ -289,11 +305,12 @@ export const updateEvent = async (params: {
     if (params.start) updates.start = { dateTime: params.start, timeZone }
     if (params.end) updates.end = { dateTime: params.end, timeZone }
   }
-  const showAs = showAsFor(params.show_as, params.all_day)
-  if (showAs) updates.showAs = showAs
   const reminder = reminderFields(params.reminder, params.reminder_minutes)
   if (reminder instanceof UserError) return Left(reminder)
   Object.assign(updates, reminder)
+  const showAs = await showAsOnUpdate(client, params)
+  if (showAs.isLeft()) return Left(showAs.value as UserError)
+  if (showAs.value) updates.showAs = showAs.value
   if (params.location) updates.location = { displayName: params.location }
   if (params.body) updates.body = { contentType: params.content_type ?? "Text", content: params.body }
   if (params.attendees) {

@@ -1,5 +1,5 @@
 import { Some } from "functype"
-import { Right } from "functype/either"
+import { Left, Right } from "functype/either"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GraphEvent } from "../src/types"
@@ -506,6 +506,7 @@ describe("calendar-tools", () => {
     })
 
     it("update_event all_day: true rewrites the span and sets isAllDay", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: false }))
       mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
 
       await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-06", time_zone: perth })
@@ -530,6 +531,7 @@ describe("calendar-tools", () => {
     })
 
     it("update_event all_day: false needs both times, then clears isAllDay", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: true }))
       mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
 
       const missing = await updateEvent({ event_id: "evt-123", all_day: false, start: "2026-11-06T09:00:00" })
@@ -582,6 +584,49 @@ describe("calendar-tools", () => {
       await updateEvent({ event_id: "evt-123", subject: "Renamed" })
 
       expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event moving an all-day event keeps the status someone chose", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: true, showAs: "oof" }))
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-07", calendar_id: "cal-1" })
+
+      expect(mockClient.getEvent).toHaveBeenCalledWith("evt-123", "text", "cal-1")
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event all_day: false on a timed event keeps its status", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: false, showAs: "tentative" }))
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({
+        event_id: "evt-123",
+        all_day: false,
+        start: "2026-11-06T09:00:00",
+        end: "2026-11-06T10:00:00",
+      })
+
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event reads nothing when show_as is given", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-07", show_as: "oof" })
+
+      expect(mockClient.getEvent).not.toHaveBeenCalled()
+      expect(mockClient.updateEvent.mock.calls[0][1]).toMatchObject({ showAs: "oof" })
+    })
+
+    it("update_event changes nothing when the read fails", async () => {
+      mockClient.getEvent.mockResolvedValue(Left(new Error("Graph is down")))
+
+      const result = await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-07" })
+
+      expect(result.isLeft()).toBe(true)
+      expect(String((result.value as Error).message)).toContain("Graph is down")
+      expect(mockClient.updateEvent).not.toHaveBeenCalled()
     })
 
     it("update_event sets show_as on its own", async () => {
