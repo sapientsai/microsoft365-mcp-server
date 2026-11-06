@@ -2104,7 +2104,7 @@ const buildUploadWorkflow = (allowedTools: Set<string>): string => {
 
   if (hasUploadConfig) {
     bullets.push(
-      "- Binary files from HTTP/SSE deployments → get_upload_config returns an authenticated URL + curl command; execute the curl in a shell to upload without routing bytes through the LLM",
+      "- Binary files from HTTP deployments → get_upload_config returns an authenticated URL + curl command; execute the curl in a shell to upload without routing bytes through the LLM",
     )
   }
 
@@ -2342,6 +2342,8 @@ const buildServer = (allowedTools: Set<string>, auth?: OAuthAuthProvider): SomaS
     instructions: buildInstructions(allowedTools),
     streamKeepalive: STREAM_KEEPALIVE,
     maxRequestBodySize: MAX_MCP_REQUEST_BYTES,
+    // Without one, SDK transport and handler errors reach no log. bin.ts sends console to stderr.
+    logger: console,
     enableDashboard: false,
     enableHealthEndpoint: false,
     enableInfoEndpoint: false,
@@ -2352,16 +2354,19 @@ const buildServer = (allowedTools: Set<string>, auth?: OAuthAuthProvider): SomaS
   server.addRoute({
     method: "GET",
     path: "/ping",
-    handler: () => new Response("ok", { headers: { "content-type": "text/plain" } }),
+    handler: () => new Response("pong", { headers: { "content-type": "text/plain" } }),
   })
   return server
 }
 
+// A browser-based MCP client needs CORS on /mcp, as it had before. SomaMCP's option covers only this
+// path, so the /oauth, /.well-known and /upload routes answer without it. Claude's connectors call
+// from their servers and the upload workflow is curl, so neither needs it.
 const startHttp = async (server: SomaServerInstance): Promise<{ readonly host: string; readonly port: number }> => {
   warnIfStatefulRequested()
   const port = parseInt(process.env.PORT ?? "3000", 10)
   const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
-  await server.start({ transportType: "httpStream", httpStream: { port, host, endpoint: "/mcp" } })
+  await server.start({ transportType: "httpStream", httpStream: { port, host, endpoint: "/mcp", cors: true } })
   return { host, port }
 }
 

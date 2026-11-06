@@ -742,7 +742,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_ORG_MODE`                | Enable org-only tools (teams, chats, groups, planner)                                                                           | `false`             |
 | `MS365_REQUIRE_DRAFT`           | Hide all `send_*` mail tools and block direct sends through `graph_query`; force the `create_*_draft` + `send_draft` flow       | `false`             |
 | `TOKEN_STORAGE_PATH`            | Directory for persistent OAuth token storage                                                                                    | `/tmp/ms365-tokens` |
-| `FASTMCP_HOST`                  | Bind address for HTTP server (set `0.0.0.0` in containers)                                                                      | `localhost`         |
+| `FASTMCP_HOST`                  | Older name for `HOST`, read when `HOST` is unset (set `0.0.0.0` in containers)                                                  | `127.0.0.1`         |
 
 ### Graph resilience
 

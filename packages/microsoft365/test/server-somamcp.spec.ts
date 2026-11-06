@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const captured = vi.hoisted(() => ({
   server: undefined as SomaServerInstance | undefined,
+  start: vi.fn(async () => undefined),
   azureConfig: undefined as Record<string, unknown> | undefined,
 }))
 
@@ -24,7 +25,7 @@ vi.mock("somamcp/node", async (original) => {
     createServer: (options: Parameters<typeof real.createServer>[0]) => {
       const server = real.createServer(options)
       captured.server = server
-      return { ...server, start: vi.fn(async () => undefined) }
+      return { ...server, start: captured.start }
     },
   }
 })
@@ -67,6 +68,7 @@ beforeEach(() => {
   vi.resetModules()
   captured.server = undefined
   captured.azureConfig = undefined
+  captured.start.mockClear()
   vi.stubEnv("MS365_CLIENT_ID", "00000000-0000-0000-0000-000000000001")
   vi.stubEnv("MS365_CLIENT_SECRET", "secret")
   vi.stubEnv("MS365_ACCESS_TOKEN", "a.b.c")
@@ -86,7 +88,7 @@ describe.each(["client-token", "oauth-proxy"])("%s over HTTP", (mode) => {
     const server = await startServer(mode)
     const response = await server.fetch(new Request(`${BASE}/ping`))
     expect(response.status).toBe(200)
-    expect(await response.text()).toBe("ok")
+    expect(await response.text()).toBe("pong")
   })
 
   it.each(["/health", "/health/detail", "/info", "/dashboard"])("does not serve SomaMCP's %s", async (path) => {
@@ -103,6 +105,44 @@ describe.each(["client-token", "oauth-proxy"])("%s over HTTP", (mode) => {
 })
 
 describe("client-token over MCP", () => {
+  it("answers a 2026-07-28 request, which FastMCP's stack refused with a 400", async () => {
+    const server = await startServer("client-token")
+    const response = await server.fetch(
+      new Request(`${BASE}/mcp`, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-method": "tools/list",
+          "mcp-protocol-version": "2026-07-28",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: {
+            _meta: {
+              "io.modelcontextprotocol/clientCapabilities": {},
+              "io.modelcontextprotocol/clientInfo": { name: "spec", version: "1" },
+              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            },
+          },
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const { tools } = await rpcResult(response)
+    expect(tools.map((tool: { name: string }) => tool.name)).toContain("get_me")
+  })
+
+  it("keeps CORS on /mcp for browser-based clients", async () => {
+    await startServer("client-token")
+    await vi.waitFor(() => expect(captured.start).toHaveBeenCalled())
+    expect(captured.start).toHaveBeenCalledWith(
+      expect.objectContaining({ httpStream: expect.objectContaining({ cors: true, endpoint: "/mcp" }) }),
+    )
+  })
+
   it("adds no tool of its own to the list", async () => {
     const server = await startServer("client-token")
     const { tools } = await rpcResult(await rpc(server, "tools/list"))

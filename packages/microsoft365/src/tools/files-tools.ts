@@ -179,7 +179,7 @@ export const createFolder = async (params: { parent_id: string; name: string }):
 const UPLOAD_FILE_MAX_BYTES = 4 * 1024 * 1024 // 4 MB — Graph simple-PUT ceiling
 
 const BINARY_REDIRECT_MESSAGE =
-  "Binary uploads are not supported via upload_file. Use get_upload_config (HTTP/SSE deployments) or upload_file_from_path (stdio/local) instead — both stream binary directly to Graph without round-tripping bytes through the LLM."
+  "Binary uploads are not supported via upload_file. Use get_upload_config (HTTP deployments) or upload_file_from_path (stdio/local) instead — both stream binary directly to Graph without round-tripping bytes through the LLM."
 
 export const uploadFile = async (params: {
   path: string
@@ -199,7 +199,7 @@ export const uploadFile = async (params: {
   if (size > UPLOAD_FILE_MAX_BYTES) {
     return Left(
       new UserError(
-        `Text content is ${size} bytes (> 4 MB simple-PUT limit). Use get_upload_config (HTTP/SSE) or upload_file_from_path (stdio) for larger files.`,
+        `Text content is ${size} bytes (> 4 MB simple-PUT limit). Use get_upload_config (HTTP) or upload_file_from_path (stdio) for larger files.`,
       ),
     )
   }
