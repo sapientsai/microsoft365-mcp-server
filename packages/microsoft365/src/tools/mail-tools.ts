@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto"
 
 import { formatBytes, MAX_ATTACHMENT_SIZE, resolveUploadContentType } from "@sapientsai/ms-graph-core"
-import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getGraphClient } from "../client/graph-client"
 import { runMoveBatches } from "../mail/batch-move"

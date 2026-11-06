@@ -15,9 +15,9 @@ import {
   SIMPLE_UPLOAD_LIMIT,
   simpleUpload,
 } from "@sapientsai/ms-graph-core"
-import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getAccessToken, getAuthStatus } from "../auth"
 import { GRAPH_API_BASE } from "../auth/scopes"

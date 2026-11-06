@@ -7,7 +7,7 @@ Deploy microsoft365-mcp-server as a remote MCP server with OAuth authentication.
 1. You deploy the server with your Azure AD app credentials
 2. Users add the server URL to their MCP client (Claude Desktop, VS Code, etc.)
 3. On first use, the server redirects to Microsoft login
-4. FastMCP's built-in AzureProvider handles OAuth (PKCE, consent, JWT, token refresh)
+4. SomaMCP's Azure provider handles OAuth (PKCE, consent, JWT, token refresh)
 5. Each request carries the user's own token — they only access their own data
 
 ## Prerequisites

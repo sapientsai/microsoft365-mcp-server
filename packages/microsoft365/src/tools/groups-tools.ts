@@ -1,6 +1,6 @@
-import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphGroup, GraphUser, ODataResponse } from "../types"

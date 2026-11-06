@@ -1,6 +1,4 @@
-import type { UserError } from "fastmcp"
-import { FastMCP } from "fastmcp"
-// AzureSession shape: { accessToken: string; scopes: string[]; refreshToken?: string; upn?: string }
+// The part of SomaMCP's AzureSession the tools use. Everything else comes from the token itself.
 type OAuthSessionContext = { accessToken?: string }
 import {
   attachFile,
@@ -17,6 +15,8 @@ import {
   simpleUpload,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
+import type { UserError } from "somamcp"
+import { createServer, type OAuthAuthProvider, type RouteConfig, type SomaServerInstance } from "somamcp/node"
 import { z } from "zod"
 
 import { getAccessToken, initializeAuth } from "./auth"
@@ -220,7 +220,7 @@ const setupAuth = async () => {
   console.error("[Setup] Graph client initialized")
 }
 
-/* eslint-disable functype/prefer-either -- boundary: converts Either to FastMCP's throw-based error signaling */
+/* eslint-disable functype/prefer-either -- boundary: converts Either to SomaMCP's throw-based error signaling */
 const unwrapResult = <T>(result: Either<UserError, T>): T =>
   result.fold(
     (e) => {
@@ -383,7 +383,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       access_token: z.string().describe("The access token for Microsoft Graph"),
       expires_on: z.string().optional().describe("Token expiration time in ISO format"),
     }),
-    // eslint-disable-next-line @typescript-eslint/require-await -- FastMCP requires async execute
+    // eslint-disable-next-line @typescript-eslint/require-await -- SomaMCP requires async execute
     execute: async (params) => unwrapResult(setAccessTokenTool(params)),
     domain: "auth",
     readOnly: false,
@@ -2065,7 +2065,7 @@ const wrapExecute = (tool: ToolDefinition, oauthMode: boolean): never => {
   return withAudit as never
 }
 
-const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: boolean) => {
+const registerTools = (server: SomaServerInstance, allowedTools: Set<string>, oauthMode: boolean) => {
   const toRegister = toolDefinitions.filter((tool) => allowedTools.has(tool.name))
 
   toRegister.forEach((tool) => {
@@ -2075,6 +2075,10 @@ const registerTools = (server: FastMCP, allowedTools: Set<string>, oauthMode: bo
       parameters: tool.parameters,
       execute: wrapExecute(tool, oauthMode),
       annotations: annotationsFor(tool.name),
+      // Errors reach the client as their bare message, as they always have here: callers read this
+      // text, and SomaMCP otherwise wraps it in a JSON envelope. Its telemetry is unused; the audit
+      // log above is what this server records.
+      captureConfig: { captureLevel: "none" },
     })
   })
 
@@ -2275,24 +2279,18 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
   return { status: 200, body: result.value }
 }
 
+// Not a protected route: these take upload tickets, not the MCP endpoint's sign-in, and relayAuth
+// checks them. SomaMCP's request-size cap is on the MCP endpoint only, so 150 MB still reaches here.
 const mountRelayRoute = (
-  server: FastMCP,
-  path: string,
+  server: SomaServerInstance,
+  path: `/${string}`,
   handle: (req: UploadRequestContext, oauthMode: boolean) => Promise<RelayResponse>,
   oauthMode: boolean,
 ): void => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Hono app surface
-  const app: any = (server as unknown as { getApp?: () => unknown }).getApp?.()
-  if (!app) {
-    console.error(`[Upload] FastMCP.getApp() unavailable; ${path} endpoint not mounted`)
-    return
-  }
-
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  const handler = async (c: any) => {
+  const handler: RouteConfig["handler"] = async (c) => {
     try {
       const result = await handle(c.req as UploadRequestContext, oauthMode)
-      return c.json(result.body, result.status)
+      return c.json(result.body as object, result.status as never)
     } catch (err) {
       const { message } = describeFetchError(err)
       console.error(`[Upload] ${path} unhandled error:`, message)
@@ -2300,15 +2298,13 @@ const mountRelayRoute = (
     }
   }
 
-  app.post(path, handler)
-  app.put(path, handler)
-  /* eslint-enable @typescript-eslint/no-explicit-any */
+  server.addRoute({ method: ["POST", "PUT"], path, handler })
   console.error(`[Setup] ${path} endpoint mounted (POST, PUT)`)
 }
 
 // Each relay route is mounted only when its tool survives the filters, so read-only mode, presets
 // and MS365_ENABLED_TOOLS close the HTTP route as well as hiding the tool.
-const mountRelayRoutes = (server: FastMCP, allowedTools: Set<string>, oauthMode: boolean): void => {
+const mountRelayRoutes = (server: SomaServerInstance, allowedTools: Set<string>, oauthMode: boolean): void => {
   if (allowedTools.has("get_upload_config")) mountRelayRoute(server, "/upload", handleUpload, oauthMode)
   if (allowedTools.has("get_attachment_upload_config")) {
     mountRelayRoute(server, "/upload/attachment", handleAttachmentUpload, oauthMode)
@@ -2316,17 +2312,58 @@ const mountRelayRoutes = (server: FastMCP, allowedTools: Set<string>, oauthMode:
 }
 
 // === Server Startup ===
-// Stateless by default. This server consumes no server->client features (no roots,
-// sampling, elicitation or progress anywhere in the package), and its OAuth tokens are
-// keyed by bearer + TOKEN_STORAGE_PATH rather than by MCP session, so per-session
-// transport state buys nothing and dies with the container on every redeploy.
-// Opt out with MCP_STATELESS=false.
-const statelessTransport = (): boolean => process.env.MCP_STATELESS?.trim().toLowerCase() !== "false"
+// SomaMCP serves httpStream stateless only. This server uses no server->client features (no roots,
+// sampling, elicitation or progress anywhere in the package), and its OAuth tokens are keyed by
+// bearer + TOKEN_STORAGE_PATH rather than by MCP session. MCP_STATELESS=false used to opt into
+// sessions, so say that it no longer does, rather than ignore it silently.
+const warnIfStatefulRequested = (): void => {
+  if (process.env.MCP_STATELESS?.trim().toLowerCase() === "false") {
+    console.error("[Config][WARN] MCP_STATELESS=false is ignored: this server now serves httpStream stateless only.")
+  }
+}
 
 // The only keepalive that works stateless: with no standing server-to-client stream, an
 // in-flight tool call's own stream is the sole route, and a long silent call (a large
 // read_document) can otherwise be closed as idle by a proxy.
 const STREAM_KEEPALIVE = { enabled: true } as const
+
+// What FastMCP's HTTP layer allowed. SomaMCP's default is 4 MiB, which would refuse an upload_file
+// or draft call carrying a few MiB inline that works today.
+const MAX_MCP_REQUEST_BYTES = 10 * 1024 * 1024
+
+// One server shape for every mode. SomaMCP's own info tool and /health, /info and /dashboard routes
+// stay off, so the tool list and the public routes are what the registry and README say they are.
+const SERVER_NAME = "microsoft365-mcp-server"
+
+const buildServer = (allowedTools: Set<string>, auth?: OAuthAuthProvider): SomaServerInstance => {
+  const server = createServer({
+    name: SERVER_NAME,
+    version: VERSION,
+    instructions: buildInstructions(allowedTools),
+    streamKeepalive: STREAM_KEEPALIVE,
+    maxRequestBodySize: MAX_MCP_REQUEST_BYTES,
+    enableDashboard: false,
+    enableHealthEndpoint: false,
+    enableInfoEndpoint: false,
+    enableIntrospection: false,
+    ...(auth ? { auth } : {}),
+  })
+  // The Docker HEALTHCHECK, README and civ-devops all use this, before any sign-in.
+  server.addRoute({
+    method: "GET",
+    path: "/ping",
+    handler: () => new Response("ok", { headers: { "content-type": "text/plain" } }),
+  })
+  return server
+}
+
+const startHttp = async (server: SomaServerInstance): Promise<{ readonly host: string; readonly port: number }> => {
+  warnIfStatefulRequested()
+  const port = parseInt(process.env.PORT ?? "3000", 10)
+  const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
+  await server.start({ transportType: "httpStream", httpStream: { port, host, endpoint: "/mcp" } })
+  return { host, port }
+}
 
 const main = async () => {
   const authConfig = resolveAuthConfig()
@@ -2342,7 +2379,7 @@ const main = async () => {
   const allowedTools = filterTools(filterConfig)
 
   if (oauthMode) {
-    // OAuth proxy mode: FastMCP handles auth via AzureProvider
+    // OAuth proxy mode: SomaMCP's Azure provider is the OAuth server
     const provider = createAzureAuthProvider({
       baseUrl: (authConfig as { baseUrl: string }).baseUrl,
       clientId: (authConfig as { clientId: string }).clientId,
@@ -2350,14 +2387,7 @@ const main = async () => {
       tenantId: (authConfig as { tenantId: string }).tenantId,
     })
 
-    const server = new FastMCP({
-      streamKeepalive: STREAM_KEEPALIVE,
-      name: "microsoft365-mcp-server",
-      version: VERSION,
-      instructions: buildInstructions(allowedTools),
-      auth: provider,
-      health: { enabled: true, path: "/ping", message: "ok" },
-    } as never)
+    const server = buildServer(allowedTools, provider)
 
     // Initialize graph client without credential-based auth (tokens come from session)
     initializeGraphClient({ getAccessToken })
@@ -2365,21 +2395,13 @@ const main = async () => {
     registerTools(server, allowedTools, true)
     mountRelayRoutes(server, allowedTools, true)
 
-    const port = parseInt(process.env.PORT ?? "3000", 10)
-    const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
-    await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })
+    const { host, port } = await startHttp(server)
     console.error(`[Server] MS 365 MCP Server v${VERSION}${BUILD} (OAuth proxy) running on ${host}:${port}`)
   } else {
     // Standard mode: credential-based auth
     await setupAuth()
 
-    const server = new FastMCP({
-      streamKeepalive: STREAM_KEEPALIVE,
-      name: "microsoft365-mcp-server",
-      version: VERSION,
-      instructions: buildInstructions(allowedTools),
-      health: { enabled: true, path: "/ping", message: "ok" },
-    })
+    const server = buildServer(allowedTools)
 
     registerTools(server, allowedTools, false)
 
@@ -2387,9 +2409,7 @@ const main = async () => {
 
     if (transportType === "httpStream") {
       mountRelayRoutes(server, allowedTools, false)
-      const port = parseInt(process.env.PORT ?? "3000", 10)
-      const host = process.env.HOST ?? process.env.FASTMCP_HOST ?? "127.0.0.1"
-      await server.start({ transportType: "httpStream", httpStream: { port, host, stateless: statelessTransport() } })
+      const { host, port } = await startHttp(server)
       console.error(`[Server] MS 365 MCP Server v${VERSION}${BUILD} running on ${host}:${port}`)
     } else {
       await server.start({ transportType: "stdio" })

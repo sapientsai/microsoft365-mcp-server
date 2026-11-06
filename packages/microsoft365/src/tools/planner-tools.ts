@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 
-import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphGroup, GraphPlan, GraphPlannerTask, ODataResponse } from "../types"

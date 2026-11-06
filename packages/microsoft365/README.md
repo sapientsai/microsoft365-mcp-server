@@ -139,7 +139,7 @@ Use the `set_access_token` tool to update tokens at runtime.
 
 ### OAuth Proxy
 
-Full OAuth 2.0 authorization server mode using FastMCP's built-in AzureProvider. Handles PKCE, consent screens, JWT issuance, and token refresh automatically. Requires HTTP transport.
+Full OAuth 2.1 authorization server mode using [SomaMCP](https://github.com/sapientsai/SomaMCP)'s Azure provider. Handles PKCE, consent screens, JWT issuance, and token refresh automatically. Requires HTTP transport.
 
 ```bash
 MS365_AUTH_MODE=oauth-proxy
@@ -153,12 +153,14 @@ PORT=3000
 Endpoints provided automatically:
 
 - `GET /.well-known/oauth-authorization-server` — OAuth metadata
-- `GET /authorize` — Redirect to Microsoft auth
-- `POST /token` — Token exchange
-- `GET/POST /mcp` — MCP protocol (with bearer auth)
+- `GET /.well-known/oauth-protected-resource` — Resource metadata, also under `/mcp`
+- `POST /oauth/register` — Client registration
+- `GET /oauth/authorize`, `POST /oauth/consent`, `GET /oauth/callback` — Sign-in. Register `<base URL>/oauth/callback` as the app's redirect URI
+- `POST /oauth/token` — Token exchange
+- `POST /mcp` — MCP protocol (with bearer auth). The server is stateless, so `GET` and `DELETE` answer `405`
 - `GET /ping` — Pre-auth health check (for Docker/Kubernetes liveness probes)
 
-OAuth tokens are persisted to disk via FastMCP's `DiskStore`, so users stay authenticated across server restarts. Refresh tokens last ~90 days. Set `TOKEN_STORAGE_PATH` to customize the storage directory (default: `/tmp/ms365-tokens`). For persistence across container recreations, mount a Docker volume at that path.
+OAuth tokens are persisted to disk, so users stay authenticated across server restarts. Refresh tokens last 30 days, and a registered client expires 90 days after its last sign-in or refresh. Sign-ins made before the move from FastMCP keep working only while `MS365_OAUTH_BASE_URL`, `MS365_JWT_SIGNING_KEY`, `MS365_TOKEN_ENCRYPTION_KEY` and `TOKEN_STORAGE_PATH` stay the same. Set `TOKEN_STORAGE_PATH` to customize the storage directory (default: `/tmp/ms365-tokens`). For persistence across container recreations, mount a Docker volume at that path.
 
 ### Azure AD App Registration
 
@@ -712,34 +714,35 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 
 ## Environment Variables
 
-| Variable                  | Description                                                                                                                     | Default             |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `MS365_AUTH_MODE`         | Auth mode: `interactive`, `certificate`, `client-secret`, `client-token`, `oauth-proxy`                                         | `interactive`       |
-| `MS365_TENANT_ID`         | Azure AD tenant ID                                                                                                              | `common`            |
-| `MS365_CLIENT_ID`         | Azure AD application (client) ID                                                                                                | --                  |
-| `MS365_CLIENT_SECRET`     | Client secret (for `client-secret` and `oauth-proxy` modes)                                                                     | --                  |
-| `MS365_CERT_PATH`         | Certificate path (for `certificate` mode)                                                                                       | --                  |
-| `MS365_CERT_PASSWORD`     | Certificate password (optional)                                                                                                 | --                  |
-| `MS365_ACCESS_TOKEN`      | Initial access token (for `client-token` mode)                                                                                  | --                  |
-| `MS365_USE_DEVICE_CODE`   | Skip the browser in `interactive` mode and use device code                                                                      | `false`             |
-| `MS365_DISABLE_SIGN_IN`   | In `interactive` mode, fail instead of prompting when the cached sign-in cannot be reused                                       | `false`             |
-| `MS365_TOKEN_CACHE`       | Persist the `interactive` token cache to disk; `false` keeps it in memory only                                                  | `true`              |
-| `MS365_TOKEN_CACHE_PATH`  | Directory for the persisted token cache and account record                                                                      | `~/.config/...`     |
-| `MS365_OAUTH_BASE_URL`    | Base URL for OAuth proxy mode                                                                                                   | --                  |
-| `MS365_GRAPH_VERSION`     | Graph API version: `v1.0` or `beta`                                                                                             | `v1.0`              |
-| `TRANSPORT_TYPE`          | Transport: `stdio` or `httpStream`                                                                                              | `stdio`             |
-| `PORT`                    | HTTP server port                                                                                                                | `3000`              |
-| `HOST`                    | HTTP server host                                                                                                                | `127.0.0.1`         |
-| `MS365_PRESETS`           | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`                                              | -- (all tools)      |
-| `MS365_EXTRA_SCOPES`      | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)                                                      | --                  |
-| `MS365_MAX_EXTRACT_BYTES` | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.                                              | -- (per-format)     |
-| `MS365_ALLOWED_MAILBOXES` | Comma-separated addresses the `mailbox` parameter may target. Unset = any the user can reach when delegated, none when app-only | --                  |
-| `MS365_ENABLED_TOOLS`     | Regex pattern to filter tools                                                                                                   | --                  |
-| `MS365_READ_ONLY`         | Hide write tools                                                                                                                | `false`             |
-| `MS365_ORG_MODE`          | Enable org-only tools (teams, chats, groups, planner)                                                                           | `false`             |
-| `MS365_REQUIRE_DRAFT`     | Hide all `send_*` mail tools and block direct sends through `graph_query`; force the `create_*_draft` + `send_draft` flow       | `false`             |
-| `TOKEN_STORAGE_PATH`      | Directory for persistent OAuth token storage                                                                                    | `/tmp/ms365-tokens` |
-| `FASTMCP_HOST`            | Bind address for HTTP server (set `0.0.0.0` in containers)                                                                      | `localhost`         |
+| Variable                        | Description                                                                                                                     | Default             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `MS365_AUTH_MODE`               | Auth mode: `interactive`, `certificate`, `client-secret`, `client-token`, `oauth-proxy`                                         | `interactive`       |
+| `MS365_TENANT_ID`               | Azure AD tenant ID                                                                                                              | `common`            |
+| `MS365_CLIENT_ID`               | Azure AD application (client) ID                                                                                                | --                  |
+| `MS365_CLIENT_SECRET`           | Client secret (for `client-secret` and `oauth-proxy` modes)                                                                     | --                  |
+| `MS365_CERT_PATH`               | Certificate path (for `certificate` mode)                                                                                       | --                  |
+| `MS365_CERT_PASSWORD`           | Certificate password (optional)                                                                                                 | --                  |
+| `MS365_ACCESS_TOKEN`            | Initial access token (for `client-token` mode)                                                                                  | --                  |
+| `MS365_USE_DEVICE_CODE`         | Skip the browser in `interactive` mode and use device code                                                                      | `false`             |
+| `MS365_DISABLE_SIGN_IN`         | In `interactive` mode, fail instead of prompting when the cached sign-in cannot be reused                                       | `false`             |
+| `MS365_TOKEN_CACHE`             | Persist the `interactive` token cache to disk; `false` keeps it in memory only                                                  | `true`              |
+| `MS365_TOKEN_CACHE_PATH`        | Directory for the persisted token cache and account record                                                                      | `~/.config/...`     |
+| `MS365_OAUTH_BASE_URL`          | Base URL for OAuth proxy mode                                                                                                   | --                  |
+| `MS365_GRAPH_VERSION`           | Graph API version: `v1.0` or `beta`                                                                                             | `v1.0`              |
+| `TRANSPORT_TYPE`                | Transport: `stdio` or `httpStream`                                                                                              | `stdio`             |
+| `PORT`                          | HTTP server port                                                                                                                | `3000`              |
+| `HOST`                          | HTTP server host                                                                                                                | `127.0.0.1`         |
+| `MS365_PRESETS`                 | Comma-separated presets: `personal`, `collaboration`, `productivity`, `rag`, `all`                                              | -- (all tools)      |
+| `MS365_EXTRA_SCOPES`            | Comma-separated Graph scopes added to the requested set (OAuth proxy mode)                                                      | --                  |
+| `MS365_WIDEN_SCOPES_ON_REFRESH` | `true` gives users already signed in any scope added to the list at their next refresh, once it's consented (OAuth proxy mode)  | `false`             |
+| `MS365_MAX_EXTRACT_BYTES`       | Ceiling over `read_document`'s per-format input caps, in bytes. Never raises them.                                              | -- (per-format)     |
+| `MS365_ALLOWED_MAILBOXES`       | Comma-separated addresses the `mailbox` parameter may target. Unset = any the user can reach when delegated, none when app-only | --                  |
+| `MS365_ENABLED_TOOLS`           | Regex pattern to filter tools                                                                                                   | --                  |
+| `MS365_READ_ONLY`               | Hide write tools                                                                                                                | `false`             |
+| `MS365_ORG_MODE`                | Enable org-only tools (teams, chats, groups, planner)                                                                           | `false`             |
+| `MS365_REQUIRE_DRAFT`           | Hide all `send_*` mail tools and block direct sends through `graph_query`; force the `create_*_draft` + `send_draft` flow       | `false`             |
+| `TOKEN_STORAGE_PATH`            | Directory for persistent OAuth token storage                                                                                    | `/tmp/ms365-tokens` |
+| `FASTMCP_HOST`                  | Bind address for HTTP server (set `0.0.0.0` in containers)                                                                      | `localhost`         |
 
 ### Graph resilience
 
@@ -826,7 +829,7 @@ Connect from Claude Desktop or any MCP client:
 }
 ```
 
-The Dockerfile sets `FASTMCP_HOST=0.0.0.0` (binds to all interfaces) and uses `/ping` for health checks (pre-auth endpoint). The `/health` endpoint provided by FastMCP is currently unreachable when auth is enabled due to a [known issue](https://github.com/punkpeye/mcp-proxy) in mcp-proxy's auth middleware ordering.
+The Dockerfile sets `FASTMCP_HOST=0.0.0.0` (binds to all interfaces; the server still reads that name, beside `HOST`) and uses `/ping` for health checks (pre-auth endpoint).
 
 See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full guide — Docker, Azure AD app setup, Dokploy, reverse proxy, and security configuration.
 
@@ -841,7 +844,7 @@ pnpm inspect         # build and open MCP Inspector
 
 ## Architecture
 
-- **[FastMCP](https://github.com/punkpeye/fastmcp)** — MCP server framework with Zod schema validation and built-in OAuth (AzureProvider)
+- **[SomaMCP](https://github.com/sapientsai/SomaMCP)** — MCP server framework on the official SDK, with Zod schema validation and an Azure OAuth server
 - **[functype](https://github.com/jordanburke/functype)** — Functional programming: `Either` for error handling, `Option` for nullable fields, `Brand` for type-safe IDs
 - **[ts-builds](https://github.com/jordanburke/ts-builds)** — Standardized TypeScript build toolchain
 - **[@azure/identity](https://github.com/Azure/azure-sdk-for-js)** — Azure AD authentication

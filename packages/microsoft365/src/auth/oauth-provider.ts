@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync } from "node:fs"
 
-import { AzureProvider, DiskStore } from "fastmcp/auth"
+import { createAzureProvider, createDiskStore, type OAuthAuthProvider } from "somamcp/node"
 
 import { resolveInteractiveScopes } from "./scopes"
 
@@ -12,8 +12,7 @@ export type OAuthProxyConfig = {
   readonly scopes?: ReadonlyArray<string>
 }
 
-// fastmcp v4 defaults allowedRedirectUriPatterns to [] (rejects all DCR).
-// Explicit allow-list:
+// An explicit redirect allow-list for client registration:
 //   - Claude.ai / Claude.com (browser clients)
 //   - IPv4 loopback per RFC 8252 §7.3 for native clients (Claude Code CLI binds
 //     http://localhost or http://127.0.0.1 on a random port per run).
@@ -43,7 +42,7 @@ const resolveAllowedRedirectUriPatterns = (): ReadonlyArray<string> => {
 // Override the location with TOKEN_STORAGE_PATH (recommend a persistent, private dir).
 export const resolveTokenStoragePath = (): string => process.env.TOKEN_STORAGE_PATH ?? "/tmp/ms365-tokens"
 
-const createTokenStorage = (): DiskStore => {
+const createTokenStorage = () => {
   const directory = resolveTokenStoragePath()
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   chmodSync(directory, 0o700) // enforce on a pre-existing (possibly world-readable) dir too
@@ -68,7 +67,7 @@ const createTokenStorage = (): DiskStore => {
     )
   }
 
-  return new DiskStore({ directory })
+  return createDiskStore({ directory })
 }
 
 // JWT signing and token-encryption keys must be independent secrets, NOT reused from
@@ -94,8 +93,15 @@ export const resolveEncryptionKey = (clientSecret: string): string => {
   return clientSecret
 }
 
-export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider =>
-  new AzureProvider({
+// Off by default. On, a user already signed in picks up scopes added to the server's list at their
+// next refresh instead of having to reconnect, once the tenant has consented to them.
+const widenScopesOnRefresh = (): boolean => process.env.MS365_WIDEN_SCOPES_ON_REFRESH?.trim().toLowerCase() === "true"
+
+// Sign-ins made under FastMCP survive only while baseUrl, the signing key, the encryption key and
+// the store directory stay what they were. Changing any of them signs everyone out at the next
+// restart, because SomaMCP reads FastMCP's tokens and store only with the same four values.
+export const createAzureAuthProvider = (config: OAuthProxyConfig): OAuthAuthProvider =>
+  createAzureProvider({
     baseUrl: config.baseUrl,
     clientId: config.clientId,
     clientSecret: config.clientSecret,
@@ -105,4 +111,5 @@ export const createAzureAuthProvider = (config: OAuthProxyConfig): AzureProvider
     tokenStorage: createTokenStorage(),
     encryptionKey: resolveEncryptionKey(config.clientSecret),
     allowedRedirectUriPatterns: [...resolveAllowedRedirectUriPatterns()],
+    widenScopesOnRefresh: widenScopesOnRefresh(),
   })

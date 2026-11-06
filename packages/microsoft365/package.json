@@ -55,7 +55,7 @@
     "model-context-protocol",
     "claude",
     "ai-assistant",
-    "fastmcp"
+    "somamcp"
   ],
   "mcpName": "io.github.sapientsai/microsoft365-mcp-server",
   "author": "Jordan Burke <jordan.burke@gmail.com>",
@@ -71,10 +71,10 @@
   "dependencies": {
     "@azure/identity": "^4.14.1",
     "exceljs": "^4.4.0",
-    "fastmcp": "^4.24.3",
     "functype": "^1.25.1",
     "functype-log": "^1.25.1",
     "mammoth": "^1.13.0",
+    "somamcp": "^2.6.0",
     "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   },

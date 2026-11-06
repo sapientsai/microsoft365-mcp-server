@@ -1,9 +1,9 @@
 import { tmpdir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
 
-import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
+import { UserError } from "somamcp"
 
 import { getAuthStatus } from "../auth"
 import { getGraphClient } from "../client/graph-client"
