@@ -138,6 +138,8 @@ export type GraphEvent = {
   }>
   readonly isAllDay?: boolean
   readonly isCancelled?: boolean
+  readonly isReminderOn?: boolean
+  readonly reminderMinutesBeforeStart?: number
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly onlineMeeting?: { readonly joinUrl?: string }
   readonly recurrence?: unknown

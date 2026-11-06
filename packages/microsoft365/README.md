@@ -453,6 +453,23 @@ a shared calendar is only found through that calendar, so pass `calendar_id` to
 your own `/me/calendars`, so `MS365_ALLOWED_MAILBOXES` does not limit it; Microsoft's
 sharing does.
 
+`create_event` and `update_event` take `all_day`. With it, `start` and `end` are dates
+(`YYYY-MM-DD`) and `end` is the last day, inclusive, defaulting to `start`; the server sends
+Graph its midnight-to-midnight span with the exclusive end. Pass `time_zone` (for example
+`Australia/Perth`): Graph pins an all-day event to midnight in that zone, so the UTC default
+shows it a day out elsewhere.
+
+Both also take `show_as` (`free`, `tentative`, `busy`, `oof`, `workingElsewhere`). Left out,
+it follows Outlook rather than Graph: an all-day event is `free` (Graph would make it `busy`
+and block the whole day in free/busy), and a timed one stays `busy`. `update_event` switches
+it only when `all_day` really changes the event, which takes one extra read: moving an
+all-day event keeps the status it has.
+
+They also take `reminder_minutes`, which turns the reminder on that many minutes before the
+start, and `reminder: false`, which turns it off. Left out, `create_event` gets Graph's
+15-minute reminder (for an all-day event, 23:45 the night before; Outlook's own default is a
+mailbox setting the API cannot read), and `update_event` leaves the reminder as it is.
+
 ### Contacts (7 tools)
 
 | Tool              | Description                                                   |

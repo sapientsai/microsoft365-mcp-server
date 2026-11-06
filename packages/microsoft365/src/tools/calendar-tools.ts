@@ -1,6 +1,6 @@
 import { UserError } from "fastmcp"
 import type { Either } from "functype/either"
-import { Left } from "functype/either"
+import { Left, Right } from "functype/either"
 
 import { getGraphClient } from "../client/graph-client"
 import type { GraphCalendar, GraphEvent, ODataResponse } from "../types"
@@ -121,10 +121,85 @@ export const listCalendarView = async (params: {
     .map((response) => formatEventList((response as ODataResponse<never>).value))
 }
 
+// Graph wants an all-day event to run midnight to midnight in its own time zone, ending at the
+// start of the day after the last one. Callers give the last day itself, as a person would say
+// "6 to 8 November", so the exclusive end is worked out here rather than left to the caller.
+const ALL_DAY_DATE = /^(\d{4}-\d{2}-\d{2})(?:T00:00(?::00(?:\.0+)?)?)?$/
+
+// Date.parse accepts 2026-02-30 and rolls it into March, so a date is real only if it survives
+// the round trip unchanged.
+const isRealDate = (date: string): boolean => {
+  const d = new Date(`${date}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === date
+}
+
+const nextDay = (date: string): string => {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+const allDayRange = (
+  start: string,
+  lastDay: string | undefined,
+): { readonly start: string; readonly end: string } | UserError => {
+  const first = ALL_DAY_DATE.exec(start)?.[1]
+  const last = ALL_DAY_DATE.exec(lastDay ?? start)?.[1]
+  if (!first || !last || !isRealDate(first) || !isRealDate(last))
+    return new UserError(
+      "For an all-day event, start and end are dates (YYYY-MM-DD), with no time of day or time zone.",
+    )
+  if (last < first) return new UserError("For an all-day event, end (the last day) cannot be before start.")
+  return { start: `${first}T00:00:00`, end: `${nextDay(last)}T00:00:00` }
+}
+
+export const SHOW_AS = ["free", "tentative", "busy", "oof", "workingElsewhere"] as const
+export type ShowAs = (typeof SHOW_AS)[number]
+
+// Graph marks every new event busy. Outlook marks an all-day event free, and back to busy when it
+// becomes timed again; a staff day or school carnival marked busy would block the whole day in
+// everyone's free/busy view. Follow Outlook unless the caller says otherwise.
+const showAsFor = (showAs: ShowAs | undefined, allDay: boolean | undefined): ShowAs | undefined =>
+  showAs ?? (allDay === true ? "free" : allDay === false ? "busy" : undefined)
+
+// all_day also has to be passed to move an all-day event, because that is what works out the
+// exclusive end. So only a real change of state takes the Outlook default: moving a vacation marked
+// oof must not turn it free. Knowing which it is takes one read, and only when show_as is left out.
+const showAsOnUpdate = async (
+  client: NonNullable<ReturnType<typeof requireClient>>,
+  params: { event_id: string; all_day?: boolean; show_as?: ShowAs; calendar_id?: string },
+): Promise<Either<UserError, ShowAs | undefined>> => {
+  if (params.show_as !== undefined || params.all_day === undefined) return Right(params.show_as)
+  const current = await client.getEvent(params.event_id, "text", params.calendar_id)
+  return current
+    .mapLeft((error) => new UserError(`Failed to read the event before updating it: ${error.message}`))
+    .map((event) => ((event.isAllDay ?? false) === params.all_day ? undefined : showAsFor(undefined, params.all_day)))
+}
+
+// Graph gives every new event a 15-minute reminder, which for an all-day event fires at 23:45 the
+// night before. Outlook's own default comes from a mailbox setting the API cannot read, so the
+// caller sets it: reminder_minutes turns the reminder on with that lead time, reminder: false
+// turns it off. Left out, Graph's default (on create) or the event's current reminder (on update)
+// stays.
+const reminderFields = (
+  reminder: boolean | undefined,
+  minutes: number | undefined,
+): Record<string, unknown> | UserError => {
+  if (minutes !== undefined) {
+    if (reminder === false) return new UserError("reminder: false cannot be combined with reminder_minutes.")
+    return { isReminderOn: true, reminderMinutesBeforeStart: minutes }
+  }
+  return reminder === undefined ? {} : { isReminderOn: reminder }
+}
+
 export const createEvent = async (params: {
   subject: string
   start: string
-  end: string
+  end?: string
+  all_day?: boolean
+  show_as?: ShowAs
+  reminder?: boolean
+  reminder_minutes?: number
   time_zone?: string
   location?: string
   body?: string
@@ -140,11 +215,23 @@ export const createEvent = async (params: {
   if (badCalendar) return Left(badCalendar)
 
   const timeZone = params.time_zone ?? "UTC"
+  const range = params.all_day
+    ? allDayRange(params.start, params.end)
+    : params.end
+      ? { start: params.start, end: params.end }
+      : new UserError("end is required unless all_day is true.")
+  if (range instanceof UserError) return Left(range)
   const event: Record<string, unknown> = {
     subject: params.subject,
-    start: { dateTime: params.start, timeZone },
-    end: { dateTime: params.end, timeZone },
+    start: { dateTime: range.start, timeZone },
+    end: { dateTime: range.end, timeZone },
   }
+  if (params.all_day) event.isAllDay = true
+  const showAs = showAsFor(params.show_as, params.all_day ? true : undefined)
+  if (showAs) event.showAs = showAs
+  const reminder = reminderFields(params.reminder, params.reminder_minutes)
+  if (reminder instanceof UserError) return Left(reminder)
+  Object.assign(event, reminder)
 
   if (params.location) event.location = { displayName: params.location }
   if (params.body) event.body = { contentType: params.content_type ?? "Text", content: params.body }
@@ -177,6 +264,10 @@ export const updateEvent = async (params: {
   subject?: string
   start?: string
   end?: string
+  all_day?: boolean
+  show_as?: ShowAs
+  reminder?: boolean
+  reminder_minutes?: number
   time_zone?: string
   location?: string
   body?: string
@@ -196,8 +287,30 @@ export const updateEvent = async (params: {
   const timeZone = params.time_zone ?? "UTC"
 
   if (params.subject) updates.subject = params.subject
-  if (params.start) updates.start = { dateTime: params.start, timeZone }
-  if (params.end) updates.end = { dateTime: params.end, timeZone }
+  if (params.all_day === true) {
+    // The event's current dates are not known here, so an all-day change has to name its days.
+    if (!params.start) return Left(new UserError("all_day: true needs start (the first day, YYYY-MM-DD)."))
+    const allDay = allDayRange(params.start, params.end)
+    if (allDay instanceof UserError) return Left(allDay)
+    updates.isAllDay = true
+    updates.start = { dateTime: allDay.start, timeZone }
+    updates.end = { dateTime: allDay.end, timeZone }
+  } else {
+    if (params.all_day === false) {
+      // A now-timed event needs its own times, or it would keep its old midnight-to-midnight span.
+      if (!params.start || !params.end)
+        return Left(new UserError("all_day: false needs both start and end times for the now-timed event."))
+      updates.isAllDay = false
+    }
+    if (params.start) updates.start = { dateTime: params.start, timeZone }
+    if (params.end) updates.end = { dateTime: params.end, timeZone }
+  }
+  const reminder = reminderFields(params.reminder, params.reminder_minutes)
+  if (reminder instanceof UserError) return Left(reminder)
+  Object.assign(updates, reminder)
+  const showAs = await showAsOnUpdate(client, params)
+  if (showAs.isLeft()) return Left(showAs.value as UserError)
+  if (showAs.value) updates.showAs = showAs.value
   if (params.location) updates.location = { displayName: params.location }
   if (params.body) updates.body = { contentType: params.content_type ?? "Text", content: params.body }
   if (params.attendees) {

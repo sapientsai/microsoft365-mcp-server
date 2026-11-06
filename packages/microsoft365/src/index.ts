@@ -114,6 +114,7 @@ import {
   sendReplyAll,
   setAccessTokenTool,
   setTodoTaskState,
+  SHOW_AS,
   summarizeSenders,
   switchAccountTool,
   updateContact,
@@ -252,6 +253,39 @@ const MAILBOX_PARAM = z
     "Email address of another mailbox to act on (delegated or shared), e.g. 'someone@example.com'. " +
       "Omit for your own mailbox; required when this server signs in as an application. " +
       "Only addresses this server is configured to allow will be accepted.",
+  )
+
+// All-day events need a time zone to land on the right day: Graph stores them midnight to
+// midnight in time_zone, and UTC (the default) shows a day early or late outside UTC.
+const ALL_DAY_PARAM = z
+  .boolean()
+  .optional()
+  .describe(
+    "All-day event: start and end are dates (YYYY-MM-DD) and end is the last day, inclusive. " +
+      "Set time_zone to the calendar's zone (e.g. Australia/Perth). Default: false.",
+  )
+
+const SHOW_AS_PARAM = z
+  .enum(SHOW_AS)
+  .optional()
+  .describe(
+    "How the time shows in free/busy: free, tentative, busy, oof (out of office) or workingElsewhere. " +
+      "Default follows Outlook: free for an all-day event, busy for a timed one.",
+  )
+
+const REMINDER_PARAM = z
+  .boolean()
+  .optional()
+  .describe("false turns the event's reminder off; true turns it on. Omit to leave it as it is.")
+
+const REMINDER_MINUTES_PARAM = z
+  .number()
+  .int()
+  .min(0)
+  .optional()
+  .describe(
+    "Minutes before the start to remind, which also turns the reminder on. For an all-day event the start " +
+      "is midnight, so 1080 reminds at 6 pm the evening before. Graph's default is 15.",
   )
 
 const CALENDAR_ID_PARAM = z
@@ -871,8 +905,18 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     description: "Create a new calendar event",
     parameters: z.object({
       subject: z.string().describe("Event subject/title"),
-      start: z.string().describe("Start date/time (ISO format)"),
-      end: z.string().describe("End date/time (ISO format)"),
+      start: z.string().describe("Start date/time (ISO format), or the first day (YYYY-MM-DD) when all_day is true"),
+      end: z
+        .string()
+        .optional()
+        .describe(
+          "End date/time (ISO format). Required unless all_day is true; then it is the last day (YYYY-MM-DD, " +
+            "inclusive) and defaults to start.",
+        ),
+      all_day: ALL_DAY_PARAM,
+      show_as: SHOW_AS_PARAM,
+      reminder: REMINDER_PARAM,
+      reminder_minutes: REMINDER_MINUTES_PARAM,
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("Event location"),
       body: z.string().optional().describe("Event description"),
@@ -901,8 +945,33 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     parameters: z.object({
       event_id: z.string().describe("The event ID to update"),
       subject: z.string().optional().describe("New subject"),
-      start: z.string().optional().describe("New start date/time (ISO format)"),
-      end: z.string().optional().describe("New end date/time (ISO format)"),
+      start: z
+        .string()
+        .optional()
+        .describe("New start date/time (ISO format), or the first day (YYYY-MM-DD) when all_day is true"),
+      end: z
+        .string()
+        .optional()
+        .describe(
+          "New end date/time (ISO format), or the last day (YYYY-MM-DD, inclusive) when all_day is true; " +
+            "defaults to start then",
+        ),
+      all_day: z
+        .boolean()
+        .optional()
+        .describe(
+          "true makes it an all-day event (needs start); false makes it a timed event (needs start and end). " +
+            "Omit to leave it as it is.",
+        ),
+      show_as: z
+        .enum(SHOW_AS)
+        .optional()
+        .describe(
+          "How the time shows in free/busy: free, tentative, busy, oof or workingElsewhere. Omit to leave it, " +
+            "except that changing all_day follows Outlook: free when it becomes all-day, busy when it becomes timed.",
+        ),
+      reminder: REMINDER_PARAM,
+      reminder_minutes: REMINDER_MINUTES_PARAM,
       time_zone: z.string().optional().describe("Time zone (default: UTC)"),
       location: z.string().optional().describe("New location"),
       body: z.string().optional().describe("New description"),

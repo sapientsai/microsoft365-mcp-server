@@ -1,5 +1,5 @@
 import { Some } from "functype"
-import { Right } from "functype/either"
+import { Left, Right } from "functype/either"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { GraphEvent } from "../src/types"
@@ -412,6 +412,316 @@ describe("calendar-tools", () => {
       await getEvent({ event_id: "e1", body_format: "html" })
 
       expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html", undefined)
+    })
+  })
+
+  // Graph stores an all-day event midnight to midnight with an exclusive end; callers name the
+  // last day. Compass's staff days and carnivals are the motivating case.
+  describe("all-day events", () => {
+    const perth = "Australia/Perth"
+
+    it("create_event sends isAllDay with midnight times and the day after the last day as end", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      const result = await createEvent({
+        subject: "Swimming carnival",
+        start: "2026-11-06",
+        end: "2026-11-07",
+        all_day: true,
+        time_zone: perth,
+      })
+
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.createEvent).toHaveBeenCalledWith(
+        {
+          subject: "Swimming carnival",
+          start: { dateTime: "2026-11-06T00:00:00", timeZone: perth },
+          end: { dateTime: "2026-11-08T00:00:00", timeZone: perth },
+          isAllDay: true,
+          showAs: "free",
+        },
+        undefined,
+      )
+    })
+
+    it("defaults end to start, giving a one-day event", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "Last day of term", start: "2026-12-18", all_day: true, time_zone: perth })
+
+      const sent = mockClient.createEvent.mock.calls[0][0] as Record<string, { dateTime: string }>
+      expect(sent.start!.dateTime).toBe("2026-12-18T00:00:00")
+      expect(sent.end!.dateTime).toBe("2026-12-19T00:00:00")
+    })
+
+    it("rolls the end over month and year boundaries", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "NYE", start: "2026-12-31", all_day: true })
+      await createEvent({ subject: "Leap", start: "2028-02-28", end: "2028-02-29", all_day: true })
+
+      expect((mockClient.createEvent.mock.calls[0][0] as { end: { dateTime: string } }).end.dateTime).toBe(
+        "2027-01-01T00:00:00",
+      )
+      expect((mockClient.createEvent.mock.calls[1][0] as { end: { dateTime: string } }).end.dateTime).toBe(
+        "2028-03-01T00:00:00",
+      )
+    })
+
+    it("accepts a midnight datetime as a date", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "PD day", start: "2026-11-13T00:00:00", all_day: true })
+
+      expect((mockClient.createEvent.mock.calls[0][0] as { end: { dateTime: string } }).end.dateTime).toBe(
+        "2026-11-14T00:00:00",
+      )
+    })
+
+    it.each([
+      ["a time of day", { start: "2026-11-06T09:00:00" }],
+      ["a malformed date", { start: "6/11/2026" }],
+      ["an impossible date", { start: "2026-02-30" }],
+      ["an end before the start", { start: "2026-11-06", end: "2026-11-05" }],
+    ])("refuses %s before calling Graph", async (_label, dates) => {
+      const result = await createEvent({ subject: "x", all_day: true, ...dates })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+    })
+
+    it("still requires end for a timed event", async () => {
+      const result = await createEvent({ subject: "x", start: "2026-11-06T09:00:00" })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+    })
+
+    it("does not send isAllDay for a timed event", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06T09:00:00", end: "2026-11-06T10:00:00" })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("isAllDay")
+    })
+
+    it("update_event all_day: true rewrites the span and sets isAllDay", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: false }))
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-06", time_zone: perth })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        {
+          isAllDay: true,
+          start: { dateTime: "2026-11-06T00:00:00", timeZone: perth },
+          end: { dateTime: "2026-11-07T00:00:00", timeZone: perth },
+          showAs: "free",
+        },
+        undefined,
+      )
+    })
+
+    it("update_event all_day: true without start is refused", async () => {
+      const result = await updateEvent({ event_id: "evt-123", all_day: true })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.updateEvent).not.toHaveBeenCalled()
+    })
+
+    it("update_event all_day: false needs both times, then clears isAllDay", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: true }))
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      const missing = await updateEvent({ event_id: "evt-123", all_day: false, start: "2026-11-06T09:00:00" })
+      expect(missing.isLeft()).toBe(true)
+
+      await updateEvent({
+        event_id: "evt-123",
+        all_day: false,
+        start: "2026-11-06T09:00:00",
+        end: "2026-11-06T10:00:00",
+      })
+      expect(mockClient.updateEvent).toHaveBeenCalledOnce()
+      expect(mockClient.updateEvent.mock.calls[0][1]).toMatchObject({ isAllDay: false, showAs: "busy" })
+    })
+  })
+  // Outlook marks an all-day event free; Graph would mark it busy and block the day for everyone.
+  describe("show_as", () => {
+    it("create_event leaves a timed event to Graph's default (busy)", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06T09:00:00", end: "2026-11-06T10:00:00" })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("showAs")
+    })
+
+    it("an explicit show_as wins over the all-day default", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "Camp", start: "2026-11-06", all_day: true, show_as: "oof" })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({ isAllDay: true, showAs: "oof" })
+    })
+
+    it("create_event passes show_as through on a timed event", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({
+        subject: "x",
+        start: "2026-11-06T09:00:00",
+        end: "2026-11-06T10:00:00",
+        show_as: "tentative",
+      })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({ showAs: "tentative" })
+    })
+
+    it("update_event without all_day or show_as leaves showAs alone", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", subject: "Renamed" })
+
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event moving an all-day event keeps the status someone chose", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: true, showAs: "oof" }))
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-07", calendar_id: "cal-1" })
+
+      expect(mockClient.getEvent).toHaveBeenCalledWith("evt-123", "text", "cal-1")
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event all_day: false on a timed event keeps its status", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, isAllDay: false, showAs: "tentative" }))
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({
+        event_id: "evt-123",
+        all_day: false,
+        start: "2026-11-06T09:00:00",
+        end: "2026-11-06T10:00:00",
+      })
+
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("showAs")
+    })
+
+    it("update_event reads nothing when show_as is given", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-07", show_as: "oof" })
+
+      expect(mockClient.getEvent).not.toHaveBeenCalled()
+      expect(mockClient.updateEvent.mock.calls[0][1]).toMatchObject({ showAs: "oof" })
+    })
+
+    it("update_event changes nothing when the read fails", async () => {
+      mockClient.getEvent.mockResolvedValue(Left(new Error("Graph is down")))
+
+      const result = await updateEvent({ event_id: "evt-123", all_day: true, start: "2026-11-07" })
+
+      expect(result.isLeft()).toBe(true)
+      expect(String((result.value as Error).message)).toContain("Graph is down")
+      expect(mockClient.updateEvent).not.toHaveBeenCalled()
+    })
+
+    it("update_event sets show_as on its own", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", show_as: "free" })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { showAs: "free" }, undefined)
+    })
+  })
+  // Graph's default reminder for an all-day event fires at 23:45 the night before.
+  describe("reminders", () => {
+    it("create_event leaves the reminder to Graph when neither option is given", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06", all_day: true })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("isReminderOn")
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("reminderMinutesBeforeStart")
+    })
+
+    it("create_event with reminder_minutes turns the reminder on with that lead time", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "Swimming", start: "2026-11-23", all_day: true, reminder_minutes: 1080 })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({
+        isReminderOn: true,
+        reminderMinutesBeforeStart: 1080,
+      })
+    })
+
+    it("create_event with reminder: false turns the reminder off", async () => {
+      mockClient.createEvent.mockResolvedValue(Right(mockEvent))
+
+      await createEvent({ subject: "x", start: "2026-11-06", all_day: true, reminder: false })
+
+      expect(mockClient.createEvent.mock.calls[0][0]).toMatchObject({ isReminderOn: false })
+      expect(mockClient.createEvent.mock.calls[0][0]).not.toHaveProperty("reminderMinutesBeforeStart")
+    })
+
+    it("refuses reminder: false together with reminder_minutes", async () => {
+      const result = await createEvent({
+        subject: "x",
+        start: "2026-11-06",
+        all_day: true,
+        reminder: false,
+        reminder_minutes: 30,
+      })
+
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+    })
+
+    it("update_event changes only the reminder", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", reminder: false })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { isReminderOn: false }, undefined)
+    })
+
+    it("update_event sets a new lead time", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", reminder_minutes: 60 })
+
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        { isReminderOn: true, reminderMinutesBeforeStart: 60 },
+        undefined,
+      )
+    })
+
+    it("update_event without reminder options leaves the reminder alone", async () => {
+      mockClient.updateEvent.mockResolvedValue(Right(mockEvent))
+
+      await updateEvent({ event_id: "evt-123", subject: "Renamed" })
+
+      expect(mockClient.updateEvent.mock.calls[0][1]).not.toHaveProperty("isReminderOn")
+    })
+
+    it("event details show the reminder", async () => {
+      mockClient.updateEvent.mockResolvedValue(
+        Right({ ...mockEvent, isReminderOn: true, reminderMinutesBeforeStart: 1080 }),
+      )
+
+      const result = await updateEvent({ event_id: "evt-123", reminder_minutes: 1080 })
+
+      expect(
+        result.fold(
+          () => "",
+          (v) => v,
+        ),
+      ).toContain("- Reminder: 1080 minutes before")
     })
   })
 })
