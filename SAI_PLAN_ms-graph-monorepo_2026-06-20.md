@@ -191,6 +191,8 @@ Exit: `packages/graph` re-greens the 245-test contract; tool-inventory diff show
 
 ## Phase 6 — (Separate, later) migrate `microsoft365` onto somamcp
 
+> **Done in code 2026-11-06** (PR 178, on somamcp 2.6). Live once a release containing it is deployed.
+
 Independent of cutover; do it only **after `packages/graph` has validated somamcp in production**, so the
 mature, deployed, published server is never the guinea pig.
 

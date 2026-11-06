@@ -4,6 +4,9 @@ Phase 6 of `SAI_PLAN_ms-graph-monorepo_2026-06-20.md` moves `packages/microsoft3
 onto somamcp. The plan makes a spike a hard gate. It must confirm somamcp can carry the OAuth proxy, the
 `/upload` routes and the MCPB bundle before 365 changes.
 
+> **Superseded 2026-11-06.** SomaMCP 2.3 shipped its own Azure OAuth server (option B below), and PR 178 moved
+> microsoft365 onto it and removed fastmcp. Option A was never built. This memo is kept as the record of the spike.
+
 ## Bottom line
 
 Everything but the OAuth proxy maps onto somamcp 2.1 today. The OAuth proxy needs a decision: somamcp
