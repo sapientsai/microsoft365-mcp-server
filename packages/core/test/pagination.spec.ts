@@ -16,6 +16,9 @@ describe("nextLinkProblem", () => {
     "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=abc",
     "https://graph.microsoft.com/beta/me/chats?$skiptoken=abc",
     "https://GRAPH.microsoft.com:443/v1.0/groups?$skiptoken=x",
+    "https://graph.microsoft.com/v1.0/me/mailFolders('AAMkAD%3D')/messages?$skip=10",
+    "https://graph.microsoft.com/v1.0/me/drive/root/search(q='foo%20bar')?$skiptoken=y",
+    "https://graph.microsoft.com/v1.0/users/delta?$deltatoken=abc",
   ])("allows Graph's own link %s", (link) => {
     expect(nextLinkProblem(link)).toBeUndefined()
   })
@@ -43,6 +46,25 @@ describe("fetchAllPages", () => {
     const result = await fetchAllPages(fetchPage, "https://graph.microsoft.com/v1.0/me/messages")
     expect(result.value).toEqual([1, 2, 3])
     expect(fetchPage).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ["no link", undefined],
+    ["an empty link", ""],
+  ])("ends paging on %s", async (_name, next) => {
+    const fetchPage = vi.fn().mockResolvedValueOnce(page([1, 2], next))
+    const result = await fetchAllPages(fetchPage, "https://graph.microsoft.com/v1.0/me/messages")
+    expect(result.value).toEqual([1, 2])
+    expect(fetchPage).toHaveBeenCalledTimes(1)
+  })
+
+  it("fetches the next page by its parsed URL", async () => {
+    const fetchPage = vi
+      .fn()
+      .mockResolvedValueOnce(page([1], "https://GRAPH.microsoft.com:443/v1.0/me/messages?$skiptoken=2"))
+      .mockResolvedValueOnce(page([2]))
+    await fetchAllPages(fetchPage, "https://graph.microsoft.com/v1.0/me/messages")
+    expect(fetchPage).toHaveBeenLastCalledWith("https://graph.microsoft.com/v1.0/me/messages?$skiptoken=2")
   })
 
   it("stops with an error, and requests nothing more, when a next link points elsewhere", async () => {

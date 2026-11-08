@@ -17,7 +17,7 @@ const GRAPH_ORIGIN = new URL(GRAPH_API_BASE).origin
 export const nextLinkProblem = (link: string): string | undefined => {
   const url = URL.parse(link)
   if (url === null) return "it isn't a URL"
-  if (url.origin !== GRAPH_ORIGIN) return `it points at ${url.origin}, not ${GRAPH_ORIGIN}`
+  if (url.origin !== GRAPH_ORIGIN) return `it points at ${url.origin.slice(0, 200)}, not ${GRAPH_ORIGIN}`
   if (url.username !== "" || url.password !== "") return "it carries credentials"
   if (url.hash !== "") return "it carries a fragment"
   if (!/^\/(?:v1\.0|beta)\//.test(url.pathname)) return "its path isn't under /v1.0/ or /beta/"
@@ -43,8 +43,10 @@ export const fetchAllPages = async <T>(
 
     const page = result.value as ODataResponse<T>
     allItems.push(...page.value)
-    const next = page["@odata.nextLink"] ?? null
-    const problem = next === null ? undefined : nextLinkProblem(next)
+    // A missing or empty link ends paging, as it always has.
+    const next = page["@odata.nextLink"]
+    if (next === undefined || next === "") break
+    const problem = nextLinkProblem(next)
     if (problem !== undefined) {
       // No partial result: a caller can't tell a list cut short here from a complete one.
       return Left<GraphApiError, ReadonlyArray<T>>({
@@ -52,7 +54,8 @@ export const fetchAllPages = async <T>(
         message: `Stopped paging after ${pageCount + 1} page(s): Graph's next-page link wasn't followed, because ${problem}.`,
       })
     }
-    currentUrl = next
+    // The parsed form is what was checked, so it is what gets fetched.
+    currentUrl = new URL(next).href
     pageCount++
   }
 
