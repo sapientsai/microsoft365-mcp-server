@@ -10,7 +10,7 @@ import {
 } from "../src/utils/formatters"
 
 // An automated caller (a Claude plugin that triages mail and chats) turns these tools' text into data
-// with the regular expressions below, copied verbatim from its parsers as of 2026-10-04.
+// with the regular expressions below, copied verbatim from its parsers at commit 4fe7fcb (2026-10-04).
 //
 // Its parsers skip any line that does not match, silently. A formatter change that breaks one of
 // these patterns therefore loses mail or chat messages from triage without an error anywhere, so this

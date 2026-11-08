@@ -11,6 +11,7 @@ const CLIENT_NAME = new RegExp(
   [
     ["ci", "vala"],
     ["on", "cala"],
+    ["civ", "-devops"],
   ]
     .map((parts) => parts.join(""))
     .join("|"),
@@ -26,7 +27,10 @@ const trackedFiles = (): ReadonlyArray<string> =>
 
 describe("no client names in the repository", () => {
   it("finds none in any tracked file", () => {
-    const hits = trackedFiles().flatMap((path) => {
+    const files = trackedFiles()
+    // A floor, so a git that lists nothing (or the wrong repository) can't pass by finding no files.
+    expect(files).toContain("packages/microsoft365/package.json")
+    const hits = files.flatMap((path) => {
       const text = readFileSync(join(REPO_ROOT, path), "utf8")
       return text
         .split("\n")

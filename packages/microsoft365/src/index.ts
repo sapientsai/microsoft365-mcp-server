@@ -2400,7 +2400,7 @@ const buildServer = (allowedTools: Set<string>, auth?: OAuthAuthProvider): SomaS
     enableIntrospection: false,
     ...(auth ? { auth } : {}),
   })
-  // The Docker HEALTHCHECK, README and civ-devops all use this, before any sign-in.
+  // The Docker HEALTHCHECK, the README and deployment health probes all use this, before any sign-in.
   server.addRoute({
     method: "GET",
     path: "/ping",

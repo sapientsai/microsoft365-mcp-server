@@ -412,8 +412,9 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   },
   { name: "update_todo_task", title: "Update To Do Task", domain: "todo", readOnly: false, orgOnly: false },
   // Overwrites status and importance, so destructive under MCP's definition (only additive updates
-  // are non-destructive), but the same call twice changes nothing more, so it is idempotent. No
-  // reversible flag: MCP annotations have none, and status and importance can be set back by this tool.
+  // are non-destructive), but the same call twice changes nothing more, so it is also idempotent. A
+  // repo-level reversible flag was considered and set aside; revisit it if unattended callers stop for
+  // approval on destructiveHint: true.
   {
     name: "set_todo_task_state",
     title: "Set To Do Task State",

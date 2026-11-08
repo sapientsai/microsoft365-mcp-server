@@ -34,7 +34,7 @@ tools (sapientsai/SomaMCP#36).
 | `context.session.accessToken` | `authenticate` resolves the session tools see | OAuth mode reads it in `wrapExecute` |
 | `UserError` (18 files) | `somamcp` exports `UserError` | Import swap. Check that the SDK backend renders it as an `isError` result the way FastMCP did |
 | `/upload`, `/upload/attachment` | `addRoute({ method, path, handler })` | Keep `protected: false` and the existing `relayAuth`: these take upload tickets, not OAuth JWTs |
-| `/ping` | `addRoute` GET `/ping` → `ok` | Dockerfile `HEALTHCHECK`, README and civ-devops all use it. somamcp's own `/health` is extra |
+| `/ping` | `addRoute` GET `/ping` → `ok` | Dockerfile `HEALTHCHECK`, README and the hosted deployment's probes all use it. somamcp's own `/health` is extra |
 | Server instructions | `createServer({ instructions })` | Unchanged |
 | `info` tool | Added by default | Pass `enableIntrospection: false`, or accept one more tool and update the README counts |
 | MCPB bundle | Not affected | `scripts/build-mcpb.sh` zips `manifest.json` only |
