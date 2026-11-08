@@ -97,9 +97,9 @@ export const resolveEncryptionKey = (clientSecret: string): string => {
 // next refresh instead of having to reconnect, once the tenant has consented to them.
 const widenScopesOnRefresh = (): boolean => process.env.MS365_WIDEN_SCOPES_ON_REFRESH?.trim().toLowerCase() === "true"
 
-// Sign-ins made under FastMCP survive only while baseUrl, the signing key, the encryption key and
-// the store directory stay what they were. Changing any of them signs everyone out at the next
-// restart, because SomaMCP reads FastMCP's tokens and store only with the same four values.
+// Existing sign-ins survive only while baseUrl, the signing key, the encryption key and the store
+// directory stay what they were. Changing any of them signs everyone out at the next restart: the
+// stored tokens can't be decrypted or verified, or aren't found.
 export const createAzureAuthProvider = (config: OAuthProxyConfig): OAuthAuthProvider =>
   createAzureProvider({
     baseUrl: config.baseUrl,

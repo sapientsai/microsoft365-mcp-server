@@ -105,7 +105,7 @@ describe.each(["client-token", "oauth-proxy"])("%s over HTTP", (mode) => {
 })
 
 describe("client-token over MCP", () => {
-  it("answers a 2026-07-28 request, which FastMCP's stack refused with a 400", async () => {
+  it("answers a 2026-07-28 request, which v1.2.x refused with a 400", async () => {
     const server = await startServer("client-token")
     const response = await server.fetch(
       new Request(`${BASE}/mcp`, {
@@ -140,6 +140,19 @@ describe("client-token over MCP", () => {
     await vi.waitFor(() => expect(captured.start).toHaveBeenCalled())
     expect(captured.start).toHaveBeenCalledWith(
       expect.objectContaining({ httpStream: expect.objectContaining({ cors: true, endpoint: "/mcp" }) }),
+    )
+  })
+
+  it.each([
+    [{ FASTMCP_HOST: "0.0.0.0" }, "0.0.0.0"],
+    [{ HOST: "127.0.0.1", FASTMCP_HOST: "0.0.0.0" }, "127.0.0.1"],
+  ])("binds to HOST, or FASTMCP_HOST when HOST is unset (%o)", async (env, expected) => {
+    vi.stubEnv("HOST", undefined)
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
+    await startServer("client-token")
+    await vi.waitFor(() => expect(captured.start).toHaveBeenCalled())
+    expect(captured.start).toHaveBeenCalledWith(
+      expect.objectContaining({ httpStream: expect.objectContaining({ host: expected }) }),
     )
   })
 
@@ -197,7 +210,7 @@ describe("oauth-proxy sign-in", () => {
     expect(metadata.scopes_supported).toContain("Contacts.ReadWrite")
   })
 
-  // With the store directory, these are what lets sign-ins made under FastMCP survive the move.
+  // With the store directory, these are what lets existing sign-ins survive a deploy.
   it("keeps the base URL and both keys as configured", async () => {
     await startServer("oauth-proxy")
     expect(captured.azureConfig).toMatchObject({

@@ -262,7 +262,7 @@ Environment variables to review before going live with an `oauth-proxy` deployme
 - [ ] `MS365_READ_ONLY=true` — demos / untrusted environments (list/get/search only)
 - [ ] `MS365_PRESETS` — e.g. `personal` to scope the tool surface
 - [ ] `PORT` (default `8080`) and `TRANSPORT_TYPE=httpStream`
-- [ ] `FASTMCP_HOST` / `HOST` — bind address; only expose `0.0.0.0` behind the HTTPS reverse proxy
+- [ ] `HOST` — bind address; only expose `0.0.0.0` behind the HTTPS reverse proxy
 
 ## Security Considerations
 
@@ -272,7 +272,7 @@ Environment variables to review before going live with an `oauth-proxy` deployme
 - **Read-only mode**: Use `MS365_READ_ONLY=true` for demos or untrusted environments.
 - **Dedicated signing/encryption keys (oauth-proxy)**: set `MS365_JWT_SIGNING_KEY` and `MS365_TOKEN_ENCRYPTION_KEY` to independent secrets. If unset they fall back to `MS365_CLIENT_SECRET` (key reuse — logged as a warning on startup). Use separate, high-entropy values in production. Note: setting/rotating `MS365_TOKEN_ENCRYPTION_KEY` invalidates persisted tokens, so users re-authenticate once.
 - **Token storage**: persisted OAuth tokens are encrypted on disk in a directory created mode `0700`. Default `/tmp/ms365-tokens`; set `TOKEN_STORAGE_PATH` to a persistent, private path (not world-writable `/tmp`) for real deployments.
-- **Bind address**: `httpStream` binds `127.0.0.1` by default. The Docker image sets `FASTMCP_HOST=0.0.0.0` to expose it inside the container (front it with the HTTPS reverse proxy). Set `HOST`/`FASTMCP_HOST` deliberately; don't expose `0.0.0.0` without a proxy.
+- **Bind address**: `httpStream` binds `127.0.0.1` by default. The Docker image sets `HOST=0.0.0.0` to expose it inside the container (front it with the HTTPS reverse proxy). Set `HOST` deliberately; don't expose `0.0.0.0` without a proxy. `FASTMCP_HOST`, the older name, is still read when `HOST` is unset, so to override the image's bind address, set `HOST`.
 - **Upload endpoint auth (non-oauth httpStream)**: the write-capable `/upload` relay requires `MS365_UPLOAD_TOKEN` outside oauth-proxy mode. If it's unset the endpoint refuses requests (`503`) rather than uploading with the server's own credentials. (In oauth-proxy mode the per-request bearer is required.)
 
 ## Dokploy Deployment

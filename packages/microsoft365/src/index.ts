@@ -2363,8 +2363,8 @@ const warnIfStatefulRequested = (): void => {
 // read_document) can otherwise be closed as idle by a proxy.
 const STREAM_KEEPALIVE = { enabled: true } as const
 
-// What FastMCP's HTTP layer allowed. SomaMCP's default is 4 MiB, which would refuse an upload_file
-// or draft call carrying a few MiB inline that works today.
+// 10 MiB, the limit before v1.3.0. SomaMCP's default is 4 MiB, which would refuse an upload_file or
+// draft call carrying a few MiB inline.
 const MAX_MCP_REQUEST_BYTES = 10 * 1024 * 1024
 
 // One server shape for every mode. SomaMCP's own info tool and /health, /info and /dashboard routes

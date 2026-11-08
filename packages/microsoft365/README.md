@@ -160,7 +160,7 @@ Endpoints provided automatically:
 - `POST /mcp` — MCP protocol (with bearer auth). The server is stateless, so `GET` and `DELETE` answer `405`
 - `GET /ping` — Pre-auth health check (for Docker/Kubernetes liveness probes)
 
-OAuth tokens are persisted to disk, so users stay authenticated across server restarts. Refresh tokens last 30 days, and a registered client expires 90 days after its last sign-in or refresh. Sign-ins made before the move from FastMCP keep working only while `MS365_OAUTH_BASE_URL`, `MS365_JWT_SIGNING_KEY`, `MS365_TOKEN_ENCRYPTION_KEY` and `TOKEN_STORAGE_PATH` stay the same. Set `TOKEN_STORAGE_PATH` to customize the storage directory (default: `/tmp/ms365-tokens`). For persistence across container recreations, mount a Docker volume at that path.
+OAuth tokens are persisted to disk, so users stay authenticated across server restarts. Refresh tokens last 30 days, and a registered client expires 90 days after its last sign-in or refresh. Existing sign-ins keep working only while `MS365_OAUTH_BASE_URL`, `MS365_JWT_SIGNING_KEY`, `MS365_TOKEN_ENCRYPTION_KEY` and `TOKEN_STORAGE_PATH` stay the same; changing any of them signs everyone out. Set `TOKEN_STORAGE_PATH` to customize the storage directory (default: `/tmp/ms365-tokens`). For persistence across container recreations, mount a Docker volume at that path.
 
 #### Adding a scope without a reconnect
 
@@ -787,7 +787,7 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 | `MS365_ORG_MODE`                | Enable org-only tools (teams, chats, groups, planner)                                                                           | `false`             |
 | `MS365_REQUIRE_DRAFT`           | Hide all `send_*` mail tools and block direct sends through `graph_query`; force the `create_*_draft` + `send_draft` flow       | `false`             |
 | `TOKEN_STORAGE_PATH`            | Directory for persistent OAuth token storage                                                                                    | `/tmp/ms365-tokens` |
-| `FASTMCP_HOST`                  | Older name for `HOST`, read when `HOST` is unset (set `0.0.0.0` in containers)                                                  | `127.0.0.1`         |
+| `FASTMCP_HOST`                  | Older name for `HOST`, read only when `HOST` is unset. The Docker image sets `HOST`, so override with `HOST`                    | `127.0.0.1`         |
 
 ### Graph resilience
 
@@ -874,7 +874,7 @@ Connect from Claude Desktop or any MCP client:
 }
 ```
 
-The Dockerfile sets `FASTMCP_HOST=0.0.0.0` (binds to all interfaces; the server still reads that name, beside `HOST`) and uses `/ping` for health checks (pre-auth endpoint).
+The Dockerfile sets `HOST=0.0.0.0` (binds to all interfaces; set `HOST` to override it) and uses `/ping` for health checks (pre-auth endpoint).
 
 See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full guide — Docker, Azure AD app setup, Dokploy, reverse proxy, and security configuration.
 

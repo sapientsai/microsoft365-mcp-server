@@ -15,7 +15,7 @@ export default [
     },
   },
   {
-    // The MCP tool execute()/route handlers throw at the somamcp/FastMCP framework boundary (its error
+    // The MCP tool execute()/route handlers throw at the somamcp framework boundary (its error
     // contract); internally they use core's Either and fold-to-throw at the edge (see graph-passthrough's
     // `unwrap`). So prefer-either is off for these boundary handlers, not the internal logic. prefer-fold
     // here only fires on raw nullable checks (if-guards, conditional spreads, `v == null ? "" : String(v)`)
