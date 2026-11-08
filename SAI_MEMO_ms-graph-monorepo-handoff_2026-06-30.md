@@ -10,11 +10,11 @@ Checkpoint for continuing the `microsoft365-mcp-server` → layered monorepo wor
 Consolidating two Microsoft Graph MCP servers into a **pnpm monorepo over a shared core**, keeping
 **two products** (delegated + app-only), both built & deployed from this repo:
 - **`microsoft365-mcp-server`** (`packages/microsoft365`, delegated/per-user OAuth) → published to npm;
-  Docker via `docker.yml` → `ghcr.io/sapientsai/microsoft365-mcp-server`. Serves `ms365.civala.ai`.
+  Docker via `docker.yml` → `ghcr.io/sapientsai/microsoft365-mcp-server`. Serves the hosted deployment.
 - **`microsoft-mcp-server`** (`packages/graph`, app-only `client_credentials`) → the reclaimed original
   name (see `#53`); Docker via `docker-graph.yml` → `ghcr.io/sapientsai/microsoft-mcp-server`. This is the
   successor to the archived `sapientsai/microsoft-mcp-server` repo (already archived).
-  (Note: the old memo claim that it maps to `ms-mcp-central.civala.ai` was never verified — don't trust it.)
+  (Note: the old memo's claim about which hosted service it maps to was never verified — don't trust it.)
 
 ## Current state — `main` @ latest is a 3-package monorepo
 
@@ -119,10 +119,10 @@ microsoft365-mcp-server/                (repo root = private workspace)
 2. **Archived-repo notice (separate repo):** `sapientsai/microsoft-mcp-server` is already archived, but its
    notice still calls `packages/microsoft365` "the successor." Reword so the app-only lineage points at
    `packages/graph` (now the `microsoft-mcp-server` name-holder). Needs unarchive to edit.
-3. **Deploy-side (parked, user action on `ms365.civala.ai`):** set `MS365_JWT_SIGNING_KEY` +
+3. **Deploy-side (parked, user action on the hosted deployment):** set `MS365_JWT_SIGNING_KEY` +
    `MS365_TOKEN_ENCRYPTION_KEY` (independent secrets) to activate the #34 key-separation; one-time
    re-auth window. Enforce fail-fast once set.
-4. **Redeploy delegated connector to `v1.0.29`** (`ms365.civala.ai`): picks up the whole Planner battery
+4. **Redeploy the hosted delegated connector to `v1.0.29`**: picks up the whole Planner battery
    (list_plans fan-out, buckets, edit/remove, auto-ETag). After redeploy, **re-grant the client's trusted-
    tools set** — republishing resets it (two new tools: `list_planner_buckets`, `create_planner_bucket`).
 5. **Token-refresh soak test (agentic-jobs / DBOS side, external):** the durable-loop goal crosses OAuth
@@ -159,7 +159,7 @@ microsoft365-mcp-server/                (repo root = private workspace)
   gate (no more `getApp()` self-applied auth); `getRequestHeader` normalizes the request shape. Pinned
   past pnpm's minimum-release-age gate via `minimumReleaseAgeExclude` in `pnpm-workspace.yaml`. fastmcp ^4.3.0.
 - **Local MCP config `.mcp.json`** (runs the delegated microsoft365 server inside Claude Code; NOT the
-  hosted `ms365.civala.ai` deploy, which sets its own Docker env):
+  hosted deployment, which sets its own Docker env):
   - `args` must be `./packages/microsoft365/dist/index.js` — the monorepo move left the old `./dist/index.js`
     path stale; running it crashes at startup (`ERR_MODULE_NOT_FOUND: dotenv`, no root runtime node_modules),
     which Claude Code surfaces as MCP `-32000`. Fixed `618f144`; stale root `dist/` (gitignored) removed.

@@ -792,7 +792,7 @@ const taskExtension = (task: GraphTodoTask, name: string | undefined): string | 
 const IMPORTANCE_LABELS: Readonly<Record<string, string>> = { high: "High importance", low: "Low importance" }
 
 /**
- * One task as one line, in the fixed order the Civala Assistant parses (test/plugin-contract.spec.ts):
+ * One task as one line, in the fixed order automated callers parse (test/plugin-contract.spec.ts):
  *
  *   - **<title>** [<status>] [<High|Low> importance] (Due: …) (Repeats: …) (Completed: <dateTime> <timeZone>)
  *     (Modified: …) (Categories: a, b) (Link: <externalId>) (Mail: <message id>) (Ext: <JSON>) (ID: <id>)

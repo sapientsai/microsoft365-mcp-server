@@ -11,16 +11,16 @@ import {
 
 describe("extensionProblem", () => {
   it("accepts a reverse-DNS name with flat fields", () => {
-    expect(extensionProblem({ name: "com.civala.assistant", fields: { rank: 1, tier: "top", pinned: true } })).toBe(
+    expect(extensionProblem({ name: "com.example.assistant", fields: { rank: 1, tier: "top", pinned: true } })).toBe(
       undefined,
     )
   })
 
   it.each([
     ["no dot", "assistant"],
-    ["a quote, which would break out of the $filter", "com.civala'x"],
-    ["a space", "com.civala assistant"],
-    ["a leading digit", "1com.civala"],
+    ["a quote, which would break out of the $filter", "com.example'x"],
+    ["a space", "com.example assistant"],
+    ["a leading digit", "1com.example"],
     ["too many characters", `com.${"a".repeat(100)}`],
   ])("refuses a name with %s", (_label, name) => {
     expect(extensionProblem({ name, fields: {} })).toContain("reverse DNS")
@@ -34,16 +34,16 @@ describe("extensionProblem", () => {
     ["a key Graph reads as an annotation", { "rank@odata.type": "x" }, "field name"],
     ["a reserved key", { id: "x" }, "field name"],
   ])("refuses %s", (_label, fields, message) => {
-    expect(extensionProblem({ name: "com.civala.assistant", fields: fields as never })).toContain(message)
+    expect(extensionProblem({ name: "com.example.assistant", fields: fields as never })).toContain(message)
   })
 
   it("refuses more than 20 fields", () => {
     const fields = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`f${i}`, i]))
-    expect(extensionProblem({ name: "com.civala.assistant", fields })).toContain("at most 20 fields")
+    expect(extensionProblem({ name: "com.example.assistant", fields })).toContain("at most 20 fields")
   })
 
   it("refuses more than 2 KB as JSON", () => {
-    expect(extensionProblem({ name: "com.civala.assistant", fields: { note: "x".repeat(2100) } })).toContain(
+    expect(extensionProblem({ name: "com.example.assistant", fields: { note: "x".repeat(2100) } })).toContain(
       "2048 bytes",
     )
   })

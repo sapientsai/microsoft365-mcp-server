@@ -527,12 +527,12 @@ describe("formatters", () => {
       size: 2048,
       lastModifiedDateTime: "2026-09-30T12:00:00Z",
       file: { mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
-      parentReference: { driveId: "drive-1", id: "parent-1", path: "/drive/root:/Work/Oncala" },
+      parentReference: { driveId: "drive-1", id: "parent-1", path: "/drive/root:/Work/Clients" },
     }
 
     it("shows the parent path, parent ID and drive ID in the detail view", () => {
       const result = formatDriveItemDetail(item)
-      expect(result).toContain("- Parent Path: /drive/root:/Work/Oncala")
+      expect(result).toContain("- Parent Path: /drive/root:/Work/Clients")
       expect(result).toContain("- Parent ID: parent-1")
       expect(result).toContain("- Drive ID: drive-1")
     })
@@ -545,7 +545,7 @@ describe("formatters", () => {
 
     it("puts the parent path and modified date on each summary line", () => {
       const result = formatDriveItemList([item])
-      expect(result).toContain("- in /drive/root:/Work/Oncala")
+      expect(result).toContain("- in /drive/root:/Work/Clients")
       expect(result).toContain("- modified 2026-09-30T12:00:00Z")
     })
 

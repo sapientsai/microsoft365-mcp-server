@@ -26,8 +26,8 @@ afterEach(() => {
 describe("isDirectMailSend", () => {
   it.each([
     "/me/sendMail",
-    "/users/it@civala.com/sendMail",
-    "/users('it@civala.com')/sendMail",
+    "/users/it@contoso.com/sendMail",
+    "/users('it@contoso.com')/sendMail",
     "/me/messages/m1/reply",
     "/me/messages/m1/replyAll",
     "/me/messages/m1/forward",

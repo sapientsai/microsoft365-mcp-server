@@ -525,7 +525,7 @@ describe("list_todo_tasks output", () => {
     dueDateTime: { dateTime: "2026-11-02T00:00:00.0000000", timeZone: "UTC" },
     lastModifiedDateTime: "2026-10-30T12:00:00Z",
     categories: ["Red category"],
-    linkedResources: [{ externalId: "civala:mail:AAMk1", applicationName: "Outlook" }],
+    linkedResources: [{ externalId: "sample:mail:AAMk1", applicationName: "Outlook" }],
   }
 
   it("expands linkedResources and prints every field in order", async () => {
@@ -534,7 +534,7 @@ describe("list_todo_tasks output", () => {
     expect(mockClient.listTodoTasks).toHaveBeenCalledWith(LIST_ID, { $expand: ["linkedResources"] })
     expect(result.value).toContain(
       "- **Reply to Bel** [notStarted] [High importance] (Due: 2026-11-02T00:00:00.0000000) (Modified: 2026-10-30T12:00:00Z) " +
-        "(Categories: Red category) (Link: civala:mail:AAMk1) (ID: t1)",
+        "(Categories: Red category) (Link: sample:mail:AAMk1) (ID: t1)",
     )
   })
 
@@ -583,7 +583,7 @@ describe("list_todo_tasks output", () => {
 
   // Real Graph message ids run past 100 characters; the key must come back whole.
   it("prints a long external_id whole", async () => {
-    const externalId = `civala:mail:${"A".repeat(160)}=`
+    const externalId = `sample:mail:${"A".repeat(160)}=`
     mockClient.listTodoTasks.mockResolvedValue(Right({ value: [{ id: "t5", linkedResources: [{ externalId }] }] }))
     const result = await listTodoTasks({ list_id: LIST_ID })
     expect(result.value).toContain(`(Link: ${externalId}) (ID: t5)`)
@@ -614,14 +614,14 @@ describe("list_todo_tasks output", () => {
 
 describe("create_todo_task with a source tag", () => {
   const link = {
-    external_id: "civala:mail:AAMk1",
+    external_id: "sample:mail:AAMk1",
     application_name: "Outlook",
     web_url: "https://outlook.office.com/x",
   }
 
   it("creates the task with its linked resource when no task carries the external_id", async () => {
     mockClient.listAllTodoTasks.mockResolvedValue(
-      Right([{ id: "other", linkedResources: [{ externalId: "civala:mail:OTHER" }] }]),
+      Right([{ id: "other", linkedResources: [{ externalId: "sample:mail:OTHER" }] }]),
     )
     mockClient.createTodoTask.mockResolvedValue(Right({ id: "new", title: "Reply" }))
     const result = await createTodoTask({ list_id: LIST_ID, title: "Reply", linked_resource: link })
@@ -631,7 +631,7 @@ describe("create_todo_task with a source tag", () => {
       title: "Reply",
       linkedResources: [
         {
-          externalId: "civala:mail:AAMk1",
+          externalId: "sample:mail:AAMk1",
           applicationName: "Outlook",
           displayName: "Outlook",
           webUrl: "https://outlook.office.com/x",
@@ -661,11 +661,11 @@ describe("create_todo_task with a source tag", () => {
   })
 
   it.each([
-    ["a line break", "civala:mail:a\nb"],
-    ["a parenthesis", "civala:mail:(a)"],
-    ["a pipe", "civala|mail"],
-    ["a comma", "civala:mail:a,b"],
-    ["a line separator", "civala:mail:a\u2028b"],
+    ["a line break", "sample:mail:a\nb"],
+    ["a parenthesis", "sample:mail:(a)"],
+    ["a pipe", "sample|mail"],
+    ["a comma", "sample:mail:a,b"],
+    ["a line separator", "sample:mail:a\u2028b"],
     ["nothing", "  "],
     ["too many characters", "x".repeat(201)],
   ])("refuses an external_id with %s before calling Graph", async (_label, externalId) => {
@@ -728,7 +728,7 @@ describe("categories", () => {
   })
 })
 
-const EXT = "com.civala.assistant"
+const EXT = "com.example.assistant"
 const graphExtension = (fields: Record<string, unknown>) => ({
   extensionName: EXT,
   id: `microsoft.graph.openTypeExtension.${EXT}`,
@@ -976,13 +976,13 @@ describe("list_todo_tasks change feed", () => {
   })
 
   it("starts a feed: prints every task as Graph sent it, and the token last", async () => {
-    delta([full("t1", { linkedResources: [{ externalId: "civala:mail:1" }] }), full("t2")])
+    delta([full("t1", { linkedResources: [{ externalId: "sample:mail:1" }] }), full("t2")])
     const result = await listTodoTasks({ list_id: LIST_ID, delta: true })
     expect(mockClient.todoTaskDelta).toHaveBeenCalledWith(LIST_ID, undefined)
     expect(mockClient.getTodoTask).not.toHaveBeenCalled()
     const lines = (result.value as string).split("\n")
     expect(lines[0]).toBe("# To Do Tasks")
-    expect(lines).toContain("- **Task t1** [notStarted] (Link: civala:mail:1) (ID: t1)")
+    expect(lines).toContain("- **Task t1** [notStarted] (Link: sample:mail:1) (ID: t1)")
     expect(lines.at(-1)).toBe("Delta token: next.token-1")
   })
 
@@ -998,7 +998,7 @@ describe("list_todo_tasks change feed", () => {
   it("prints no Ext on the first call, and says how to get it", async () => {
     delta([{ id: "t1" }])
     mockClient.getTodoTask.mockResolvedValue(Right(full("t1")))
-    const result = await listTodoTasks({ list_id: LIST_ID, delta: true, extension_name: "com.civala.assistant" })
+    const result = await listTodoTasks({ list_id: LIST_ID, delta: true, extension_name: "com.example.assistant" })
     expect(mockClient.getTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { $expand: ["linkedResources"] })
     const text = result.value as string
     expect(text).not.toContain("(Ext:")
@@ -1008,16 +1008,16 @@ describe("list_todo_tasks change feed", () => {
   it("reads every changed task afresh with a token, extension included", async () => {
     delta([{ id: "t1", importance: "high" }], "token-2")
     mockClient.getTodoTask.mockResolvedValue(
-      Right(full("t1", { importance: "high", extensions: [{ extensionName: "com.civala.assistant", rank: 2 }] })),
+      Right(full("t1", { importance: "high", extensions: [{ extensionName: "com.example.assistant", rank: 2 }] })),
     )
     const result = await listTodoTasks({
       list_id: LIST_ID,
       delta_token: "token-1",
-      extension_name: "com.civala.assistant",
+      extension_name: "com.example.assistant",
     })
     expect(mockClient.todoTaskDelta).toHaveBeenCalledWith(LIST_ID, "token-1")
     expect(mockClient.getTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", {
-      $expand: ["linkedResources", "extensions($filter=id eq 'com.civala.assistant')"],
+      $expand: ["linkedResources", "extensions($filter=id eq 'com.example.assistant')"],
     })
     const lines = (result.value as string).split("\n")
     expect(lines[0]).toBe("# To Do Changes")

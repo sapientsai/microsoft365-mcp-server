@@ -18,7 +18,7 @@ tools (sapientsai/SomaMCP#36).
 
 ## Why now: the 400 still ships
 
-- ms365.civala.ai checks sign-in first. An unauthenticated `2026-07-28` `server/discover` gets a 401 with
+- The hosted deployment checks sign-in first. An unauthenticated `2026-07-28` `server/discover` gets a 401 with
   the right `WWW-Authenticate`, so a probe from outside cannot see the fault.
 - A local 1.2.17 in `client-token` mode (same fastmcp 4.22.10 → mcp-proxy stack, no sign-in) answers an
   enveloped `2026-07-28` `server/discover` and `tools/list` with **HTTP 400**,
@@ -34,7 +34,7 @@ tools (sapientsai/SomaMCP#36).
 | `context.session.accessToken` | `authenticate` resolves the session tools see | OAuth mode reads it in `wrapExecute` |
 | `UserError` (18 files) | `somamcp` exports `UserError` | Import swap. Check that the SDK backend renders it as an `isError` result the way FastMCP did |
 | `/upload`, `/upload/attachment` | `addRoute({ method, path, handler })` | Keep `protected: false` and the existing `relayAuth`: these take upload tickets, not OAuth JWTs |
-| `/ping` | `addRoute` GET `/ping` → `ok` | Dockerfile `HEALTHCHECK`, README and civ-devops all use it. somamcp's own `/health` is extra |
+| `/ping` | `addRoute` GET `/ping` → `ok` | Dockerfile `HEALTHCHECK`, README and the hosted deployment's probes all use it. somamcp's own `/health` is extra |
 | Server instructions | `createServer({ instructions })` | Unchanged |
 | `info` tool | Added by default | Pass `enableIntrospection: false`, or accept one more tool and update the README counts |
 | MCPB bundle | Not affected | `scripts/build-mcpb.sh` zips `manifest.json` only |

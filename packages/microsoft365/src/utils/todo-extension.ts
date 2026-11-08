@@ -25,7 +25,7 @@ const OPEN_EXTENSION_TYPE = "microsoft.graph.openTypeExtension"
 export const EXTENSION_MAX_FIELDS = 20
 export const EXTENSION_MAX_BYTES = 2048
 
-// Reverse DNS, e.g. com.civala.assistant. The name also goes inside a quoted $filter, so the
+// Reverse DNS, e.g. com.example.assistant. The name also goes inside a quoted $filter, so the
 // pattern leaves no room for a quote or a space.
 const EXTENSION_NAME = /^[A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$/
 const EXTENSION_NAME_MAX = 100

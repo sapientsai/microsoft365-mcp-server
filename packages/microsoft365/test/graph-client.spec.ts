@@ -224,8 +224,8 @@ describe("graph-client AuthStrategy injection", () => {
     // A guest's sign-in name contains "#EXT#"; unencoded, "#" ends the path and the lookup 404s.
     it("encodes # in a guest's sign-in name", async () => {
       stubFetch({ id: "guest-id" })
-      await initializeGraphClient(auth).getUserByKey("pat_vendor.com#EXT#@civala.onmicrosoft.com")
-      expect(requestedUrl()).toContain("/users/pat_vendor.com%23EXT%23@civala.onmicrosoft.com?")
+      await initializeGraphClient(auth).getUserByKey("pat_vendor.com#EXT#@contoso.onmicrosoft.com")
+      expect(requestedUrl()).toContain("/users/pat_vendor.com%23EXT%23@contoso.onmicrosoft.com?")
       expect(decodeURIComponent(requestedUrl())).toContain("$select=id,displayName,mail,userPrincipalName,userType")
     })
 
@@ -239,8 +239,8 @@ describe("graph-client AuthStrategy injection", () => {
 
     it("doubles a quote in the mail filter", async () => {
       stubFetch({ value: [] })
-      await initializeGraphClient(auth).findUsersByMail("o'brien@civala.com")
-      expect(decodeURIComponent(requestedUrl())).toContain("$filter=mail eq 'o''brien@civala.com'")
+      await initializeGraphClient(auth).findUsersByMail("o'brien@contoso.com")
+      expect(decodeURIComponent(requestedUrl())).toContain("$filter=mail eq 'o''brien@contoso.com'")
     })
   })
 })
