@@ -9,9 +9,8 @@ import {
   formatTodoTaskList,
 } from "../src/utils/formatters"
 
-// The Civala Assistant plugin (claude-plugins, plugins/civala-assistant) turns these tools' text into
-// data with the regular expressions below, copied verbatim from scripts/triage_rules.mts and
-// scripts/chat_rules.mts at claude-plugins 4fe7fcb (2026-10-04).
+// An automated caller (a Claude plugin that triages mail and chats) turns these tools' text into data
+// with the regular expressions below, copied verbatim from its parsers as of 2026-10-04.
 //
 // Its parsers skip any line that does not match, silently. A formatter change that breaks one of
 // these patterns therefore loses mail or chat messages from triage without an error anywhere, so this
@@ -26,7 +25,7 @@ const MESSAGE_LINE = /^- \*\*(.*)\*\* \((\d{4}-\d{2}-\d{2}T[^)]*)\)((?: \[[^\]]+
 const TODO_REMOVED_LINE = /^Removed: ([^ ()]+)(?: \(([^)]+)\))?$/
 const TODO_DELTA_TOKEN_LINE = /^Delta token: ([A-Za-z0-9._~-]+)$/
 
-// list_todo_tasks, for Civala Assistant 1.3.0 (SAI_SPEC_To-Do-for-Civala-Assistant_2026-10-30.md, REQ-TODO-004).
+// list_todo_tasks, as the same caller parses it (REQ-TODO-004 of the To Do change request).
 // Every part but the title and ID is optional, and the order is fixed. Ext is pinned now though the
 // server only prints it from REQ-TODO-003, so the plugin copies this pattern once. Groups:
 // 1 title, 2 status, 3 importance, 4 due, 5 repeats, 6 completed, 7 modified, 8 categories, 9 link, 10 mail,
@@ -188,7 +187,7 @@ describe("plugin contract: list_todo_tasks", () => {
         recurrence: { pattern: { type: "daily", interval: 1 }, range: { type: "noEnd", startDate: "2026-11-02" } },
         completedDateTime: { dateTime: "2026-11-03T00:00:00.0000000", timeZone: "UTC" },
         categories: ["Red", "Blue"],
-        linkedResources: [{ externalId: "civala:mail:AAMk1", applicationName: "Outlook" }],
+        linkedResources: [{ externalId: "sample:mail:AAMk1", applicationName: "Outlook" }],
       }),
       {
         3: "High",
@@ -196,7 +195,7 @@ describe("plugin contract: list_todo_tasks", () => {
         5: "every day from 2026-11-02",
         6: "2026-11-03T00:00:00.0000000 UTC",
         8: "Red, Blue",
-        9: "civala:mail:AAMk1",
+        9: "sample:mail:AAMk1",
       },
     ],
     ["low importance and no status", task({ status: undefined, importance: "low" }), { 2: undefined, 3: "Low" }],
@@ -212,7 +211,7 @@ describe("plugin contract: list_todo_tasks", () => {
   })
 
   it("returns a long external_id whole in the Link group", () => {
-    const externalId = `civala:mail:${"A".repeat(160)}=`
+    const externalId = `sample:mail:${"A".repeat(160)}=`
     const lines = itemLines(formatTodoTaskList([task({ linkedResources: [{ externalId }] })]))
     expect(TODO_LINE.exec(lines[0])?.[9]).toBe(externalId)
   })
@@ -225,28 +224,28 @@ describe("plugin contract: list_todo_tasks", () => {
 
   it("parses the Ext group the formatter prints for a named extension", () => {
     const todo = task({
-      linkedResources: [{ externalId: "civala:mail:AAMk1" }],
+      linkedResources: [{ externalId: "sample:mail:AAMk1" }],
       extensions: [
         {
-          extensionName: "com.civala.assistant",
-          id: "microsoft.graph.openTypeExtension.com.civala.assistant",
+          extensionName: "com.example.assistant",
+          id: "microsoft.graph.openTypeExtension.com.example.assistant",
           "rank@odata.type": "#Int64",
           rank: 1,
           note: "a) b",
         },
       ],
     })
-    const lines = itemLines(formatTodoTaskList([todo], "com.civala.assistant"))
+    const lines = itemLines(formatTodoTaskList([todo], "com.example.assistant"))
     const match = TODO_LINE.exec(lines[0])
     expect(match?.[11]).toBe('{"rank":1,"note":"a) b"}')
-    expect(match?.[9]).toBe("civala:mail:AAMk1")
+    expect(match?.[9]).toBe("sample:mail:AAMk1")
     expect(match?.[12]).toBe(todo.id)
   })
 
   // Ext is printed from REQ-TODO-003. Its JSON may hold ")", which the anchored ID group must survive.
   it("parses an Ext group whose JSON holds a parenthesis", () => {
     const line =
-      '- **Reply to Bel** [notStarted] (Link: civala:mail:AAMk1) (Mail: AAMk-msg=) (Ext: {"rank":1,"note":"a) b"}) (ID: t1)'
+      '- **Reply to Bel** [notStarted] (Link: sample:mail:AAMk1) (Mail: AAMk-msg=) (Ext: {"rank":1,"note":"a) b"}) (ID: t1)'
     const match = TODO_LINE.exec(line)
     expect(match?.[11]).toBe('{"rank":1,"note":"a) b"}')
     expect(match?.[12]).toBe("t1")

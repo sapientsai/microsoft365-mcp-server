@@ -1990,7 +1990,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
           external_id: z
             .string()
             .describe(
-              "Your key for the source, e.g. 'civala:mail:<message id>'. At most 200 characters, with no line " +
+              "Your key for the source, e.g. 'myapp:mail:<message id>'. At most 200 characters, with no line " +
                 "break, |, (, ) or comma. One task per external_id per list",
             ),
           application_name: z.string().describe("The source app, e.g. 'Outlook'"),

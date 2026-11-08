@@ -18,7 +18,7 @@ tools (sapientsai/SomaMCP#36).
 
 ## Why now: the 400 still ships
 
-- ms365.civala.ai checks sign-in first. An unauthenticated `2026-07-28` `server/discover` gets a 401 with
+- The hosted deployment checks sign-in first. An unauthenticated `2026-07-28` `server/discover` gets a 401 with
   the right `WWW-Authenticate`, so a probe from outside cannot see the fault.
 - A local 1.2.17 in `client-token` mode (same fastmcp 4.22.10 → mcp-proxy stack, no sign-in) answers an
   enveloped `2026-07-28` `server/discover` and `tools/list` with **HTTP 400**,

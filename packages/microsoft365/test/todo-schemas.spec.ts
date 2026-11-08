@@ -9,7 +9,7 @@ describe("set_todo_task_state parameters", () => {
       task_id: "t",
       status: "completed",
       importance: "high",
-      extension: { name: "com.civala.assistant", fields: { rank: 1 } },
+      extension: { name: "com.example.assistant", fields: { rank: 1 } },
     })
     expect(parsed.success).toBe(true)
   })

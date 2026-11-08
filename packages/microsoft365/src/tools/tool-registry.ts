@@ -412,8 +412,8 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
   },
   { name: "update_todo_task", title: "Update To Do Task", domain: "todo", readOnly: false, orgOnly: false },
   // Overwrites status and importance, so destructive under MCP's definition (only additive updates
-  // are non-destructive), but the same call twice changes nothing more. See SAI_SPEC_To-Do-for-
-  // Civala-Assistant_2026-10-30.md, DR-001.
+  // are non-destructive), but the same call twice changes nothing more, so it is idempotent. No
+  // reversible flag: MCP annotations have none, and status and importance can be set back by this tool.
   {
     name: "set_todo_task_state",
     title: "Set To Do Task State",
