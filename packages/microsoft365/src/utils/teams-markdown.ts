@@ -139,15 +139,17 @@ const renderBlock = (block: Block): string => {
 /** Markdown to Teams message HTML; see the comment at the top of this file for what is converted. */
 export const markdownToTeamsHtml = (markdown: string): string => blocks(markdown).map(renderBlock).join("")
 
-// Teams refuses a message over about 28 KB, so a longer one can't be sent either way, and the inline
-// patterns slow down on very long lines. Markdown longer than this is refused before converting.
+// This tool's own cap, not Teams': the inline patterns slow down on very long lines (about 0.6 s for the
+// worst input at this length). Microsoft documents about 100 KB per Teams post, and recommends keeping
+// a message within 80 KB (learn.microsoft.com, "Limits and specifications for Microsoft Teams").
+// Markdown longer than this is refused before converting.
 export const MAX_MARKDOWN_CHARS = 30_000
 
 /** Why content can't be sent in this format, or undefined when it can. */
 export const messageFormatProblem = (content: string, format: MessageFormat | undefined): string | undefined =>
   format === "markdown" && content.length > MAX_MARKDOWN_CHARS
     ? `The message is ${content.length.toLocaleString("en-US")} characters, over the ${MAX_MARKDOWN_CHARS.toLocaleString("en-US")} ` +
-      "a Markdown message may have. Teams refuses messages over about 28 KB; split it into several messages."
+      "this tool converts as Markdown. Split it into several messages, or send it with format: text."
     : undefined
 
 export const MESSAGE_FORMATS = ["text", "markdown"] as const

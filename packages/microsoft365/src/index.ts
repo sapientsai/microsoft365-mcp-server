@@ -307,7 +307,7 @@ const MESSAGE_FORMAT_PARAM = z
   .describe(
     "'text' (default) sends content as typed. 'markdown' formats it: **bold**, *italic*, `code`, ``` code " +
       "blocks ```, '- ' and '1. ' lists, # headings and [links](https://…). Use markdown for steps, " +
-      "commands or anything with structure.",
+      "commands or anything with structure. Markdown is capped at 30,000 characters.",
   )
 
 const CALENDAR_ID_PARAM = z

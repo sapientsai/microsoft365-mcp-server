@@ -91,7 +91,9 @@ describe("markdownToTeamsHtml", () => {
 describe("messageFormatProblem", () => {
   it("refuses Markdown over the cap, and never refuses text", () => {
     const long = "x".repeat(MAX_MARKDOWN_CHARS + 1)
-    expect(messageFormatProblem(long, "markdown")).toContain("split it into several messages")
+    expect(messageFormatProblem(long, "markdown")).toContain(
+      "Split it into several messages, or send it with format: text.",
+    )
     expect(messageFormatProblem(long, "text")).toBeUndefined()
     expect(messageFormatProblem(long, undefined)).toBeUndefined()
     expect(messageFormatProblem("x".repeat(MAX_MARKDOWN_CHARS), "markdown")).toBeUndefined()
