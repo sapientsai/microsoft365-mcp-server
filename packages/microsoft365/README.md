@@ -567,6 +567,13 @@ SharePoint tools use **delegated permissions** — users see only the sites and 
 | `list_channel_messages` | List recent channel messages, with their IDs                              |
 | `send_channel_message`  | Send a message to a channel, or reply in a thread (`reply_to_message_id`) |
 
+> `send_chat_message` and `send_channel_message` take `format`. `text`, the default, sends the
+> content as typed. `markdown` converts **bold**, _italic_, `code`, fenced code blocks, `- ` and
+> `1. ` lists, `#` headings (as a bold line) and `[links](https://…)` to the HTML Teams renders.
+> Everything else is escaped, so a `<` in the content arrives as a `<`, and only `http:` and
+> `https:` links become links. Markdown is capped at 30,000 characters (this tool's limit, for
+> conversion speed); split a longer message or send it as `text`.
+
 ### Meeting Transcripts (2 tools, org mode)
 
 Requires opt-in scopes that are **not** requested by default — see [Meeting transcripts](#meeting-transcripts).

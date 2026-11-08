@@ -6,6 +6,7 @@ import { tokenTenant } from "../auth/token-facts"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphChat, GraphChatMessage, GraphUser, ODataResponse } from "../types"
 import { formatChatList, formatChatMessageList, isReadableChatMessage } from "../utils/formatters"
+import { messageBody, type MessageFormat, messageFormatProblem } from "../utils/teams-markdown"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -308,6 +309,7 @@ export const sendChatMessage = async (params: {
   to?: string
   topic?: string
   content: string
+  format?: MessageFormat
 }): Promise<Either<UserError, string>> => {
   if ((params.chat_id === undefined) === (params.to === undefined)) {
     return Left(new UserError("Pass exactly one of chat_id (an existing chat) or to (people to message)."))
@@ -315,12 +317,15 @@ export const sendChatMessage = async (params: {
   if (params.chat_id !== undefined && params.topic !== undefined) {
     return Left(new UserError("topic only applies when starting a group chat with 'to'."))
   }
+  // Before any call, so 'to' doesn't start a chat for a message that can't be sent.
+  const tooLong = messageFormatProblem(params.content, params.format)
+  if (tooLong) return Left(new UserError(tooLong))
 
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.chat_id !== undefined) {
-    const result = await client.sendChatMessage(params.chat_id, params.content)
+    const result = await client.sendChatMessage(params.chat_id, messageBody(params.content, params.format))
     return result
       .mapLeft((error) => new UserError(`Failed to send chat message: ${error.message}`))
       .map(() => "Chat message sent.")
@@ -330,7 +335,7 @@ export const sendChatMessage = async (params: {
   if (chat.isLeft()) return Left(chat.value as UserError)
   const { id, chatType } = chat.value as GraphChat
 
-  const sent = await client.sendChatMessage(id, params.content)
+  const sent = await client.sendChatMessage(id, messageBody(params.content, params.format))
   const where =
     chatType === "group"
       ? `Started a new group chat (chat ID: ${id}). Use this chat_id for follow-ups; 'to' would start another one.`

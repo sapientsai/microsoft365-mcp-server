@@ -406,15 +406,16 @@ const createGraphClient = (auth: AuthStrategy) => {
       odataParams,
     })
 
-  const sendChannelMessage = (teamId: string, channelId: string, content: string) =>
-    request<GraphChannelMessage>("POST", `/teams/${teamId}/channels/${channelId}/messages`, {
-      body: { body: { content } },
-    })
+  // A message body is { contentType: "text" | "html", content }; see utils/teams-markdown.ts.
+  type MessageBody = { readonly contentType: "text" | "html"; readonly content: string }
+
+  const sendChannelMessage = (teamId: string, channelId: string, body: MessageBody) =>
+    request<GraphChannelMessage>("POST", `/teams/${teamId}/channels/${channelId}/messages`, { body: { body } })
 
   // Graph only accepts replies to a top-level channel message, not to another reply.
-  const replyToChannelMessage = (teamId: string, channelId: string, messageId: string, content: string) =>
+  const replyToChannelMessage = (teamId: string, channelId: string, messageId: string, body: MessageBody) =>
     request<GraphChannelMessage>("POST", `/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies`, {
-      body: { body: { content } },
+      body: { body },
     })
 
   // Chats
@@ -424,10 +425,8 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listChatMessages = (chatId: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphChatMessage>>("GET", `/chats/${chatId}/messages`, { odataParams })
 
-  const sendChatMessage = (chatId: string, content: string, contentType: string = "text") =>
-    request<GraphChatMessage>("POST", `/chats/${chatId}/messages`, {
-      body: { body: { contentType, content } },
-    })
+  const sendChatMessage = (chatId: string, body: MessageBody) =>
+    request<GraphChatMessage>("POST", `/chats/${chatId}/messages`, { body: { body } })
 
   // Graph returns the existing chat for a one-on-one pair, but creates a new group chat every call.
   const createChat = (chat: Record<string, unknown>) => request<GraphChat>("POST", "/chats", { body: chat })

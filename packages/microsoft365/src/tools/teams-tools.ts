@@ -5,6 +5,7 @@ import { UserError } from "somamcp"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphChannel, GraphChannelMessage, ODataResponse } from "../types"
 import { formatChannelList, formatChannelMessageList, formatTeamList } from "../utils/formatters"
+import { messageBody, type MessageFormat, messageFormatProblem } from "../utils/teams-markdown"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -80,7 +81,10 @@ export const sendChannelMessage = async (params: {
   channel_id: string
   content: string
   reply_to_message_id?: string
+  format?: MessageFormat
 }): Promise<Either<UserError, string>> => {
+  const tooLong = messageFormatProblem(params.content, params.format)
+  if (tooLong) return Left(new UserError(tooLong))
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
@@ -89,14 +93,18 @@ export const sendChannelMessage = async (params: {
       params.team_id,
       params.channel_id,
       params.reply_to_message_id,
-      params.content,
+      messageBody(params.content, params.format),
     )
     return reply
       .mapLeft((error) => new UserError(`Failed to reply in thread: ${error.message}`))
       .map(() => "Reply posted in the thread.")
   }
 
-  const result = await client.sendChannelMessage(params.team_id, params.channel_id, params.content)
+  const result = await client.sendChannelMessage(
+    params.team_id,
+    params.channel_id,
+    messageBody(params.content, params.format),
+  )
   return result
     .mapLeft((error) => new UserError(`Failed to send message: ${error.message}`))
     .map(() => "Message sent to channel.")
