@@ -129,7 +129,10 @@ const chatMessagesFailure = async (client: Client, chatId: string, error: GraphA
   })
   const host = chat.fold(
     () => undefined,
-    (c) => (c as { tenantId?: string }).tenantId?.toLowerCase(),
+    (c) => {
+      const id = (c as { tenantId?: unknown }).tenantId
+      return typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id) ? id.toLowerCase() : undefined
+    },
   )
   const own = host === undefined ? undefined : await tokenTenant()
   if (host === undefined || own === undefined || host === own) return new UserError(message)

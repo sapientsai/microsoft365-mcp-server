@@ -837,14 +837,14 @@ describe("calendar-tools", () => {
               subject: "Standup",
               start: { dateTime: "2026-11-09T09:30:00.0000000", timeZone: "America/New_York" },
               end: { dateTime: "2026-11-09T10:00:00.0000000", timeZone: "America/New_York" },
-              originalStartTimeZone: "Eastern Standard Time",
+              originalStartTimeZone: "GMT Standard Time",
             },
           ],
         }),
       )
       const result = await listEvents({ time_zone: "America/New_York" })
       expect(result.value).toContain(
-        "**Standup** (2026-11-09 09:30–10:00 America/New_York; set in Eastern Standard Time) (ID: e1)",
+        "**Standup** (2026-11-09 09:30–10:00 America/New_York; set in GMT Standard Time) (ID: e1)",
       )
     })
   })

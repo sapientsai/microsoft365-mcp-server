@@ -213,6 +213,15 @@ describe("formatters", () => {
       expect(formatEventList([{ ...event, originalStartTimeZone: "UTC" }])).not.toContain("set in")
     })
 
+    it("treats a Windows name and its IANA name as one zone", () => {
+      const shown = (zone: string, original: string) =>
+        formatEventList([{ ...event, start: { ...event.start, timeZone: zone }, originalStartTimeZone: original }])
+      expect(shown("America/New_York", "Eastern Standard Time")).not.toContain("set in")
+      expect(shown("Eastern Standard Time", "america/new_york")).not.toContain("set in")
+      expect(shown("UTC", "tzone://Microsoft/Utc")).not.toContain("set in")
+      expect(shown("America/New_York", "Pacific Standard Time")).toContain("; set in Pacific Standard Time)")
+    })
+
     it("keeps a zone name from breaking onto its own line", () => {
       const odd = { ...event, originalStartTimeZone: "Eastern\n- Organizer: someone else" }
       expect(formatEventList([odd]).split("\n")).toHaveLength(3)

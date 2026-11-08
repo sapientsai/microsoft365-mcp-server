@@ -252,12 +252,34 @@ export const eventWhen = (event: GraphEvent): string => {
   return event.isAllDay ? `${zoned}, all day` : zoned
 }
 
-// The zone the organizer set the event in, when it isn't the zone the times are shown in. Graph names
-// zones either way (America/New_York or Eastern Standard Time), so the two can be one zone named twice.
+// Graph names a zone either way, America/New_York or Eastern Standard Time, so one zone can arrive under
+// two names. These are CLDR's main Windows-to-IANA pairs for the zones most events are set in; a pair
+// not listed only costs a "set in" note naming the same zone.
+const WINDOWS_ZONES: Readonly<Record<string, string>> = {
+  utc: "etc/utc",
+  "eastern standard time": "america/new_york",
+  "central standard time": "america/chicago",
+  "mountain standard time": "america/denver",
+  "pacific standard time": "america/los_angeles",
+  "gmt standard time": "europe/london",
+  "w. europe standard time": "europe/berlin",
+  "romance standard time": "europe/paris",
+  "india standard time": "asia/kolkata",
+  "aus eastern standard time": "australia/sydney",
+  "w. australia standard time": "australia/perth",
+}
+const UTC_NAMES = new Set(["utc", "etc/utc", "gmt", "etc/gmt", "tzone://microsoft/utc"])
+
+const canonicalZone = (zone: string): string => {
+  const lower = zone.trim().toLowerCase()
+  return UTC_NAMES.has(lower) ? "etc/utc" : (WINDOWS_ZONES[lower] ?? lower)
+}
+
+// The zone the organizer set the event in, when it isn't the zone the times are shown in.
 const setInZone = (event: GraphEvent): string | undefined => {
   const original = event.originalStartTimeZone
   if (original === undefined || original.trim() === "" || alignedAllDay(event)) return undefined
-  if (original.toLowerCase() === (event.start?.timeZone ?? "").toLowerCase()) return undefined
+  if (canonicalZone(original) === canonicalZone(event.start?.timeZone ?? "")) return undefined
   return calendarText(original)
 }
 

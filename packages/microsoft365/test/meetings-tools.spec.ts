@@ -494,6 +494,38 @@ describe("meetings hosted by another organization", () => {
     expect(message).not.toContain("MS365_EXTRA_SCOPES")
   })
 
+  it.each([
+    ["throttled", { type: "throttle", status: 429, message: "Too many requests" }],
+    ["unavailable", { type: "api", status: 503, message: "Service unavailable" }],
+    ["offline", { type: "network", message: "fetch failed" }],
+  ])("doesn't blame the other organization when the lookup is %s", async (_name, error) => {
+    mockClient.graphQuery.mockResolvedValueOnce(Left(error))
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OTHER_TENANT) })
+    expect((result.value as Error).message).not.toContain("another organization")
+  })
+
+  it("doesn't blame it when listing transcripts is throttled", async () => {
+    mockClient.graphQuery
+      .mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+      .mockResolvedValueOnce(Left({ type: "throttle", status: 429, message: "Too many requests" }))
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OTHER_TENANT) })
+    expect((result.value as Error).message).toBe("Failed to list transcripts: Too many requests")
+  })
+
+  it("doesn't blame it when the transcript content fails for another reason", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+    stubFetch([{ ok: false, status: 404, body: JSON.stringify({ error: { message: "Transcript not found" } }) }])
+    const result = await getMeetingTranscript({ join_web_url: joinUrlIn(OTHER_TENANT), transcript_id: TRANSCRIPT_ID })
+    expect((result.value as Error).message).toBe("Failed to get transcript (404): Transcript not found")
+  })
+
+  it("names it when the transcript content is refused", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+    stubFetch([forbidden("SomethingElse", "UnknownError")])
+    const result = await getMeetingTranscript({ join_web_url: joinUrlIn(OTHER_TENANT), transcript_id: TRANSCRIPT_ID })
+    expect((result.value as Error).message).toContain("another organization")
+  })
+
   it("says nothing about another organization for a meeting in the token's own tenant", async () => {
     mockClient.graphQuery.mockResolvedValueOnce(Left({ type: "forbidden", status: 403, message: "3003: no access" }))
     const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OWN_TENANT) })

@@ -815,6 +815,16 @@ describe("set_todo_task_state", () => {
     expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { importance: "high" })
   })
 
+  it("says nothing changed when a repeating task is already completed, rather than refusing", async () => {
+    mockClient.getTodoTask.mockResolvedValue(
+      Right({ id: "t1", status: "completed", importance: "normal", recurrence: QUARTERLY }),
+    )
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "completed" })
+    expect(result.isRight()).toBe(true)
+    expect(result.value).toBe("Nothing changed on task t1: status was already completed.")
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
   it("refuses when the task can't be read, and changes nothing", async () => {
     mockClient.getTodoTask.mockResolvedValue(Left({ type: "network", message: "offline" }))
     const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", importance: "high" })

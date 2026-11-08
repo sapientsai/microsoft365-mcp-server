@@ -19,6 +19,7 @@ const delegated = (scopes: ReadonlyArray<string>) => {
 const denied: GraphApiError = {
   type: "forbidden",
   status: 403,
+  graphErrorCode: "ErrorAccessDenied",
   message: "Access is denied. Check credentials and try again.",
 }
 const refusal = (method: string, path: string, error: GraphApiError = denied) =>
@@ -55,10 +56,30 @@ describe("explainMailboxRefusal", () => {
     expect(message).toContain("it@example.com has to give you access to it")
   })
 
-  it("points at Send As when a send is refused with the scope held", async () => {
+  it("points at Send As when Exchange refuses the send with the scope held", async () => {
     delegated(["Mail.Send.Shared"])
-    const message = await refusal("POST", "/users/it@example.com/messages/AAMk1=/reply")
+    const message = await refusal("POST", "/users/it@example.com/messages/AAMk1=/reply", {
+      ...denied,
+      graphErrorCode: "ErrorSendAsDenied",
+    })
     expect(message).toContain("Send As or Send on Behalf")
+  })
+
+  it("only rules out the scope when the refusal isn't Exchange's access code", async () => {
+    delegated(["Mail.ReadWrite.Shared"])
+    const message = await refusal("GET", "/users/it@example.com/messages", {
+      ...denied,
+      graphErrorCode: "ErrorItemNotFound",
+    })
+    expect(message).toContain("The token holds Mail.ReadWrite.Shared, so the permission is not the cause.")
+    expect(message).not.toContain("has to give you access")
+  })
+
+  it("doesn't claim a Send As refusal from a plain access-denied on a send", async () => {
+    delegated(["Mail.Send.Shared"])
+    const message = await refusal("POST", "/users/it@example.com/sendMail")
+    expect(message).not.toContain("Send As")
+    expect(message).toContain("so the permission is not the cause")
   })
 
   it("leaves your own mailbox alone", async () => {

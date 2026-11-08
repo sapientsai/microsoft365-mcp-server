@@ -298,7 +298,9 @@ agent; it does not authorise anything.
 
   Graph refuses both a missing `.Shared` scope and missing Exchange access with the same
   "Access is denied". A refusal on another mailbox says which it is: it names the scope the
-  token lacks, or, when the token holds it, says that Exchange refused the mailbox itself.
+  token lacks, or, when the token holds it and Exchange's code shows an access refusal, says
+  that Exchange refused the mailbox itself. Moves made in a batch (`batch_move_messages`,
+  `move_messages_matching`) keep Graph's words.
 
 - **Client secret / certificate (app-only).** These request `.default`, so permissions
   come from the app registration — nothing to add here. Each mailbox must be listed in
@@ -1007,5 +1009,5 @@ Worth knowing:
    configuration is required.
 7. **Another organization's meetings can't be read.** Graph doesn't let a signed-in user read a
    meeting, its transcripts or its chat when another organization hosts it, and no permission
-   changes that. When the join URL or the chat shows another tenant, the error says so. Scope advice
-   appears only when the token lacks the scope.
+   changes that. When Graph refuses one and the join URL or the chat shows another tenant, the error
+   says so. Scope advice is left out when the token already holds the scope.

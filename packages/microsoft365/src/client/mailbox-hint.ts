@@ -19,7 +19,12 @@ const SEND = ["Mail.Send.Shared"] as const
 
 const oneLine = (value: string): string => value.replace(/[\r\n]+/g, " ").slice(0, 120)
 
-const hintFor = async (method: string, path: string): Promise<string | undefined> => {
+// Exchange's own codes for "this user has no access to that mailbox" and "may not send as it". Any
+// other refusal with the scope held only proves the scope isn't the cause.
+const MAILBOX_DENIED = "erroraccessdenied"
+const SEND_AS_DENIED = "errorsendasdenied"
+
+const hintFor = async (method: string, path: string, code: string | undefined): Promise<string | undefined> => {
   const address = OTHER_MAILBOX.exec(path)?.[1]
   if (address === undefined) return undefined
   if ((await tokenKind()) !== "delegated") return undefined
@@ -38,11 +43,18 @@ const hintFor = async (method: string, path: string): Promise<string | undefined
       "mailbox needs. A tenant admin adds it to the app's consent, and the server's scope list must include it."
     )
   }
-  return sends
-    ? `The token holds ${held}, so the permission is in place and Exchange refused the send itself. ` +
-        `${mailbox} has to give you Send As or Send on Behalf permission.`
-    : `The token holds ${held}, so the permission is in place and Exchange refused the mailbox itself. ` +
-        `${mailbox} has to give you access to it, in Outlook or by an admin with Add-MailboxPermission.`
+  const lower = code?.toLowerCase()
+  if (sends && lower === SEND_AS_DENIED)
+    return (
+      `The token holds ${held}, so the permission is in place and Exchange refused the send itself. ` +
+      `${mailbox} has to give you Send As or Send on Behalf permission.`
+    )
+  if (!sends && lower === MAILBOX_DENIED)
+    return (
+      `The token holds ${held}, so the permission is in place and Exchange refused the mailbox itself. ` +
+      `${mailbox} has to give you access to it, in Outlook or by an admin with Add-MailboxPermission.`
+    )
+  return `The token holds ${held}, so the permission is not the cause.`
 }
 
 /** Adds the cause to a refusal on another person's mailbox, when the token proves it. */
@@ -54,6 +66,6 @@ export const explainMailboxRefusal = async <T>(
   if (result.isRight()) return result
   const error = result.value as GraphApiError
   if (error.type !== "forbidden") return result
-  const hint = await hintFor(method, path)
+  const hint = await hintFor(method, path, error.graphErrorCode)
   return hint === undefined ? result : Left<GraphApiError, T>({ ...error, message: `${error.message} ${hint}` })
 }

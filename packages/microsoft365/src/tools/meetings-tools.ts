@@ -75,7 +75,8 @@ export const joinUrlTenant = (joinWebUrl: string): string | undefined => {
 }
 
 // Graph won't let a delegated token read a meeting another organization hosts, nor its transcripts,
-// and no permission on this side changes that. Said only when the join URL and the token prove it.
+// and no permission on this side changes that. Said only on a refusal (403), and only when the join
+// URL and the token prove the meeting is another organization's: a 429 or a timeout is still retryable.
 const externalMeeting = async (params: MeetingRef): Promise<string | undefined> => {
   if (!params.join_web_url) return undefined
   const organizer = joinUrlTenant(params.join_web_url)
@@ -147,8 +148,9 @@ const resolveMeetingId = async (params: MeetingRef): Promise<Either<UserError, s
     defaultVersion(),
   )
   if (result.isLeft()) {
-    const message = `Failed to resolve meeting: ${(result.value as { message: string }).message}`
-    const external = await externalMeeting(params)
+    const error = result.value as { message: string; status?: number }
+    const message = `Failed to resolve meeting: ${error.message}`
+    const external = error.status === 403 ? await externalMeeting(params) : undefined
     return Left(new UserError(external === undefined ? message : `${message}\n\n${external}`))
   }
 
@@ -183,9 +185,9 @@ const transcriptError = async (
   params: MeetingRef,
 ): Promise<UserError> => {
   const message = `Failed to list transcripts: ${error.message}`
+  if (error.status !== 403) return new UserError(message)
   const external = await externalMeeting(params)
   if (external !== undefined) return new UserError(`${message}\n\n${external}`)
-  if (error.status !== 403) return new UserError(message)
 
   // Both 403s here answer with outer code "Forbidden"; only the inner code separates "you lack the
   // scope" from "the tenant switched the feature off". Appending scope advice to the latter is
@@ -234,7 +236,7 @@ const contentHttpError = async (attempt: ContentAttempt, params: MeetingRef): Pr
     }
   })()
 
-  const external = await externalMeeting(params)
+  const external = attempt.status === 403 ? await externalMeeting(params) : undefined
   if (external !== undefined)
     return new UserError(`Failed to get transcript (${attempt.status}): ${message}\n\n${external}`)
 
