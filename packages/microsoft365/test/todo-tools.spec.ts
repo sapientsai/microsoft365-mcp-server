@@ -10,6 +10,7 @@ import { getGraphClient } from "../src/client/graph-client"
 import {
   createTodoList,
   createTodoTask,
+  deleteTodoList,
   deleteTodoTask,
   listTodoTasks,
   setTodoTaskState,
@@ -23,6 +24,8 @@ const mockClient = {
   deleteTodoTask: vi.fn(),
   listTodoLists: vi.fn(),
   createTodoList: vi.fn(),
+  getTodoList: vi.fn(),
+  deleteTodoList: vi.fn(),
   requestPaginated: vi.fn(),
   listTodoTasks: vi.fn(),
   listAllTodoTasks: vi.fn(),
@@ -785,12 +788,54 @@ describe("set_todo_task_state", () => {
     expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
   })
 
-  it("sets status and importance in one PATCH, without reading the task first", async () => {
+  it("reads the task, then sets status and importance in one PATCH", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "notStarted", importance: "normal" }))
     mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
     const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "inProgress", importance: "high" })
     expect(result.isRight()).toBe(true)
-    expect(mockClient.getTodoTask).not.toHaveBeenCalled()
+    expect(result.value).toBe("Set status and importance on task t1.")
     expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { status: "inProgress", importance: "high" })
+  })
+
+  it("says nothing changed on an identical repeat, and sends no PATCH", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "inProgress", importance: "high" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "inProgress", importance: "high" })
+    expect(result.isRight()).toBe(true)
+    expect(result.value).toBe(
+      "Nothing changed on task t1: status was already inProgress and importance was already high.",
+    )
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("sends only the field that changes, and says the other was already set", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "inProgress", importance: "normal" }))
+    mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "inProgress", importance: "high" })
+    expect(result.value).toBe("Set importance on task t1 (status was already inProgress).")
+    expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { importance: "high" })
+  })
+
+  it("refuses when the task can't be read, and changes nothing", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Left({ type: "network", message: "offline" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", importance: "high" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Failed to read the task, so nothing was changed: offline")
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
+  })
+
+  it("writes no extension whose fields already hold the values, and says so", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "inProgress", importance: "high" }))
+    mockClient.getTodoTaskExtension.mockResolvedValue(Right(graphExtension({ rank: 1, tier: "top" })))
+    const result = await setTodoTaskState({
+      list_id: LIST_ID,
+      task_id: "t1",
+      importance: "high",
+      extension: { name: EXT, fields: { rank: 1 } },
+    })
+    expect(result.isRight()).toBe(true)
+    expect(result.value).toContain("Nothing changed on task t1 (importance was already high)")
+    expect(mockClient.replaceTodoTaskExtension).not.toHaveBeenCalled()
+    expect(mockClient.updateTodoTask).not.toHaveBeenCalled()
   })
 
   // Each completion of a repeating task rolls the series on, so the call couldn't be repeated safely.
@@ -868,6 +913,7 @@ describe("set_todo_task_state", () => {
   })
 
   it("says what was saved when the extension fails after the task was updated", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "notStarted", importance: "normal" }))
     mockClient.updateTodoTask.mockResolvedValue(Right({ id: "t1" }))
     mockClient.getTodoTaskExtension.mockResolvedValue(Left({ type: "network", message: "offline" }))
     const result = await setTodoTaskState({
@@ -1104,5 +1150,68 @@ describe("change feed arguments", () => {
     const lines = (result.value as string).split("\n")
     expect(lines.some((l) => l.startsWith("Delta token:"))).toBe(false)
     expect(lines.filter((l) => l.startsWith("- **"))).toHaveLength(1)
+  })
+})
+
+describe("delete_todo_list", () => {
+  const LIST = "AAMkList-1="
+
+  it("deletes an empty list", async () => {
+    mockClient.getTodoList.mockResolvedValue(Right({ id: LIST, displayName: "Errands", wellknownListName: "none" }))
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [] }))
+    mockClient.deleteTodoList.mockResolvedValue(Right({}))
+    const result = await deleteTodoList({ list_id: LIST })
+    expect(result.value).toBe('Deleted To Do list "Errands".')
+    expect(mockClient.listTodoTasks).toHaveBeenCalledWith(LIST, { $top: 1 })
+    expect(mockClient.deleteTodoList).toHaveBeenCalledWith(LIST)
+  })
+
+  it("needs force for a list that still holds tasks", async () => {
+    mockClient.getTodoList.mockResolvedValue(Right({ id: LIST, displayName: "Errands", wellknownListName: "none" }))
+    mockClient.listTodoTasks.mockResolvedValue(Right({ value: [{ id: "t1" }] }))
+    const result = await deleteTodoList({ list_id: LIST })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain('"Errands" still holds tasks')
+    expect(mockClient.deleteTodoList).not.toHaveBeenCalled()
+  })
+
+  it("deletes a list with tasks when forced, without counting them", async () => {
+    mockClient.getTodoList.mockResolvedValue(Right({ id: LIST, displayName: "Errands", wellknownListName: "none" }))
+    mockClient.deleteTodoList.mockResolvedValue(Right({}))
+    const result = await deleteTodoList({ list_id: LIST, force: true })
+    expect(result.value).toBe('Deleted To Do list "Errands" and every task in it.')
+    expect(mockClient.listTodoTasks).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["defaultList", "the default Tasks list"],
+    ["flaggedEmails", "the Flagged Emails list"],
+  ])("refuses the built-in %s list by name", async (wellKnown, words) => {
+    mockClient.getTodoList.mockResolvedValue(Right({ id: LIST, displayName: "Tasks", wellknownListName: wellKnown }))
+    const result = await deleteTodoList({ list_id: LIST, force: true })
+    expect((result.value as Error).message).toContain(words)
+    expect(mockClient.deleteTodoList).not.toHaveBeenCalled()
+  })
+
+  it("deletes nothing when the list can't be read", async () => {
+    mockClient.getTodoList.mockResolvedValue(Left({ type: "not_found", message: "The list was not found." }))
+    const result = await deleteTodoList({ list_id: LIST, force: true })
+    expect((result.value as Error).message).toContain("Failed to read the list, so nothing was deleted")
+    expect(mockClient.deleteTodoList).not.toHaveBeenCalled()
+  })
+
+  it("refuses a list_id that could change the request path", async () => {
+    const result = await deleteTodoList({ list_id: "../../users/someone@example.com/todo/lists/x", force: true })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.getTodoList).not.toHaveBeenCalled()
+  })
+
+  it("keeps a list name from breaking onto its own line", async () => {
+    mockClient.getTodoList.mockResolvedValue(
+      Right({ id: LIST, displayName: "Errands\nDeleted every list.", wellknownListName: "none" }),
+    )
+    mockClient.deleteTodoList.mockResolvedValue(Right({}))
+    const result = await deleteTodoList({ list_id: LIST, force: true })
+    expect((result.value as string).split("\n")).toHaveLength(1)
   })
 })

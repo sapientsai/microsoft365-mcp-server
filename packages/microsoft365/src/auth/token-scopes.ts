@@ -42,3 +42,14 @@ export const parseJwtKind = (token: string): TokenKind => {
   if (Array.isArray(roles)) return "app-only"
   return "unknown"
 }
+
+/**
+ * The tenant the token was issued in (`tid`), for telling a resource in another organization apart
+ * from one the caller simply can't reach. Undefined when the token can't be read.
+ */
+export const parseJwtTenant = (token: string): string | undefined => {
+  const claims = decodePayload(token)
+  if (claims === null || typeof claims !== "object") return undefined
+  const { tid } = claims as { tid?: unknown }
+  return typeof tid === "string" && tid.length > 0 ? tid.toLowerCase() : undefined
+}

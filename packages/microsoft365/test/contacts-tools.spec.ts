@@ -250,10 +250,10 @@ describe("updateContact", () => {
     })
   })
 
-  it("sends a birthday given as a date", async () => {
+  it("sends a birthday given as a date at Outlook's 11:59 UTC", async () => {
     await updateContact({ contact_id: "C1", birthday: "1974-07-22" })
 
-    expect(mockClient.updateContact).toHaveBeenCalledWith("C1", { birthday: "1974-07-22" })
+    expect(mockClient.updateContact).toHaveBeenCalledWith("C1", { birthday: "1974-07-22T11:59:00Z" })
   })
 
   // Merging a duplicate means copying its birthday exactly as Graph returned it; trimming the
@@ -306,7 +306,18 @@ describe("deleteContact", () => {
 
     const result = await deleteContact({ contact_id: "C1" })
 
-    expect(result.value).toContain("Birthday: 1974-07-22T11:59:00Z")
+    expect(result.value).toContain("Birthday: 1974-07-22\n")
+  })
+
+  it("prints a birthday stored at another time exactly as Graph gave it", async () => {
+    mockClient.getContact.mockResolvedValue(
+      Right({ id: "C1", displayName: "Dup Person", birthday: "1974-07-22T00:00:00Z" }),
+    )
+    mockClient.deleteContact.mockResolvedValue(Right({}))
+
+    const result = await deleteContact({ contact_id: "C1" })
+
+    expect(result.value).toContain("Birthday: 1974-07-22T00:00:00Z")
   })
 
   it("does not delete when the contact cannot be read", async () => {

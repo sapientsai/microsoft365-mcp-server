@@ -2,8 +2,9 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
 
+import { tokenTenant } from "../auth/token-facts"
 import { getGraphClient } from "../client/graph-client"
-import type { GraphChat, GraphChatMessage, GraphUser, ODataResponse } from "../types"
+import type { GraphApiError, GraphChat, GraphChatMessage, GraphUser, ODataResponse } from "../types"
 import { formatChatList, formatChatMessageList, isReadableChatMessage } from "../utils/formatters"
 
 const requireClient = () => {
@@ -117,6 +118,27 @@ export const listChats = async (params?: {
     .map((response) => formatChatList((response as ODataResponse<never>).value))
 }
 
+// Graph refuses a chat hosted in another organization, such as the chat of a meeting someone outside
+// invited you to, with InsufficientPrivileges, which reads like a missing scope. The chat's tenantId
+// shows where it lives; said only when that read works and the tenant differs from the token's.
+const chatMessagesFailure = async (client: Client, chatId: string, error: GraphApiError): Promise<UserError> => {
+  const message = `Failed to list chat messages: ${error.message}`
+  if (error.type !== "forbidden") return new UserError(message)
+  const chat = await client.request<{ tenantId?: string }>("GET", `/chats/${chatId}`, {
+    odataParams: { $select: ["tenantId"] },
+  })
+  const host = chat.fold(
+    () => undefined,
+    (c) => (c as { tenantId?: string }).tenantId?.toLowerCase(),
+  )
+  const own = host === undefined ? undefined : await tokenTenant()
+  if (host === undefined || own === undefined || host === own) return new UserError(message)
+  return new UserError(
+    `${message}\n\nThis chat belongs to another organization (tenant ${host}), and Graph doesn't let a signed-in ` +
+      "user read another organization's chats. No permission on this side changes that.",
+  )
+}
+
 const DEFAULT_MESSAGE_TOP = 25
 
 const messagesSince = async (
@@ -135,8 +157,7 @@ const messagesSince = async (
           $filter: `lastModifiedDateTime gt ${since}`,
         })
       : await client.request<ODataResponse<GraphChatMessage>>("GET", nextLinkPath(link))
-  if (result.isLeft())
-    return Left(new UserError(`Failed to list chat messages: ${(result.value as { message: string }).message}`))
+  if (result.isLeft()) return Left(await chatMessagesFailure(client, chatId, result.value as GraphApiError))
 
   const response = result.value as ODataResponse<GraphChatMessage>
   const messages = response.value.filter(isReadableChatMessage)
@@ -183,15 +204,13 @@ export const listChatMessages = async (params: {
 
   if (params.fetch_all_pages) {
     const result = await client.requestPaginated<GraphChatMessage>(`/chats/${params.chat_id}/messages`)
-    return result
-      .mapLeft((error) => new UserError(`Failed to list chat messages: ${error.message}`))
-      .map((items) => formatChatMessageList(items, options))
+    if (result.isLeft()) return Left(await chatMessagesFailure(client, params.chat_id, result.value as GraphApiError))
+    return Right(formatChatMessageList(result.value as ReadonlyArray<GraphChatMessage>, options))
   }
 
   const result = await client.listChatMessages(params.chat_id, { $top: params.top ?? DEFAULT_MESSAGE_TOP })
-  return result
-    .mapLeft((error) => new UserError(`Failed to list chat messages: ${error.message}`))
-    .map((response) => formatChatMessageList((response as ODataResponse<GraphChatMessage>).value, options))
+  if (result.isLeft()) return Left(await chatMessagesFailure(client, params.chat_id, result.value as GraphApiError))
+  return Right(formatChatMessageList((result.value as ODataResponse<GraphChatMessage>).value, options))
 }
 
 // Members bind by directory ID. In-tenant guests must carry the "guest" role and everyone else

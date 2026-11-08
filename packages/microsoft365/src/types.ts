@@ -136,6 +136,7 @@ export type GraphEvent = {
     readonly type?: string
     readonly status?: { readonly response?: string }
   }>
+  readonly originalStartTimeZone?: string
   readonly isAllDay?: boolean
   readonly isCancelled?: boolean
   readonly isReminderOn?: boolean

@@ -5,6 +5,7 @@ import { UserError } from "somamcp"
 
 import { getAccessToken } from "../auth"
 import { GRAPH_API_BASE } from "../auth/scopes"
+import { heldScope, tokenScopes, tokenTenant } from "../auth/token-facts"
 import { getGraphClient } from "../client/graph-client"
 import { defaultVersion } from "../client/graph-version"
 import type { GraphCallTranscript, ODataResponse } from "../types"
@@ -60,6 +61,42 @@ const scopeGuidance = (): string =>
       `app registration and consent to it — tenant-wide, or for one user with an oauth2PermissionGrant ` +
       `using consentType "Principal" — then sign in again.`
 
+// A Teams join URL carries the organizer's tenant in its context parameter, {"Tid":"…","Oid":"…"}.
+// Newer short links (/meet/…) carry none, and then nothing here can tell.
+export const joinUrlTenant = (joinWebUrl: string): string | undefined => {
+  try {
+    const context = new URL(joinWebUrl).searchParams.get("context")
+    if (context === null) return undefined
+    const tid = (JSON.parse(context) as { Tid?: unknown }).Tid
+    return typeof tid === "string" && /^[0-9a-f-]{36}$/i.test(tid) ? tid.toLowerCase() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Graph won't let a delegated token read a meeting another organization hosts, nor its transcripts,
+// and no permission on this side changes that. Said only when the join URL and the token prove it.
+const externalMeeting = async (params: MeetingRef): Promise<string | undefined> => {
+  if (!params.join_web_url) return undefined
+  const organizer = joinUrlTenant(params.join_web_url)
+  if (organizer === undefined) return undefined
+  const own = await tokenTenant()
+  if (own === undefined || own === organizer) return undefined
+  return (
+    `This meeting was organized in another organization (tenant ${organizer}), and Graph doesn't let a ` +
+    "signed-in user read another organization's meetings or transcripts. No permission on this side changes that."
+  )
+}
+
+// Scope advice only when the token is missing the scope. When it holds it, the advice would send the
+// caller after a permission they already have; when its scopes can't be read, the advice stays.
+const scopeAdvice = async (): Promise<string> => {
+  const scopes = await tokenScopes()
+  if (scopes.length === 0) return scopeGuidance()
+  const held = heldScope(scopes, [TRANSCRIPT_SCOPE])
+  return held === undefined ? scopeGuidance() : `The token already holds ${held}, so the permission is not the cause.`
+}
+
 type MeetingRef = {
   readonly meeting_id?: string
   readonly join_web_url?: string
@@ -110,7 +147,9 @@ const resolveMeetingId = async (params: MeetingRef): Promise<Either<UserError, s
     defaultVersion(),
   )
   if (result.isLeft()) {
-    return Left(new UserError(`Failed to resolve meeting: ${(result.value as { message: string }).message}`))
+    const message = `Failed to resolve meeting: ${(result.value as { message: string }).message}`
+    const external = await externalMeeting(params)
+    return Left(new UserError(external === undefined ? message : `${message}\n\n${external}`))
   }
 
   const id = (result.value as ODataResponse<{ id?: string }>).value[0]?.id
@@ -131,20 +170,29 @@ export const listMeetingTranscripts = async (params: MeetingRef): Promise<Either
     defaultVersion(),
   )
 
-  return result
-    .mapLeft((error) => transcriptError(error as { message: string; status?: number; graphInnerErrorCode?: string }))
-    .map((response) => formatTranscriptList((response as ODataResponse<GraphCallTranscript>).value))
+  if (result.isLeft()) {
+    return Left(
+      await transcriptError(result.value as { message: string; status?: number; graphInnerErrorCode?: string }, params),
+    )
+  }
+  return Right(formatTranscriptList((result.value as ODataResponse<GraphCallTranscript>).value))
 }
 
-const transcriptError = (error: { message: string; status?: number; graphInnerErrorCode?: string }): UserError => {
-  if (error.status !== 403) return new UserError(`Failed to list transcripts: ${error.message}`)
+const transcriptError = async (
+  error: { message: string; status?: number; graphInnerErrorCode?: string },
+  params: MeetingRef,
+): Promise<UserError> => {
+  const message = `Failed to list transcripts: ${error.message}`
+  const external = await externalMeeting(params)
+  if (external !== undefined) return new UserError(`${message}\n\n${external}`)
+  if (error.status !== 403) return new UserError(message)
 
   // Both 403s here answer with outer code "Forbidden"; only the inner code separates "you lack the
   // scope" from "the tenant switched the feature off". Appending scope advice to the latter is
   // actively misleading — it was, until a live tenant with the switch off produced exactly that.
   if (error.graphInnerErrorCode === GRAPH_TRANSCRIPT_ACCESS_DISABLED) return new UserError(TENANT_ACCESS_DISABLED)
 
-  return new UserError(`Failed to list transcripts: ${error.message}\n\n${scopeGuidance()}`)
+  return new UserError(`${message}\n\n${await scopeAdvice()}`)
 }
 
 type ContentAttempt = {
@@ -173,7 +221,7 @@ const fetchTranscriptContent = async (url: string, accept: string, token: string
   return { ok: false, status: response.status, text, innerErrorCode }
 }
 
-const contentHttpError = (attempt: ContentAttempt): UserError => {
+const contentHttpError = async (attempt: ContentAttempt, params: MeetingRef): Promise<UserError> => {
   if (attempt.status === 403 && attempt.innerErrorCode === GRAPH_TRANSCRIPT_ACCESS_DISABLED) {
     return new UserError(TENANT_ACCESS_DISABLED)
   }
@@ -186,8 +234,12 @@ const contentHttpError = (attempt: ContentAttempt): UserError => {
     }
   })()
 
+  const external = await externalMeeting(params)
+  if (external !== undefined)
+    return new UserError(`Failed to get transcript (${attempt.status}): ${message}\n\n${external}`)
+
   if (attempt.status === 403) {
-    return new UserError(`Failed to get transcript (403): ${message}\n\n${scopeGuidance()}`)
+    return new UserError(`Failed to get transcript (403): ${message}\n\n${await scopeAdvice()}`)
   }
 
   return new UserError(`Failed to get transcript (${attempt.status}): ${message}`)
@@ -258,7 +310,7 @@ export const getMeetingTranscript = async (
       ? await fetchTranscriptContent(url, SPEAKER_UNATTRIBUTED, token)
       : first
 
-  if (!attempt.ok) return Left(contentHttpError(attempt))
+  if (!attempt.ok) return Left(await contentHttpError(attempt, params))
 
   const speakersDropped = wantSpeakers && attempt !== first
   const body = sliceTranscript(attempt.text, params.offset ?? 0, params.max_chars ?? DEFAULT_MAX_CHARS)

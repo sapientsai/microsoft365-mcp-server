@@ -87,6 +87,7 @@ export { listChannelMessages, listChannels, listTeams, sendChannelMessage } from
 export {
   createTodoList,
   createTodoTask,
+  deleteTodoList,
   deleteTodoTask,
   listTodoLists,
   listTodoTasks,

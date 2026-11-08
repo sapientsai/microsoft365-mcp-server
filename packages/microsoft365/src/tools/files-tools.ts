@@ -19,9 +19,10 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
 
-import { getAccessToken, getAuthStatus } from "../auth"
+import { getAccessToken } from "../auth"
 import { GRAPH_API_BASE } from "../auth/scopes"
 import { getContextToken } from "../auth/token-context"
+import { tokenScopes } from "../auth/token-facts"
 import { getGraphClient } from "../client/graph-client"
 import { defaultVersion } from "../client/graph-version"
 import type { GraphApiError, GraphDriveItem, ODataResponse } from "../types"
@@ -49,10 +50,7 @@ const driveError = async (action: string, error: GraphApiError): Promise<UserErr
   const plain = new UserError(`Failed to ${action}: ${error.message}`)
   if (error.type !== "not_found" && error.type !== "forbidden") return plain
 
-  const scopes = (await getAuthStatus()).fold(
-    () => [] as ReadonlyArray<string>,
-    (status) => status.scopes,
-  )
+  const scopes = await tokenScopes()
   const lacksDriveScope =
     scopes.length > 0 && !scopes.some((scope) => DRIVE_SCOPE_PREFIXES.some((prefix) => scope.startsWith(prefix)))
   if (!lacksDriveScope) return plain

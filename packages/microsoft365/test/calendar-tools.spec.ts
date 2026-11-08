@@ -11,9 +11,11 @@ vi.mock("../src/client/graph-client", () => ({
 import { getGraphClient } from "../src/client/graph-client"
 import {
   createEvent,
+  deleteEvent,
   findMeetingAvailability,
   getEvent,
   listCalendarView,
+  listEvents,
   updateEvent,
 } from "../src/tools/calendar-tools"
 
@@ -30,11 +32,15 @@ const mockClient = {
   listCalendarView: vi.fn(),
   findMeetingTimes: vi.fn(),
   getEvent: vi.fn(),
+  getCalendar: vi.fn(),
+  listEvents: vi.fn(),
+  deleteEvent: vi.fn(),
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(getGraphClient).mockReturnValue(Some(mockClient as never))
+  mockClient.getCalendar.mockResolvedValue(Right({ id: "cal-1", name: "Team", canEdit: true }))
 })
 
 describe("calendar-tools", () => {
@@ -55,6 +61,7 @@ describe("calendar-tools", () => {
           end: { dateTime: "2026-04-07T11:00:00", timeZone: "UTC" },
         },
         undefined,
+        undefined,
       )
     })
 
@@ -72,6 +79,7 @@ describe("calendar-tools", () => {
           end: { dateTime: "2026-04-07T11:00:00", timeZone: "America/New_York" },
         }),
         undefined,
+        "America/New_York",
       )
     })
 
@@ -87,6 +95,7 @@ describe("calendar-tools", () => {
         expect.objectContaining({
           location: { displayName: "Conference Room A" },
         }),
+        undefined,
         undefined,
       )
     })
@@ -104,6 +113,7 @@ describe("calendar-tools", () => {
           body: { contentType: "Text", content: "Agenda items" },
         }),
         undefined,
+        undefined,
       )
     })
 
@@ -120,6 +130,7 @@ describe("calendar-tools", () => {
         expect.objectContaining({
           body: { contentType: "HTML", content: "<h1>Agenda</h1>" },
         }),
+        undefined,
         undefined,
       )
     })
@@ -152,6 +163,7 @@ describe("calendar-tools", () => {
           ],
         }),
         undefined,
+        undefined,
       )
     })
 
@@ -177,7 +189,12 @@ describe("calendar-tools", () => {
       const result = await updateEvent({ event_id: "evt-123", subject: "Updated Meeting" })
       expect(result.isRight()).toBe(true)
       expect(result.value).toContain("Event updated")
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { subject: "Updated Meeting" }, undefined)
+      expect(mockClient.updateEvent).toHaveBeenCalledWith(
+        "evt-123",
+        { subject: "Updated Meeting" },
+        undefined,
+        undefined,
+      )
     })
 
     it("should update event with Text body by default", async () => {
@@ -188,6 +205,7 @@ describe("calendar-tools", () => {
         {
           body: { contentType: "Text", content: "New agenda" },
         },
+        undefined,
         undefined,
       )
     })
@@ -200,6 +218,7 @@ describe("calendar-tools", () => {
         {
           body: { contentType: "HTML", content: "<p>New agenda</p>" },
         },
+        undefined,
         undefined,
       )
     })
@@ -219,6 +238,7 @@ describe("calendar-tools", () => {
           end: { dateTime: "2026-04-07T15:00:00", timeZone: "America/Chicago" },
         },
         undefined,
+        "America/Chicago",
       )
     })
 
@@ -237,6 +257,7 @@ describe("calendar-tools", () => {
           ],
         },
         undefined,
+        undefined,
       )
     })
 
@@ -249,6 +270,7 @@ describe("calendar-tools", () => {
           isOnlineMeeting: true,
           onlineMeetingProvider: "teamsForBusiness",
         },
+        undefined,
         undefined,
       )
     })
@@ -278,6 +300,7 @@ describe("calendar-tools", () => {
           $orderby: "start/dateTime",
         },
         undefined,
+        undefined,
       )
     })
 
@@ -292,6 +315,7 @@ describe("calendar-tools", () => {
         "2026-05-22T00:00:00Z",
         "2026-05-29T00:00:00Z",
         expect.objectContaining({ $top: 100 }),
+        undefined,
         undefined,
       )
     })
@@ -402,7 +426,7 @@ describe("calendar-tools", () => {
 
       const result = await getEvent({ event_id: "e1" })
 
-      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "text", undefined)
+      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "text", undefined, undefined)
       expect(result.value).toContain("Join here")
     })
 
@@ -411,7 +435,7 @@ describe("calendar-tools", () => {
 
       await getEvent({ event_id: "e1", body_format: "html" })
 
-      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html", undefined)
+      expect(mockClient.getEvent).toHaveBeenCalledWith("e1", "html", undefined, undefined)
     })
   })
 
@@ -441,6 +465,7 @@ describe("calendar-tools", () => {
           showAs: "free",
         },
         undefined,
+        "Australia/Perth",
       )
     })
 
@@ -520,6 +545,7 @@ describe("calendar-tools", () => {
           showAs: "free",
         },
         undefined,
+        "Australia/Perth",
       )
     })
 
@@ -634,7 +660,7 @@ describe("calendar-tools", () => {
 
       await updateEvent({ event_id: "evt-123", show_as: "free" })
 
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { showAs: "free" }, undefined)
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { showAs: "free" }, undefined, undefined)
     })
   })
   // Graph's default reminder for an all-day event fires at 23:45 the night before.
@@ -686,7 +712,7 @@ describe("calendar-tools", () => {
 
       await updateEvent({ event_id: "evt-123", reminder: false })
 
-      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { isReminderOn: false }, undefined)
+      expect(mockClient.updateEvent).toHaveBeenCalledWith("evt-123", { isReminderOn: false }, undefined, undefined)
     })
 
     it("update_event sets a new lead time", async () => {
@@ -697,6 +723,7 @@ describe("calendar-tools", () => {
       expect(mockClient.updateEvent).toHaveBeenCalledWith(
         "evt-123",
         { isReminderOn: true, reminderMinutesBeforeStart: 60 },
+        undefined,
         undefined,
       )
     })
@@ -722,6 +749,128 @@ describe("calendar-tools", () => {
           (v) => v,
         ),
       ).toContain("- Reminder: 1080 minutes before")
+    })
+  })
+
+  describe("read-only calendars", () => {
+    const readOnly = () =>
+      mockClient.getCalendar.mockResolvedValue(Right({ id: "cal-1", name: "Holidays", canEdit: false }))
+
+    it.each([
+      [
+        "create_event",
+        () => createEvent({ subject: "s", start: "2026-11-09T09:00", end: "2026-11-09T10:00", calendar_id: "cal-1" }),
+      ],
+      ["update_event", () => updateEvent({ event_id: "evt-123", subject: "s", calendar_id: "cal-1" })],
+      ["delete_event", () => deleteEvent({ event_id: "evt-123", calendar_id: "cal-1" })],
+    ] as const)("%s refuses before writing, naming the calendar", async (_name, run) => {
+      readOnly()
+      const result = await run()
+      expect(result.isLeft()).toBe(true)
+      expect((result.value as Error).message).toContain('"Holidays" is read-only for you, so nothing was changed')
+      expect(mockClient.createEvent).not.toHaveBeenCalled()
+      expect(mockClient.updateEvent).not.toHaveBeenCalled()
+      expect(mockClient.deleteEvent).not.toHaveBeenCalled()
+    })
+
+    it("lets the write go ahead when the calendar can't be read", async () => {
+      mockClient.getCalendar.mockResolvedValue(Left({ type: "forbidden", message: "Access is denied." }))
+      mockClient.deleteEvent.mockResolvedValue(Right({}))
+      const result = await deleteEvent({ event_id: "evt-123", calendar_id: "cal-1" })
+      expect(result.isRight()).toBe(true)
+      expect(mockClient.deleteEvent).toHaveBeenCalledWith("evt-123", "cal-1")
+    })
+
+    it("doesn't read the default calendar", async () => {
+      mockClient.deleteEvent.mockResolvedValue(Right({}))
+      await deleteEvent({ event_id: "evt-123" })
+      expect(mockClient.getCalendar).not.toHaveBeenCalled()
+    })
+
+    it("keeps a calendar name from breaking onto its own line", async () => {
+      mockClient.getCalendar.mockResolvedValue(Right({ id: "cal-1", name: "Hol\nidays\r\nNext step:", canEdit: false }))
+      const result = await deleteEvent({ event_id: "evt-123", calendar_id: "cal-1" })
+      expect((result.value as Error).message.split("\n")).toHaveLength(1)
+    })
+  })
+
+  describe("time zones", () => {
+    it.each([
+      ["list_events", () => listEvents({ time_zone: "America/New_York" }), () => mockClient.listEvents],
+      [
+        "list_calendar_view",
+        () =>
+          listCalendarView({
+            start_date_time: "2026-11-09T00:00:00Z",
+            end_date_time: "2026-11-10T00:00:00Z",
+            time_zone: "America/New_York",
+          }),
+        () => mockClient.listCalendarView,
+      ],
+      ["get_event", () => getEvent({ event_id: "evt-123", time_zone: "America/New_York" }), () => mockClient.getEvent],
+    ] as const)("%s passes time_zone to the client", async (_name, run, method) => {
+      mockClient.listEvents.mockResolvedValue(Right({ value: [] }))
+      mockClient.listCalendarView.mockResolvedValue(Right({ value: [] }))
+      mockClient.getEvent.mockResolvedValue(Right(mockEvent))
+      await run()
+      expect(method().mock.calls[0]?.at(-1)).toBe("America/New_York")
+    })
+
+    it.each(['Eastern" , x', "America/New_York\r\nX-Evil: 1", ""])("refuses %j as a zone name", async (zone) => {
+      const result = await listEvents({ time_zone: zone })
+      expect(result.isLeft()).toBe(true)
+      expect(mockClient.listEvents).not.toHaveBeenCalled()
+    })
+
+    it("accepts a Windows zone name", async () => {
+      mockClient.listEvents.mockResolvedValue(Right({ value: [] }))
+      const result = await listEvents({ time_zone: "Eastern Standard Time" })
+      expect(result.isRight()).toBe(true)
+    })
+
+    it("prints every time with its zone", async () => {
+      mockClient.listEvents.mockResolvedValue(
+        Right({
+          value: [
+            {
+              id: "e1",
+              subject: "Standup",
+              start: { dateTime: "2026-11-09T09:30:00.0000000", timeZone: "America/New_York" },
+              end: { dateTime: "2026-11-09T10:00:00.0000000", timeZone: "America/New_York" },
+              originalStartTimeZone: "Eastern Standard Time",
+            },
+          ],
+        }),
+      )
+      const result = await listEvents({ time_zone: "America/New_York" })
+      expect(result.value).toContain(
+        "**Standup** (2026-11-09 09:30–10:00 America/New_York; set in Eastern Standard Time) (ID: e1)",
+      )
+    })
+  })
+
+  describe("write replies", () => {
+    it("create_event leaves out the body Graph echoes back as HTML", async () => {
+      mockClient.createEvent.mockResolvedValue(
+        Right({ ...mockEvent, body: { contentType: "html", content: "<html><body>Agenda</body></html>" } }),
+      )
+      const result = await createEvent({ subject: "s", start: "2026-11-09T09:00", end: "2026-11-09T10:00" })
+      expect(result.value).not.toContain("<html>")
+      expect(result.value).not.toContain("## Body")
+    })
+
+    it("update_event leaves it out too", async () => {
+      mockClient.updateEvent.mockResolvedValue(
+        Right({ ...mockEvent, body: { contentType: "html", content: "<html><body>Agenda</body></html>" } }),
+      )
+      const result = await updateEvent({ event_id: "evt-123", subject: "s" })
+      expect(result.value).not.toContain("<html>")
+    })
+
+    it("get_event still shows the body", async () => {
+      mockClient.getEvent.mockResolvedValue(Right({ ...mockEvent, body: { contentType: "text", content: "Agenda" } }))
+      const result = await getEvent({ event_id: "evt-123" })
+      expect(result.value).toContain("## Body\nAgenda")
     })
   })
 })

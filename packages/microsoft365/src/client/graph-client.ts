@@ -15,6 +15,7 @@ import type {
   GraphAttachment,
   GraphBatchResponse,
   GraphBucket,
+  GraphCalendar,
   GraphChannel,
   GraphChannelMessage,
   GraphChat,
@@ -42,6 +43,7 @@ import type {
 import { isDeltaToken } from "../utils/delta-token"
 import { safeDecode } from "../utils/safe-decode"
 import { defaultVersion } from "./graph-version"
+import { explainMailboxRefusal } from "./mailbox-hint"
 
 /** A delta record: a task, or a removed one marked by "@removed". */
 export type TodoDeltaRecord = GraphTodoTask & { readonly "@removed"?: { readonly reason?: string } }
@@ -55,7 +57,13 @@ export const MAX_TODO_TASK_PAGES = 50
 const createGraphClient = (auth: AuthStrategy) => {
   // Generic request machinery (auth injection, OData, error mapping, pagination) lives in
   // @sapientsai/ms-graph-core; this client builds the M365 domain methods on top of it.
-  const { request, requestPaginated } = createGraphRequest(auth, { defaultVersion })
+  const core = createGraphRequest(auth, { defaultVersion })
+  const request = async <T>(...args: Parameters<typeof core.request>): Promise<Either<GraphApiError, T>> =>
+    explainMailboxRefusal(args[0], args[1], await core.request<T>(...args))
+  const requestPaginated = async <T>(
+    ...args: Parameters<typeof core.requestPaginated>
+  ): Promise<Either<GraphApiError, ReadonlyArray<T>>> =>
+    explainMailboxRefusal("GET", args[0], await core.requestPaginated<T>(...args))
 
   // Mail
   // Every mail path takes a prefix: "/me" for the signed-in user's own mailbox, or
@@ -194,8 +202,22 @@ const createGraphClient = (auth: AuthStrategy) => {
   // /me/events/{id} does not find their events.
   const eventsPath = (calendarId?: string) => (calendarId ? `/me/calendars/${calendarId}/events` : "/me/events")
 
-  const listEvents = (odataParams?: ODataParams, calendarId?: string) =>
-    request<ODataResponse<GraphEvent>>("GET", eventsPath(calendarId), { odataParams })
+  // Graph answers event times in UTC unless Prefer: outlook.timezone names a zone, IANA or Windows
+  // (both checked live, 2026-11-07, together with the body format in one comma-separated header).
+  // An unknown zone is refused with "A valid TimeZone value must be specified".
+  const eventView = (timeZone?: string, bodyContentType?: "text" | "html") => {
+    const prefer = [
+      timeZone === undefined ? undefined : `outlook.timezone="${timeZone}"`,
+      bodyContentType === undefined ? undefined : `outlook.body-content-type="${bodyContentType}"`,
+    ].filter((p): p is string => p !== undefined)
+    return prefer.length === 0 ? {} : { headers: { Prefer: prefer.join(", ") } }
+  }
+
+  const listEvents = (odataParams?: ODataParams, calendarId?: string, timeZone?: string) =>
+    request<ODataResponse<GraphEvent>>("GET", eventsPath(calendarId), { odataParams, ...eventView(timeZone) })
+
+  const listAllEvents = (odataParams?: ODataParams, calendarId?: string, timeZone?: string) =>
+    requestPaginated<GraphEvent>(eventsPath(calendarId), { odataParams, ...eventView(timeZone) })
 
   // calendarView expands recurring series into individual instances within [start, end].
   // Required by Graph: startDateTime/endDateTime as query params on the path.
@@ -204,20 +226,24 @@ const createGraphClient = (auth: AuthStrategy) => {
     endDateTime: string,
     odataParams?: ODataParams,
     calendarId?: string,
+    timeZone?: string,
   ) => {
     const base = calendarId ? `/me/calendars/${calendarId}/calendarView` : "/me/calendarView"
     const path = `${base}?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}`
-    return request<ODataResponse<GraphEvent>>("GET", path, { odataParams })
+    return request<ODataResponse<GraphEvent>>("GET", path, { odataParams, ...eventView(timeZone) })
   }
 
-  const getEvent = (id: string, bodyContentType?: "text" | "html", calendarId?: string) =>
-    request<GraphEvent>("GET", `${eventsPath(calendarId)}/${id}`, bodyFormat(bodyContentType))
+  const getEvent = (id: string, bodyContentType?: "text" | "html", calendarId?: string, timeZone?: string) =>
+    request<GraphEvent>("GET", `${eventsPath(calendarId)}/${id}`, eventView(timeZone, bodyContentType))
 
-  const createEvent = (event: Record<string, unknown>, calendarId?: string) =>
-    request<GraphEvent>("POST", eventsPath(calendarId), { body: event })
+  const getCalendar = (calendarId: string) =>
+    request<GraphCalendar>("GET", `/me/calendars/${calendarId}`, { odataParams: { $select: ["name", "canEdit"] } })
 
-  const updateEvent = (id: string, event: Record<string, unknown>, calendarId?: string) =>
-    request<GraphEvent>("PATCH", `${eventsPath(calendarId)}/${id}`, { body: event })
+  const createEvent = (event: Record<string, unknown>, calendarId?: string, timeZone?: string) =>
+    request<GraphEvent>("POST", eventsPath(calendarId), { body: event, ...eventView(timeZone) })
+
+  const updateEvent = (id: string, event: Record<string, unknown>, calendarId?: string, timeZone?: string) =>
+    request<GraphEvent>("PATCH", `${eventsPath(calendarId)}/${id}`, { body: event, ...eventView(timeZone) })
 
   const deleteEvent = (id: string, calendarId?: string) =>
     request<Record<string, never>>("DELETE", `${eventsPath(calendarId)}/${id}`)
@@ -517,6 +543,10 @@ const createGraphClient = (auth: AuthStrategy) => {
   const createTodoList = (displayName: string) =>
     request<GraphTodoList>("POST", "/me/todo/lists", { body: { displayName } })
 
+  const getTodoList = (listId: string) => request<GraphTodoList>("GET", `/me/todo/lists/${listId}`)
+
+  const deleteTodoList = (listId: string) => request<Record<string, never>>("DELETE", `/me/todo/lists/${listId}`)
+
   // Graph refuses $select on To Do task lists ("Invalid request", checked live 2026-10-30, while
   // $select on messages works), so these reads can't follow the AGENTS.md $select rule.
   // linkedResources is a relationship, so it has to be expanded to be read.
@@ -766,8 +796,10 @@ const createGraphClient = (auth: AuthStrategy) => {
     searchMessages,
     // Calendar
     listEvents,
+    listAllEvents,
     listCalendarView,
     getEvent,
+    getCalendar,
     createEvent,
     updateEvent,
     deleteEvent,
@@ -845,6 +877,8 @@ const createGraphClient = (auth: AuthStrategy) => {
     // To Do
     listTodoLists,
     createTodoList,
+    getTodoList,
+    deleteTodoList,
     listTodoTasks,
     listAllTodoTasks,
     todoTaskDelta,

@@ -3,7 +3,7 @@ import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
 
 import { getGraphClient } from "../client/graph-client"
-import type { GraphCalendar, GraphEvent, ODataResponse } from "../types"
+import type { GraphCalendar, ODataResponse } from "../types"
 import {
   formatCalendarList,
   formatEventDetail,
@@ -22,6 +22,38 @@ const invalidCalendarId = (calendarId: string | undefined): UserError | undefine
   calendarId === undefined || isGraphId(calendarId)
     ? undefined
     : new UserError("calendar_id is not a calendar ID. Use an ID exactly as list_calendars returns it.")
+
+// time_zone goes into a Prefer header inside quotes, so only the characters zone names use get
+// through: IANA (America/New_York, Etc/GMT+5) and Windows (Eastern Standard Time, UTC-02).
+const ZONE_NAME = /^[A-Za-z0-9_+\-/ .()]{1,100}$/
+
+const invalidTimeZone = (timeZone: string | undefined): UserError | undefined =>
+  timeZone === undefined || ZONE_NAME.test(timeZone)
+    ? undefined
+    : new UserError(
+        "time_zone is not a time zone name. Use an IANA name such as America/New_York, or a Windows one such as " +
+          "Eastern Standard Time.",
+      )
+
+// Graph's refusal of a write to someone else's read-only calendar reads like a bad sign-in, so the
+// calendar is read first and the write refused here with the real reason. If that read fails, the
+// write goes ahead: Graph still enforces the rule, and a guard that blocks on its own failure would
+// stop writes that would have worked. The default calendar is always the user's own, so it isn't read.
+const readOnlyCalendar = async (
+  client: NonNullable<ReturnType<typeof requireClient>>,
+  calendarId: string | undefined,
+): Promise<UserError | undefined> => {
+  if (calendarId === undefined) return undefined
+  const calendar = await client.getCalendar(calendarId)
+  if (calendar.isLeft()) return undefined
+  const { name, canEdit } = calendar.value as GraphCalendar
+  if (canEdit !== false) return undefined
+  const label = (name ?? "This calendar").replace(/[\r\n]+/g, " ").slice(0, 120)
+  return new UserError(
+    `"${label}" is read-only for you, so nothing was changed. Its owner has shared it without edit rights; ` +
+      "list_calendars marks such calendars [read-only].",
+  )
+}
 
 const invalidEventId = (eventId: string): UserError | undefined =>
   isGraphId(eventId)
@@ -43,18 +75,20 @@ export const listEvents = async (params: {
   filter?: string
   fetch_all_pages?: boolean
   calendar_id?: string
+  time_zone?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
   const badCalendar = invalidCalendarId(params.calendar_id)
   if (badCalendar) return Left(badCalendar)
+  const badZone = invalidTimeZone(params.time_zone)
+  if (badZone) return Left(badZone)
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphEvent>(
-      params.calendar_id ? `/me/calendars/${params.calendar_id}/events` : "/me/events",
-      {
-        odataParams: { $filter: params.filter, $orderby: "start/dateTime" },
-      },
+    const result = await client.listAllEvents(
+      { $filter: params.filter, $orderby: "start/dateTime" },
+      params.calendar_id,
+      params.time_zone,
     )
     return result
       .mapLeft((error) => new UserError(`Failed to list events: ${error.message}`))
@@ -68,6 +102,7 @@ export const listEvents = async (params: {
       $orderby: "start/dateTime",
     },
     params.calendar_id,
+    params.time_zone,
   )
   return result
     .mapLeft((error) => new UserError(`Failed to list events: ${error.message}`))
@@ -78,6 +113,7 @@ export const getEvent = async (params: {
   event_id: string
   body_format?: "text" | "html"
   calendar_id?: string
+  time_zone?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
@@ -85,10 +121,17 @@ export const getEvent = async (params: {
   if (badCalendar) return Left(badCalendar)
   const badEvent = invalidEventId(params.event_id)
   if (badEvent) return Left(badEvent)
+  const badZone = invalidTimeZone(params.time_zone)
+  if (badZone) return Left(badZone)
 
   // Text by default, unlike get_message: an event body is almost always a Teams invite, whose HTML
   // is layout markup around a join link and the same details the event already carries.
-  const result = await client.getEvent(params.event_id, params.body_format ?? "text", params.calendar_id)
+  const result = await client.getEvent(
+    params.event_id,
+    params.body_format ?? "text",
+    params.calendar_id,
+    params.time_zone,
+  )
   return result.mapLeft((error) => new UserError(`Failed to get event: ${error.message}`)).map(formatEventDetail)
 }
 
@@ -97,11 +140,14 @@ export const listCalendarView = async (params: {
   end_date_time: string
   top?: number
   calendar_id?: string
+  time_zone?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
   const badCalendar = invalidCalendarId(params.calendar_id)
   if (badCalendar) return Left(badCalendar)
+  const badZone = invalidTimeZone(params.time_zone)
+  if (badZone) return Left(badZone)
 
   if (!params.start_date_time || !params.end_date_time) {
     return Left(new UserError("start_date_time and end_date_time are required (ISO 8601, e.g. 2026-05-22T00:00:00Z)."))
@@ -115,6 +161,7 @@ export const listCalendarView = async (params: {
       $orderby: "start/dateTime",
     },
     params.calendar_id,
+    params.time_zone,
   )
   return result
     .mapLeft((error) => new UserError(`Failed to list calendar view: ${error.message}`))
@@ -213,6 +260,8 @@ export const createEvent = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
   const badCalendar = invalidCalendarId(params.calendar_id)
   if (badCalendar) return Left(badCalendar)
+  const badZone = invalidTimeZone(params.time_zone)
+  if (badZone) return Left(badZone)
 
   const timeZone = params.time_zone ?? "UTC"
   const range = params.all_day
@@ -249,14 +298,17 @@ export const createEvent = async (params: {
     }))
   }
 
-  const result = await client.createEvent(event, params.calendar_id)
+  const readOnly = await readOnlyCalendar(client, params.calendar_id)
+  if (readOnly) return Left(readOnly)
+
+  const result = await client.createEvent(event, params.calendar_id, params.time_zone)
   const draftSuffix =
     params.is_draft && params.attendees
       ? "\n\n_Saved as draft: attendees were not invited. Open in Outlook to add attendees and send the meeting._"
       : ""
   return result
     .mapLeft((error) => new UserError(`Failed to create event: ${error.message}`))
-    .map((evt) => `Event created.\n\n${formatEventDetail(evt)}${draftSuffix}`)
+    .map((evt) => `Event created.\n\n${formatEventDetail(evt, { body: false })}${draftSuffix}`)
 }
 
 export const updateEvent = async (params: {
@@ -282,6 +334,8 @@ export const updateEvent = async (params: {
   if (badCalendar) return Left(badCalendar)
   const badEvent = invalidEventId(params.event_id)
   if (badEvent) return Left(badEvent)
+  const badZone = invalidTimeZone(params.time_zone)
+  if (badZone) return Left(badZone)
 
   const updates: Record<string, unknown> = {}
   const timeZone = params.time_zone ?? "UTC"
@@ -326,10 +380,13 @@ export const updateEvent = async (params: {
     updates.onlineMeetingProvider = "teamsForBusiness"
   }
 
-  const result = await client.updateEvent(params.event_id, updates, params.calendar_id)
+  const readOnly = await readOnlyCalendar(client, params.calendar_id)
+  if (readOnly) return Left(readOnly)
+
+  const result = await client.updateEvent(params.event_id, updates, params.calendar_id, params.time_zone)
   return result
     .mapLeft((error) => new UserError(`Failed to update event: ${error.message}`))
-    .map((evt) => `Event updated.\n\n${formatEventDetail(evt)}`)
+    .map((evt) => `Event updated.\n\n${formatEventDetail(evt, { body: false })}`)
 }
 
 export const deleteEvent = async (params: {
@@ -342,6 +399,9 @@ export const deleteEvent = async (params: {
   if (badCalendar) return Left(badCalendar)
   const badEvent = invalidEventId(params.event_id)
   if (badEvent) return Left(badEvent)
+
+  const readOnly = await readOnlyCalendar(client, params.calendar_id)
+  if (readOnly) return Left(readOnly)
 
   const result = await client.deleteEvent(params.event_id, params.calendar_id)
   return result

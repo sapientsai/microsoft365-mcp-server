@@ -296,6 +296,10 @@ agent; it does not authorise anything.
   `Add-MailboxPermission`). Actions are performed as you: Exchange audit records
   distinguish delegate access from owner access, but not one delegate tool from another.
 
+  Graph refuses both a missing `.Shared` scope and missing Exchange access with the same
+  "Access is denied". A refusal on another mailbox says which it is: it names the scope the
+  token lacks, or, when the token holds it, says that Exchange refused the mailbox itself.
+
 - **Client secret / certificate (app-only).** These request `.default`, so permissions
   come from the app registration — nothing to add here. Each mailbox must be listed in
   `MS365_ALLOWED_MAILBOXES`. There is no `/me` for an app-only token, so `mailbox` is
@@ -487,6 +491,19 @@ and block the whole day in free/busy), and a timed one stays `busy`. `update_eve
 it only when `all_day` really changes the event, which takes one extra read: moving an
 all-day event keeps the status it has.
 
+Every event time comes with its zone. Graph answers in UTC unless asked otherwise, so
+`list_events`, `list_calendar_view` and `get_event` take `time_zone`, an IANA name
+(`America/New_York`) or a Windows one (`Eastern Standard Time`), and Graph converts the times.
+`create_event` and `update_event` show their reply in the `time_zone` they were given. When an
+event was set in another zone, its line says so (`set in Eastern Standard Time`). An all-day event
+shows its days, unless it is shown outside the zone it was set in; then its times are printed,
+since the day read off them could be a day out.
+
+A write with `calendar_id` reads that calendar first, and a calendar shared with you read-only is
+refused by name before anything reaches Graph. If that read fails, the write goes ahead, and Graph
+still enforces the rule. The replies to `create_event` and `update_event` leave out the body,
+which Graph echoes back as Exchange HTML; `get_event` shows it as text.
+
 They also take `reminder_minutes`, which turns the reminder on that many minutes before the
 start, and `reminder: false`, which turns it off. Left out, `create_event` gets Graph's
 15-minute reminder (for an all-day event, 23:45 the night before; Outlook's own default is a
@@ -597,17 +614,23 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 > constrained HTML subset and silently drops unsupported CSS/tags, so a page can post
 > successfully yet render differently than the source.
 
-### To Do (7 tools)
+### To Do (8 tools)
 
 | Tool                  | Description                                                   |
 | --------------------- | ------------------------------------------------------------- |
 | `list_todo_lists`     | List task lists                                               |
 | `create_todo_list`    | Create a task list                                            |
+| `delete_todo_list`    | Delete a list and its tasks (no API undo)                     |
 | `list_todo_tasks`     | List tasks in a list, or what changed since a delta token     |
 | `create_todo_task`    | Create a task, optionally repeating                           |
 | `update_todo_task`    | Update a task, or change its repeat                           |
 | `set_todo_task_state` | Set status, importance and your own fields, safely repeatable |
 | `delete_todo_task`    | Delete a task (no API undo)                                   |
+
+`delete_todo_list` refuses the built-in Tasks and Flagged Emails lists by name, and needs
+`force: true` for a list that still holds tasks, since they are deleted with it.
+`set_todo_task_state` reads the task first, sends only what differs, and says so when an identical
+repeat changes nothing.
 
 `create_todo_list` refuses a name an existing list already uses. Graph accepts a
 duplicate `displayName` and returns a second list indistinguishable from the first in
@@ -982,3 +1005,7 @@ Worth knowing:
    continue; the last part ends with `end of transcript`.
 6. **No metering.** These Teams APIs stopped being metered on August 25, 2025; no billing
    configuration is required.
+7. **Another organization's meetings can't be read.** Graph doesn't let a signed-in user read a
+   meeting, its transcripts or its chat when another organization hosts it, and no permission
+   changes that. When the join URL or the chat shows another tenant, the error says so. Scope advice
+   appears only when the token lacks the scope.

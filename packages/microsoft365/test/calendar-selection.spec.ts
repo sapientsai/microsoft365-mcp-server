@@ -135,9 +135,11 @@ describe("calendar selection", () => {
     ] as const)("%s", async (_name, run, method, path) => {
       const result = await run()
 
+      // A write reads the calendar first, to refuse a read-only one, so the call checked is the last.
+      const last = fetchSpy.mock.calls.length - 1
       expect(result.isRight()).toBe(true)
-      expect(sentMethod()).toBe(method)
-      expect(decodeURIComponent(sentUrl().pathname)).toMatch(
+      expect(sentMethod(last)).toBe(method)
+      expect(decodeURIComponent(sentUrl(last).pathname)).toMatch(
         new RegExp(`/v1\\.0${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
       )
     })
@@ -248,5 +250,34 @@ describe("calendar selection", () => {
 
     expect(lines).toHaveLength(3)
     expect(lines[2]).toMatch(/^- \*\*School - \*\*Calendar.*\(ID: AAMkCal-1=\)$/)
+  })
+
+  describe("time zones reach Graph as a Prefer header", () => {
+    const preferOf = (call = 0) =>
+      new Headers((fetchSpy.mock.calls[call]![1] as RequestInit | undefined)?.headers).get("Prefer")
+
+    it("list_events asks for the zone", async () => {
+      await listEvents({ time_zone: "America/New_York" })
+      expect(preferOf()).toBe('outlook.timezone="America/New_York"')
+    })
+
+    it("get_event asks for the zone and a text body in one header", async () => {
+      await getEvent({ event_id: "evt-1", time_zone: "Eastern Standard Time" })
+      expect(preferOf()).toBe('outlook.timezone="Eastern Standard Time", outlook.body-content-type="text"')
+    })
+
+    it("list_calendar_view without a zone sends none", async () => {
+      await listCalendarView({ start_date_time: "2026-11-01T00:00:00Z", end_date_time: "2026-11-08T00:00:00Z" })
+      expect(preferOf()).toBeNull()
+    })
+  })
+
+  it("a write to a calendar_id reads only that calendar's name and edit rights first", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ name: "Holidays", canEdit: false }), { status: 200 }))
+    const result = await deleteEvent({ event_id: "evt-1", calendar_id: CAL })
+    expect(result.isLeft()).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(decodeURIComponent(sentUrl().pathname)).toMatch(new RegExp(`/me/calendars/${CAL}$`))
+    expect(sentUrl().searchParams.get("$select")).toBe("name,canEdit")
   })
 })
