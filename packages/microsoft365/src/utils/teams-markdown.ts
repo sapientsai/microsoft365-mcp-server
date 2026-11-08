@@ -15,36 +15,49 @@ const safeHref = (raw: string): string | undefined => {
   return url !== null && (url.protocol === "http:" || url.protocol === "https:") ? url.href : undefined
 }
 
-// Bold before italic, so "**x**" isn't read as two italics. Runs on text that is already escaped,
-// and the markers (*, _) survive escaping unchanged.
+const tagCount = (html: string, tag: string): number => html.split(tag).length - 1
+
+// ***x*** first, then bold, then italic, so "**x**" isn't read as two italics. An italic is kept only
+// when the bold tags inside it balance, so "**a *b** c*" can't produce <b>a <i>b</b> c</i>. Runs on
+// text that is already escaped; the markers (*, _) survive escaping unchanged.
 const emphasis = (escaped: string): string =>
   escaped
+    .replace(/\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*/g, "<b><i>$1</i></b>")
     .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, "<b>$1</b>")
-    .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, "$1<i>$2</i>")
-    .replace(/(^|[^\w])_(?=\S)([^_]+?)(?<=\S)_(?!\w)/g, "$1<i>$2</i>")
+    .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, (whole, lead: string, body: string) =>
+      tagCount(body, "<b>") === tagCount(body, "</b>") ? `${lead}<i>${body}</i>` : whole,
+    )
+    .replace(/(^|[^\w])_(?=\S)([^_]+?)(?<=\S)_(?!\w)/g, (whole, lead: string, body: string) =>
+      tagCount(body, "<b>") === tagCount(body, "</b>") ? `${lead}<i>${body}</i>` : whole,
+    )
 
-// Inline code and links are cut out first, so emphasis never reaches inside them. String.split with
-// capture groups gives the plain runs and each token's groups in order: [plain, code, label, href, …].
-const INLINE_TOKEN = /`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)/
-const INLINE_PARTS = 4
+// Inline code and links become placeholders first, so emphasis never reaches inside them but can
+// still wrap them ("**run `pnpm i` first**"). A placeholder is U+E000 (private use), its index, U+E000; that character is removed
+// from the caller's text beforehand, so no text can forge one.
+const INLINE_TOKEN = /`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)/g
+const PLACEHOLDER = /\uE000(\d+)\uE000/g
 
-const token = (code: string | undefined, label: string | undefined, href: string | undefined): string => {
+const renderToken = (whole: string, code: string | undefined, label: string, href: string): string => {
   if (code !== undefined) return `<code>${escapeHtml(code)}</code>`
-  const url = safeHref(href ?? "")
+  const url = safeHref(href)
   return url === undefined
-    ? emphasis(escapeHtml(`[${label ?? ""}](${href ?? ""})`))
-    : `<a href="${escapeHtml(url)}">${emphasis(escapeHtml(label ?? ""))}</a>`
+    ? emphasis(escapeHtml(whole))
+    : `<a href="${escapeHtml(url)}">${emphasis(escapeHtml(label))}</a>`
 }
 
-const inline = (text: string): string => {
-  const pieces: ReadonlyArray<string | undefined> = text.split(new RegExp(INLINE_TOKEN, "g"))
-  return pieces
-    .map((piece, k) => {
-      const slot = k % INLINE_PARTS
-      if (slot === 0) return emphasis(escapeHtml(piece ?? ""))
-      return slot === 1 ? token(piece, pieces[k + 1], pieces[k + 2]) : ""
-    })
-    .join("")
+const inline = (raw: string): string => {
+  const text = raw.replace(/\uE000/g, "")
+  const rendered: string[] = []
+  const marked = text.replace(
+    INLINE_TOKEN,
+    (whole: string, code: string | undefined, label: string | undefined, href: string | undefined, at: number) => {
+      // ![alt](src) is an image, which isn't converted: leave all of it as text.
+      if (code === undefined && text[at - 1] === "!") return whole
+      rendered.push(renderToken(whole, code, label ?? "", href ?? ""))
+      return `\uE000${rendered.length - 1}\uE000`
+    },
+  )
+  return emphasis(escapeHtml(marked)).replace(PLACEHOLDER, (_whole, k: string) => rendered[Number(k)] ?? "")
 }
 
 type Block =
@@ -62,9 +75,12 @@ const startsBlock = (line: string): boolean =>
   line.trim() === "" || FENCE.test(line) || HEADING.test(line) || BULLET.test(line) || NUMBERED.test(line)
 
 /** The index of the first line at or after `from` that fails `keep`, or the end. */
+// A plain loop from `from`: findIndex from 0 on every block made parsing quadratic (30 s for 120,000 lines).
 const runEnd = (lines: ReadonlyArray<string>, from: number, keep: (line: string) => boolean): number => {
-  const stop = lines.findIndex((line, k) => k >= from && !keep(line))
-  return stop === -1 ? lines.length : stop
+  let k = from // eslint-disable-line functype/no-let -- linear scan, see above
+  // eslint-disable-next-line functype/no-imperative-loops -- linear scan, see above
+  while (k < lines.length && keep(lines[k] ?? "")) k++
+  return k
 }
 
 // One block from `at`, and where the next one starts.
@@ -90,17 +106,19 @@ const blockAt = (lines: ReadonlyArray<string>, at: number): { readonly block?: B
   return { block: { kind: "paragraph", lines: lines.slice(at, end) }, next: end }
 }
 
-// One pass over the lines, without recursion: a long message must not run out of stack.
+// One linear pass over the lines: no recursion, which could run out of stack, and no copying of the
+// blocks found so far, which made it quadratic.
 const blocks = (markdown: string): ReadonlyArray<Block> => {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n")
-  return lines.reduce<{ readonly found: ReadonlyArray<Block>; readonly next: number }>(
-    (acc, _line, k) => {
-      if (k < acc.next) return acc
-      const { block, next } = blockAt(lines, k)
-      return { found: block === undefined ? acc.found : [...acc.found, block], next }
-    },
-    { found: [], next: 0 },
-  ).found
+  const found: Block[] = []
+  let at = 0 // eslint-disable-line functype/no-let -- line cursor
+  // eslint-disable-next-line functype/no-imperative-loops -- one pass, see above
+  while (at < lines.length) {
+    const { block, next } = blockAt(lines, at)
+    if (block !== undefined) found.push(block)
+    at = next
+  }
+  return found
 }
 
 const renderBlock = (block: Block): string => {
@@ -120,6 +138,17 @@ const renderBlock = (block: Block): string => {
 
 /** Markdown to Teams message HTML; see the comment at the top of this file for what is converted. */
 export const markdownToTeamsHtml = (markdown: string): string => blocks(markdown).map(renderBlock).join("")
+
+// Teams refuses a message over about 28 KB, so a longer one can't be sent either way, and the inline
+// patterns slow down on very long lines. Markdown longer than this is refused before converting.
+export const MAX_MARKDOWN_CHARS = 30_000
+
+/** Why content can't be sent in this format, or undefined when it can. */
+export const messageFormatProblem = (content: string, format: MessageFormat | undefined): string | undefined =>
+  format === "markdown" && content.length > MAX_MARKDOWN_CHARS
+    ? `The message is ${content.length.toLocaleString("en-US")} characters, over the ${MAX_MARKDOWN_CHARS.toLocaleString("en-US")} ` +
+      "a Markdown message may have. Teams refuses messages over about 28 KB; split it into several messages."
+    : undefined
 
 export const MESSAGE_FORMATS = ["text", "markdown"] as const
 export type MessageFormat = (typeof MESSAGE_FORMATS)[number]

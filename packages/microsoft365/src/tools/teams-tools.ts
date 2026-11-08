@@ -5,7 +5,7 @@ import { UserError } from "somamcp"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphChannel, GraphChannelMessage, ODataResponse } from "../types"
 import { formatChannelList, formatChannelMessageList, formatTeamList } from "../utils/formatters"
-import { messageBody, type MessageFormat } from "../utils/teams-markdown"
+import { messageBody, type MessageFormat, messageFormatProblem } from "../utils/teams-markdown"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -83,6 +83,8 @@ export const sendChannelMessage = async (params: {
   reply_to_message_id?: string
   format?: MessageFormat
 }): Promise<Either<UserError, string>> => {
+  const tooLong = messageFormatProblem(params.content, params.format)
+  if (tooLong) return Left(new UserError(tooLong))
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 

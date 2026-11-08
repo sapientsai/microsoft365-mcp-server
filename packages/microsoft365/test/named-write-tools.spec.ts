@@ -312,6 +312,29 @@ describe("sendChatMessage", () => {
     expect(message(result)).toBe("Chat message sent. Chat ID: 19:pair.")
   })
 
+  it("should send Markdown as HTML when messaging people with to", async () => {
+    useDirectory()
+    mockClient.createChat.mockResolvedValue(Right({ id: "19:pair", chatType: "oneOnOne" }))
+    mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
+    await sendChatMessage({ to: "ada@civala.onmicrosoft.com", content: "- **a**", format: "markdown" })
+    expect(mockClient.sendChatMessage).toHaveBeenCalledWith("19:pair", {
+      contentType: "html",
+      content: "<ul><li><b>a</b></li></ul>",
+    })
+  })
+
+  it("should refuse an over-long Markdown message before starting a chat", async () => {
+    useDirectory()
+    const result = await sendChatMessage({
+      to: "ada@civala.onmicrosoft.com",
+      content: "x".repeat(30_001),
+      format: "markdown",
+    })
+    expect(result.isLeft()).toBe(true)
+    expect(mockClient.createChat).not.toHaveBeenCalled()
+    expect(mockClient.sendChatMessage).not.toHaveBeenCalled()
+  })
+
   // /users/{key} rejects an email address that differs from the sign-in name, the common case.
   it("should find a person by email when it differs from their sign-in name", async () => {
     useDirectory()

@@ -6,7 +6,7 @@ import { tokenTenant } from "../auth/token-facts"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphChat, GraphChatMessage, GraphUser, ODataResponse } from "../types"
 import { formatChatList, formatChatMessageList, isReadableChatMessage } from "../utils/formatters"
-import { messageBody, type MessageFormat } from "../utils/teams-markdown"
+import { messageBody, type MessageFormat, messageFormatProblem } from "../utils/teams-markdown"
 
 const requireClient = () => {
   const client = getGraphClient()
@@ -317,6 +317,9 @@ export const sendChatMessage = async (params: {
   if (params.chat_id !== undefined && params.topic !== undefined) {
     return Left(new UserError("topic only applies when starting a group chat with 'to'."))
   }
+  // Before any call, so 'to' doesn't start a chat for a message that can't be sent.
+  const tooLong = messageFormatProblem(params.content, params.format)
+  if (tooLong) return Left(new UserError(tooLong))
 
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
