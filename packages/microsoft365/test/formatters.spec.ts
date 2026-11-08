@@ -171,6 +171,68 @@ describe("formatters", () => {
       expect(result).toContain("ID: evt-1")
     })
 
+    it("names the zone of every time it prints", () => {
+      expect(formatEventList([event])).toContain("(2024-01-15 14:00–15:00 UTC)")
+      expect(formatEventDetail(event)).toContain("- When: 2024-01-15 14:00–15:00 UTC")
+    })
+
+    it("prints both dates when an event runs past midnight", () => {
+      const late = { ...event, end: { dateTime: "2024-01-16T01:00:00.0000000", timeZone: "UTC" } }
+      expect(formatEventList([late])).toContain("(2024-01-15 14:00 – 2024-01-16 01:00 UTC)")
+    })
+
+    it("prints an all-day event as its days, the last one inclusive", () => {
+      const allDay = (start: string, end: string) => ({
+        ...event,
+        isAllDay: true,
+        start: { dateTime: `${start}T00:00:00.0000000`, timeZone: "UTC" },
+        end: { dateTime: `${end}T00:00:00.0000000`, timeZone: "UTC" },
+      })
+      expect(formatEventList([allDay("2026-11-06", "2026-11-07")])).toContain("(2026-11-06, all day)")
+      expect(formatEventList([allDay("2026-11-06", "2026-11-09")])).toContain("(2026-11-06 to 2026-11-08, all day)")
+      expect(formatEventList([allDay("2026-12-31", "2027-01-01")])).toContain("(2026-12-31, all day)")
+    })
+
+    it("prints an all-day event's times when shown outside the zone it was set in", () => {
+      const perth = {
+        ...event,
+        isAllDay: true,
+        start: { dateTime: "2026-11-05T16:00:00.0000000", timeZone: "UTC" },
+        end: { dateTime: "2026-11-06T16:00:00.0000000", timeZone: "UTC" },
+        originalStartTimeZone: "W. Australia Standard Time",
+      }
+      expect(formatEventList([perth])).toContain(
+        "(2026-11-05 16:00 – 2026-11-06 16:00 UTC, all day; set in W. Australia Standard Time)",
+      )
+    })
+
+    it("says where an event was set when that isn't the zone shown", () => {
+      const set = { ...event, originalStartTimeZone: "Eastern Standard Time" }
+      expect(formatEventList([set])).toContain("; set in Eastern Standard Time)")
+      expect(formatEventDetail(set)).toContain("- Set in: Eastern Standard Time")
+      expect(formatEventList([{ ...event, originalStartTimeZone: "UTC" }])).not.toContain("set in")
+    })
+
+    it("treats a Windows name and its IANA name as one zone", () => {
+      const shown = (zone: string, original: string) =>
+        formatEventList([{ ...event, start: { ...event.start, timeZone: zone }, originalStartTimeZone: original }])
+      expect(shown("America/New_York", "Eastern Standard Time")).not.toContain("set in")
+      expect(shown("Eastern Standard Time", "america/new_york")).not.toContain("set in")
+      expect(shown("UTC", "tzone://Microsoft/Utc")).not.toContain("set in")
+      expect(shown("America/New_York", "Pacific Standard Time")).toContain("; set in Pacific Standard Time)")
+    })
+
+    it("keeps a zone name from breaking onto its own line", () => {
+      const odd = { ...event, originalStartTimeZone: "Eastern\n- Organizer: someone else" }
+      expect(formatEventList([odd]).split("\n")).toHaveLength(3)
+    })
+
+    it("leaves the body out when asked", () => {
+      const withBody = { ...event, body: { contentType: "html", content: "<p>Agenda</p>" } }
+      expect(formatEventDetail(withBody)).toContain("## Body\n<p>Agenda</p>")
+      expect(formatEventDetail(withBody, { body: false })).not.toContain("Agenda")
+    })
+
     it("should format event detail", () => {
       const result = formatEventDetail(event)
       expect(result).toContain("# Team Meeting")

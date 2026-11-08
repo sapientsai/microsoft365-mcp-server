@@ -399,6 +399,8 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
     readOnly: false,
     orgOnly: false,
   },
+  // Deletes the list's tasks with it, and Graph has no restore. Not additive, so destructiveHint: true.
+  { name: "delete_todo_list", title: "Delete To Do List", domain: "todo", readOnly: false, orgOnly: false },
   { name: "list_todo_tasks", title: "List To Do Tasks", domain: "todo", readOnly: true, orgOnly: false },
   {
     name: "create_todo_task",

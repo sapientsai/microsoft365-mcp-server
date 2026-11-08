@@ -8,11 +8,17 @@ vi.mock("../src/client/graph-client", () => ({
 
 vi.mock("../src/auth", () => ({
   getAccessToken: vi.fn(),
+  getAuthStatus: vi.fn(),
 }))
 
-import { getAccessToken } from "../src/auth"
+import { getAccessToken, getAuthStatus } from "../src/auth"
 import { getGraphClient } from "../src/client/graph-client"
-import { getMeetingTranscript, listMeetingTranscripts, meetingByJoinUrlPath } from "../src/tools/meetings-tools"
+import {
+  getMeetingTranscript,
+  joinUrlTenant,
+  listMeetingTranscripts,
+  meetingByJoinUrlPath,
+} from "../src/tools/meetings-tools"
 
 const MEETING_ID = "MSo1N2Y5ZGFjYy03MWJmLTQ3NDMtYjQxMy01M2E"
 const TRANSCRIPT_ID = "MSMjMCMjNzU3ODc2ZDYtOTcwMi00MDhkLWFkNDItOTE2ZDNmZjkwZGY4"
@@ -48,6 +54,7 @@ beforeEach(() => {
   delete process.env.MS365_AUTH_MODE
   vi.mocked(getGraphClient).mockReturnValue(Some(mockClient) as never)
   vi.mocked(getAccessToken).mockResolvedValue(Right("token-abc") as never)
+  vi.mocked(getAuthStatus).mockResolvedValue(Left({ type: "config", message: "unreadable" }) as never)
 })
 
 afterEach(() => {
@@ -440,5 +447,106 @@ describe("getMeetingTranscript", () => {
 
     expect(result.isLeft()).toBe(true)
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+// Made-up tenants and a join URL in Teams' own shape, context={"Tid":…,"Oid":…}.
+const OWN_TENANT = "11111111-1111-1111-1111-111111111111"
+const OTHER_TENANT = "22222222-2222-2222-2222-222222222222"
+const joinUrlIn = (tid: string) =>
+  "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=" +
+  encodeURIComponent(JSON.stringify({ Tid: tid, Oid: "33333333-3333-3333-3333-333333333333" }))
+const tokenIn = (tid: string, scp = "OnlineMeetingTranscript.Read.All OnlineMeetings.Read") =>
+  `h.${Buffer.from(JSON.stringify({ tid, scp })).toString("base64url")}.s`
+
+describe("meetings hosted by another organization", () => {
+  beforeEach(() => {
+    vi.mocked(getAccessToken).mockResolvedValue(Right(tokenIn(OWN_TENANT)) as never)
+    vi.mocked(getAuthStatus).mockResolvedValue(
+      Right({ mode: "oauth-proxy", authenticated: true, scopes: ["OnlineMeetingTranscript.Read.All"] }) as never,
+    )
+  })
+
+  it("reads the organizer's tenant from a join URL", () => {
+    expect(joinUrlTenant(joinUrlIn(OTHER_TENANT))).toBe(OTHER_TENANT)
+    expect(joinUrlTenant("https://teams.microsoft.com/meet/123456?p=abc")).toBeUndefined()
+    expect(joinUrlTenant("not a url")).toBeUndefined()
+  })
+
+  it("names the other organization when the lookup fails with 3003", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(
+      Left({ type: "forbidden", status: 403, message: "3003: User does not have access to lookup meeting" }),
+    )
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OTHER_TENANT) })
+    const message = (result.value as Error).message
+    expect(message).toContain("3003: User does not have access to lookup meeting")
+    expect(message).toContain(`organized in another organization (tenant ${OTHER_TENANT})`)
+    expect(message).not.toContain("MS365_EXTRA_SCOPES")
+  })
+
+  it("names it instead of scope advice when listing transcripts fails", async () => {
+    mockClient.graphQuery
+      .mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+      .mockResolvedValueOnce(Left({ type: "forbidden", status: 403, message: "UnknownError" }))
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OTHER_TENANT) })
+    const message = (result.value as Error).message
+    expect(message).toContain("another organization")
+    expect(message).not.toContain("MS365_EXTRA_SCOPES")
+  })
+
+  it.each([
+    ["throttled", { type: "throttle", status: 429, message: "Too many requests" }],
+    ["unavailable", { type: "api", status: 503, message: "Service unavailable" }],
+    ["offline", { type: "network", message: "fetch failed" }],
+  ])("doesn't blame the other organization when the lookup is %s", async (_name, error) => {
+    mockClient.graphQuery.mockResolvedValueOnce(Left(error))
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OTHER_TENANT) })
+    expect((result.value as Error).message).not.toContain("another organization")
+  })
+
+  it("doesn't blame it when listing transcripts is throttled", async () => {
+    mockClient.graphQuery
+      .mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+      .mockResolvedValueOnce(Left({ type: "throttle", status: 429, message: "Too many requests" }))
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OTHER_TENANT) })
+    expect((result.value as Error).message).toBe("Failed to list transcripts: Too many requests")
+  })
+
+  it("doesn't blame it when the transcript content fails for another reason", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+    stubFetch([{ ok: false, status: 404, body: JSON.stringify({ error: { message: "Transcript not found" } }) }])
+    const result = await getMeetingTranscript({ join_web_url: joinUrlIn(OTHER_TENANT), transcript_id: TRANSCRIPT_ID })
+    expect((result.value as Error).message).toBe("Failed to get transcript (404): Transcript not found")
+  })
+
+  it("names it when the transcript content is refused", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+    stubFetch([forbidden("SomethingElse", "UnknownError")])
+    const result = await getMeetingTranscript({ join_web_url: joinUrlIn(OTHER_TENANT), transcript_id: TRANSCRIPT_ID })
+    expect((result.value as Error).message).toContain("another organization")
+  })
+
+  it("says nothing about another organization for a meeting in the token's own tenant", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Left({ type: "forbidden", status: 403, message: "3003: no access" }))
+    const result = await listMeetingTranscripts({ join_web_url: joinUrlIn(OWN_TENANT) })
+    expect((result.value as Error).message).not.toContain("another organization")
+  })
+
+  it("drops the scope advice when the token already holds the scope", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Left({ type: "forbidden", status: 403, message: "UnknownError" }))
+    const result = await listMeetingTranscripts({ meeting_id: MEETING_ID })
+    const message = (result.value as Error).message
+    expect(message).toContain("already holds OnlineMeetingTranscript.Read.All, so the permission is not the cause")
+    expect(message).not.toContain("MS365_EXTRA_SCOPES")
+  })
+
+  it("keeps the scope advice when the token lacks the scope", async () => {
+    process.env.MS365_AUTH_MODE = "oauth-proxy"
+    vi.mocked(getAuthStatus).mockResolvedValue(
+      Right({ mode: "oauth-proxy", authenticated: true, scopes: ["User.Read"] }) as never,
+    )
+    mockClient.graphQuery.mockResolvedValueOnce(Left({ type: "forbidden", status: 403, message: "Forbidden" }))
+    const result = await listMeetingTranscripts({ meeting_id: MEETING_ID })
+    expect((result.value as Error).message).toContain("Add OnlineMeetingTranscript.Read.All to MS365_EXTRA_SCOPES")
   })
 })

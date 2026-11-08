@@ -5,7 +5,7 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
 
-import { getAuthStatus } from "../auth"
+import { heldScope, tokenScopes } from "../auth/token-facts"
 import { getGraphClient } from "../client/graph-client"
 import type { GraphApiError, GraphContact, GraphContactFolder, ODataResponse } from "../types"
 import { formatContactDetail, formatContactList } from "../utils/formatters"
@@ -18,11 +18,8 @@ import { writeNewFile } from "../utils/local-file"
 const writeFailure = async (action: string, error: GraphApiError): Promise<UserError> => {
   const plain = new UserError(`Failed to ${action} contact: ${error.message}`)
   if (error.type !== "forbidden") return plain
-  const scopes = (await getAuthStatus()).fold(
-    () => [] as ReadonlyArray<string>,
-    (status) => status.scopes,
-  )
-  const lacksWrite = scopes.length > 0 && !scopes.some((scope) => scope.toLowerCase() === "contacts.readwrite")
+  const scopes = await tokenScopes()
+  const lacksWrite = scopes.length > 0 && heldScope(scopes, ["Contacts.ReadWrite"]) === undefined
   if (!lacksWrite) return plain
   return new UserError(
     `Failed to ${action} contact: ${error.message}. The signed-in token has no Contacts.ReadWrite permission, ` +
@@ -94,6 +91,8 @@ const BIRTHDAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?
 
 // Accepts a timestamp as well as a bare date so a birthday read off another contact can be
 // copied verbatim: re-deriving the date from a UTC timestamp can shift it by a day.
+// Contacts print a birthday stored at Outlook's 11:59 UTC as its date alone, so a bare date is sent
+// back at that same time: the round trip lands on the same day in every zone, as Outlook's own does.
 // The component check catches dates Date would silently roll over, like 2023-02-30.
 const isValidBirthday = (value: string): boolean => {
   const match = BIRTHDAY_PATTERN.exec(value)
@@ -102,6 +101,8 @@ const isValidBirthday = (value: string): boolean => {
   const date = new Date(Date.UTC(year, month - 1, day))
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
 }
+
+const birthdayForGraph = (value: string): string => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T11:59:00Z` : value)
 
 // Graph replaces a multi-valued property wholesale on PATCH — there is no append — so
 // list parameters are complete replacements, and an empty list clears the property.
@@ -145,7 +146,7 @@ export const updateContact = async (params: {
   if (params.home_phones !== undefined) updates.homePhones = params.home_phones
   if (params.categories !== undefined) updates.categories = params.categories
   if (params.personal_notes !== undefined) updates.personalNotes = params.personal_notes
-  if (params.birthday !== undefined) updates.birthday = params.birthday
+  if (params.birthday !== undefined) updates.birthday = birthdayForGraph(params.birthday)
 
   if (Object.keys(updates).length === 0) return Left(new UserError("No fields to update."))
 

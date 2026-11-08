@@ -47,6 +47,7 @@ import {
   deleteDraft,
   deleteEvent,
   deleteOnenotePage,
+  deleteTodoList,
   deleteTodoTask,
   downloadFile,
   exportContacts,
@@ -286,6 +287,15 @@ const REMINDER_MINUTES_PARAM = z
   .describe(
     "Minutes before the start to remind, which also turns the reminder on. For an all-day event the start " +
       "is midnight, so 1080 reminds at 6 pm the evening before. Graph's default is 15.",
+  )
+
+// Graph answers in UTC unless asked otherwise, and every time printed names its zone either way.
+const SHOW_IN_ZONE_PARAM = z
+  .string()
+  .optional()
+  .describe(
+    "Show times in this zone: an IANA name (America/New_York) or a Windows one (Eastern Standard Time). " +
+      "Default: UTC. Pass the user's own zone to read times as they would.",
   )
 
 const CALENDAR_ID_PARAM = z
@@ -833,6 +843,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       filter: z.string().optional().describe("OData filter expression"),
       fetch_all_pages: FETCH_ALL_PAGES_PARAM,
       calendar_id: CALENDAR_ID_PARAM,
+      time_zone: SHOW_IN_ZONE_PARAM,
     }),
     execute: async (params) => unwrapResult(await listEvents(params)),
     domain: "calendar",
@@ -848,6 +859,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       end_date_time: z.string().describe("Window end (ISO 8601, e.g. 2026-05-29T00:00:00Z)"),
       top: z.number().optional().describe("Max events to return (default: 50)"),
       calendar_id: CALENDAR_ID_PARAM,
+      time_zone: SHOW_IN_ZONE_PARAM,
     }),
     execute: async (params) => unwrapResult(await listCalendarView(params)),
     domain: "calendar",
@@ -895,6 +907,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .optional()
         .describe("Body format: 'text' (default) has Graph strip the HTML server-side; 'html' returns the raw markup"),
       calendar_id: CALENDAR_EVENT_ID_PARAM,
+      time_zone: SHOW_IN_ZONE_PARAM,
     }),
     execute: async (params) => unwrapResult(await getEvent(params)),
     domain: "calendar",
@@ -917,7 +930,12 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       show_as: SHOW_AS_PARAM,
       reminder: REMINDER_PARAM,
       reminder_minutes: REMINDER_MINUTES_PARAM,
-      time_zone: z.string().optional().describe("Time zone (default: UTC)"),
+      time_zone: z
+        .string()
+        .optional()
+        .describe(
+          "Zone of start and end, IANA or Windows name (default: UTC). The reply shows the event's times in it too.",
+        ),
       location: z.string().optional().describe("Event location"),
       body: z.string().optional().describe("Event description"),
       content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
@@ -972,7 +990,12 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         ),
       reminder: REMINDER_PARAM,
       reminder_minutes: REMINDER_MINUTES_PARAM,
-      time_zone: z.string().optional().describe("Time zone (default: UTC)"),
+      time_zone: z
+        .string()
+        .optional()
+        .describe(
+          "Zone of start and end, IANA or Windows name (default: UTC). The reply shows the event's times in it too.",
+        ),
       location: z.string().optional().describe("New location"),
       body: z.string().optional().describe("New description"),
       content_type: z.string().optional().describe("Body content type: Text or HTML (default: Text)"),
@@ -1880,6 +1903,19 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       display_name: z.string().describe("Name of the list. Must not match an existing list"),
     }),
     execute: async (params) => unwrapResult(await createTodoList(params)),
+    domain: "todo",
+    readOnly: false,
+  },
+  {
+    name: "delete_todo_list",
+    description:
+      "Delete a To Do list and every task in it. There is no API to restore it, so treat it as permanent. A list " +
+      "that still holds tasks needs force: true. The built-in Tasks and Flagged Emails lists can't be deleted.",
+    parameters: z.object({
+      list_id: z.string().describe("To Do list ID, as list_todo_lists returns it"),
+      force: z.boolean().optional().describe("Required when the list still holds tasks, which are deleted with it"),
+    }),
+    execute: async (params) => unwrapResult(await deleteTodoList(params)),
     domain: "todo",
     readOnly: false,
   },

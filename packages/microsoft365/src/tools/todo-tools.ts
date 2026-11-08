@@ -13,6 +13,7 @@ import {
   formatTodoTaskDetail,
   formatTodoTaskList,
 } from "../utils/formatters"
+import { isGraphId } from "../utils/graph-id"
 import { displayableLinkUrl } from "../utils/link-url"
 import type { RecurrenceInput } from "../utils/recurrence"
 import { buildRecurrence, describeRecurrence, toDateOnly } from "../utils/recurrence"
@@ -93,6 +94,66 @@ export const createTodoList = async (params: { display_name: string }): Promise<
         "Graph cannot share a list — sharing is only available in the To Do app, and a new list " +
         "is visible to nobody else until someone shares it there.",
     )
+}
+
+// The two lists To Do makes itself. Graph refuses to delete either, so the refusal comes from here,
+// in words, before the call.
+const BUILT_IN_LISTS: Readonly<Partial<Record<string, string>>> = {
+  defaultlist: "the default Tasks list",
+  flaggedemails: "the Flagged Emails list, which Outlook fills from flagged mail",
+}
+
+/**
+ * Delete a whole list. Its tasks go with it and Graph has no restore, so a list that still holds tasks
+ * needs force: true. The list is read first, both for that check and to refuse a built-in list by name.
+ */
+export const deleteTodoList = async (params: {
+  list_id: string
+  force?: boolean
+}): Promise<Either<UserError, string>> => {
+  const client = requireClient()
+  if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+  if (!isGraphId(params.list_id)) {
+    return Left(new UserError("list_id is not a To Do list ID. Use an ID exactly as list_todo_lists returns it."))
+  }
+
+  const existing = await client.getTodoList(params.list_id)
+  if (existing.isLeft()) {
+    return Left(
+      new UserError(`Failed to read the list, so nothing was deleted: ${(existing.value as GraphApiError).message}`),
+    )
+  }
+  const list = existing.value as GraphTodoList
+  const name = (list.displayName ?? "Untitled").replace(/[\r\n]+/g, " ").slice(0, 200)
+  const builtIn = BUILT_IN_LISTS[(list.wellknownListName ?? "none").toLowerCase()]
+  if (builtIn !== undefined) {
+    return Left(new UserError(`"${name}" is ${builtIn}. To Do keeps it, and Graph won't delete it.`))
+  }
+
+  if (!params.force) {
+    const tasks = await client.listTodoTasks(params.list_id, { $top: 1 })
+    if (tasks.isLeft()) {
+      return Left(
+        new UserError(
+          `Failed to check whether "${name}" holds tasks, so nothing was deleted: ` +
+            `${(tasks.value as GraphApiError).message}. Pass force: true to delete it anyway.`,
+        ),
+      )
+    }
+    if ((tasks.value as ODataResponse<GraphTodoTask>).value.length > 0) {
+      return Left(
+        new UserError(
+          `"${name}" still holds tasks, and deleting the list deletes them too, with no API to restore them. ` +
+            "Pass force: true to go ahead.",
+        ),
+      )
+    }
+  }
+
+  const result = await client.deleteTodoList(params.list_id)
+  return result
+    .mapLeft((error) => new UserError(`Failed to delete To Do list: ${error.message}`))
+    .map(() => `Deleted To Do list "${name}"${params.force ? " and every task in it" : ""}.`)
 }
 
 export type LinkedResourceInput = {
@@ -431,6 +492,8 @@ export const TASK_IMPORTANCES = ["low", "normal", "high"] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 export type TaskImportance = (typeof TASK_IMPORTANCES)[number]
 
+type ExtensionWrite = { readonly fields: Readonly<Record<string, ExtensionValue>>; readonly changed: boolean }
+
 // Read the extension, apply the fields sent, and write the whole set back: a PATCH replaces every
 // field (checked live 2026-10-30), so sending only the new ones would delete the rest. A missing
 // extension is created instead.
@@ -439,7 +502,7 @@ const writeExtension = async (
   listId: string,
   taskId: string,
   extension: ExtensionInput,
-): Promise<Either<string, Readonly<Record<string, ExtensionValue>>>> => {
+): Promise<Either<string, ExtensionWrite>> => {
   const existing = await client.getTodoTaskExtension(listId, taskId, extension.name)
   if (existing.isLeft()) {
     const error = existing.value as GraphApiError
@@ -451,16 +514,21 @@ const writeExtension = async (
     )
     return created.fold(
       (e) => Left(`creating the extension failed: ${e.message}`),
-      () => Right(extension.fields),
+      () => Right({ fields: extension.fields, changed: true }),
     )
   }
-  const merged = { ...extensionFields(existing.value as Record<string, unknown>), ...extension.fields }
+  const stored = extensionFields(existing.value as Record<string, unknown>)
+  const merged = { ...stored, ...extension.fields }
+  // Every field asked for already holds its value: writing would change nothing, so nothing is written.
+  if (Object.entries(extension.fields).every(([key, value]) => key in stored && stored[key] === value)) {
+    return Right({ fields: merged, changed: false })
+  }
   const tooBig = extensionFieldsProblem(merged)
   if (tooBig) return Left(`the extension can't take these fields: ${tooBig}`)
   const replaced = await client.replaceTodoTaskExtension(listId, taskId, extension.name, toExtensionPatch(merged))
   return replaced.fold(
     (e) => Left(`writing the extension failed: ${e.message}`),
-    () => Right(merged),
+    () => Right({ fields: merged, changed: true }),
   )
 }
 
@@ -489,27 +557,31 @@ export const setTodoTaskState = async (params: {
   const extProblem = params.extension ? extensionProblem(params.extension) : undefined
   if (extProblem) return Left(new UserError(extProblem))
 
-  if (params.status === "completed") {
-    const existing = await client.getTodoTask(params.list_id, params.task_id)
-    if (existing.isLeft()) {
-      return Left(
-        new UserError(`Failed to read the task, so nothing was changed: ${(existing.value as GraphApiError).message}`),
-      )
-    }
-    if ((existing.value as GraphTodoTask).recurrence) {
-      return Left(
-        new UserError(
-          "This task repeats, and completing it rolls the series on to its next occurrence each time, so " +
-            "set_todo_task_state won't do it. Use update_todo_task, which is meant for attended use.",
-        ),
-      )
-    }
-  }
-
-  const fields: Record<string, string> = {
+  const asked: Record<string, string> = {
     ...(params.status === undefined ? {} : { status: params.status }),
     ...(params.importance === undefined ? {} : { importance: params.importance }),
   }
+  // The task is read first whenever its fields are asked for: to refuse completing a repeating task,
+  // and to tell an identical repeat, which changes nothing and says so, from a real change.
+  const current = Object.keys(asked).length === 0 ? undefined : await client.getTodoTask(params.list_id, params.task_id)
+  if (current?.isLeft()) {
+    return Left(
+      new UserError(`Failed to read the task, so nothing was changed: ${(current.value as GraphApiError).message}`),
+    )
+  }
+  const task = current?.value as GraphTodoTask | undefined
+  if (params.status === "completed" && task?.recurrence && task.status !== "completed") {
+    return Left(
+      new UserError(
+        "This task repeats, and completing it rolls the series on to its next occurrence each time, so " +
+          "set_todo_task_state won't do it. Use update_todo_task, which is meant for attended use.",
+      ),
+    )
+  }
+
+  const before = (task ?? {}) as Readonly<Record<string, unknown>>
+  const fields = Object.fromEntries(Object.entries(asked).filter(([key, value]) => before[key] !== value))
+  const already = Object.keys(asked).filter((key) => !(key in fields))
   const changedTask = Object.keys(fields).length > 0
   if (changedTask) {
     const patched = await client.updateTodoTask(params.list_id, params.task_id, fields)
@@ -520,17 +592,36 @@ export const setTodoTaskState = async (params: {
     }
   }
 
+  const alreadyNote =
+    already.length === 0 ? "" : ` (${already.map((key) => `${key} was already ${asked[key]}`).join(", ")})`
   const saved = changedTask ? `Set ${Object.keys(fields).join(" and ")}` : ""
-  if (params.extension === undefined) return Right(`${saved} on task ${params.task_id}.`)
+  if (params.extension === undefined) {
+    return Right(
+      changedTask
+        ? `${saved} on task ${params.task_id}${alreadyNote}.`
+        : `Nothing changed on task ${params.task_id}: ${already.map((key) => `${key} was already ${asked[key]}`).join(" and ")}.`,
+    )
+  }
 
   const written = await writeExtension(client, params.list_id, params.task_id, params.extension)
   if (written.isLeft()) {
     const prefix = changedTask ? `${saved} on task ${params.task_id}, but ` : "Nothing was changed: "
     return Left(new UserError(`${prefix}${written.value as string}. Repeating the call is safe.`))
   }
-  const now = extensionJson(written.value as Record<string, ExtensionValue>)
+  const { fields: now, changed: extensionChanged } = written.value as ExtensionWrite
+  const holds = `It now holds ${extensionJson(now)}.`
+  if (!changedTask && !extensionChanged) {
+    return Right(
+      `Nothing changed on task ${params.task_id}${alreadyNote}: extension ${params.extension.name} already held ` +
+        `these values. ${holds}`,
+    )
+  }
+  const extensionPart = extensionChanged
+    ? `set extension ${params.extension.name}`
+    : `extension ${params.extension.name} already held these values`
   return Right(
-    `${changedTask ? `${saved}, and set` : "Set"} extension ${params.extension.name} on task ${params.task_id}. It now holds ${now}.`,
+    `${changedTask ? `${saved}, and ${extensionPart}` : extensionPart.charAt(0).toUpperCase() + extensionPart.slice(1)} ` +
+      `on task ${params.task_id}${alreadyNote}. ${holds}`,
   )
 }
 

@@ -150,6 +150,15 @@ describe("client-token over MCP", () => {
     expect(tools.map((tool: { name: string }) => tool.name)).toContain("get_me")
   })
 
+  // Reported on 2026-11-07 as missing from the hosted server. It has been in the schema since d4c2b1e,
+  // and over HTTP too, so a client that doesn't show it has a stale tool list.
+  it("lists mailbox on list_messages over HTTP", async () => {
+    const server = await startServer("client-token")
+    const { tools } = await rpcResult(await rpc(server, "tools/list"))
+    const listMessages = tools.find((tool: { name: string }) => tool.name === "list_messages")
+    expect(Object.keys(listMessages.inputSchema.properties)).toContain("mailbox")
+  })
+
   it("reports a tool's refusal as its bare message, not a JSON envelope", async () => {
     const server = await startServer("client-token")
     const result = await rpcResult(

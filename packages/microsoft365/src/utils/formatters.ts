@@ -208,11 +208,82 @@ export const formatCalendarSummary = (calendar: GraphCalendar): string => {
 export const formatCalendarList = (calendars: ReadonlyArray<GraphCalendar>): string =>
   calendars.length === 0 ? "No calendars found." : `# Calendars\n\n${calendars.map(formatCalendarSummary).join("\n")}`
 
+// Graph writes "2026-11-09T14:30:00.0000000"; a person reads "2026-11-09 14:30".
+const eventClock = (dateTime: string): string =>
+  dateTime
+    .replace(/\.\d+$/, "")
+    .replace("T", " ")
+    .slice(0, 16)
+
+const dayBefore = (date: string): string => {
+  const d = new Date(`${date}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return date
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+const atMidnight = (dateTime: string | undefined): boolean =>
+  dateTime !== undefined && /T00:00(?::00(?:\.0+)?)?$/.test(dateTime)
+
+// Graph pins an all-day event to midnight in the zone it was set in. Shown in that zone, its times
+// are midnights and its days can be read off them; shown in another, they aren't, and a day read off
+// them could be a day out, so the times are printed instead.
+const alignedAllDay = (event: GraphEvent): boolean =>
+  event.isAllDay === true && atMidnight(event.start?.dateTime) && atMidnight(event.end?.dateTime ?? "T00:00")
+
+/**
+ * When an event happens, always with its zone, so a UTC time never passes for a local one. An all-day
+ * event shows its days: Graph ends it at the midnight after its last day.
+ */
+export const eventWhen = (event: GraphEvent): string => {
+  const start = event.start?.dateTime
+  if (start === undefined) return ""
+  const end = event.end?.dateTime
+  if (alignedAllDay(event)) {
+    const first = start.slice(0, 10)
+    const last = end === undefined ? first : dayBefore(end.slice(0, 10))
+    return last > first ? `${first} to ${last}, all day` : `${first}, all day`
+  }
+  const zone = calendarText(event.start?.timeZone ?? "")
+  const from = eventClock(start)
+  const to = end === undefined ? "" : eventClock(end)
+  const span = to === "" ? from : to.slice(0, 10) === from.slice(0, 10) ? `${from}–${to.slice(11)}` : `${from} – ${to}`
+  const zoned = zone === "" ? span : `${span} ${zone}`
+  return event.isAllDay ? `${zoned}, all day` : zoned
+}
+
+// Graph names a zone either way, America/New_York or Eastern Standard Time, so one zone can arrive under
+// two names. These are CLDR's main Windows-to-IANA pairs for the zones most events are set in; a pair
+// not listed only costs a "set in" note naming the same zone.
+const WINDOWS_ZONES: Readonly<Record<string, string>> = {
+  utc: "etc/utc",
+  "eastern standard time": "america/new_york",
+  "central standard time": "america/chicago",
+  "mountain standard time": "america/denver",
+  "pacific standard time": "america/los_angeles",
+  "gmt standard time": "europe/london",
+  "w. europe standard time": "europe/berlin",
+  "romance standard time": "europe/paris",
+  "india standard time": "asia/kolkata",
+  "aus eastern standard time": "australia/sydney",
+  "w. australia standard time": "australia/perth",
+}
+const UTC_NAMES = new Set(["utc", "etc/utc", "gmt", "etc/gmt", "tzone://microsoft/utc"])
+
+const canonicalZone = (zone: string): string => {
+  const lower = zone.trim().toLowerCase()
+  return UTC_NAMES.has(lower) ? "etc/utc" : (WINDOWS_ZONES[lower] ?? lower)
+}
+
+// The zone the organizer set the event in, when it isn't the zone the times are shown in.
+const setInZone = (event: GraphEvent): string | undefined => {
+  const original = event.originalStartTimeZone
+  if (original === undefined || original.trim() === "" || alignedAllDay(event)) return undefined
+  if (canonicalZone(original) === canonicalZone(event.start?.timeZone ?? "")) return undefined
+  return calendarText(original)
+}
+
 export const formatEventSummary = (event: GraphEvent): string => {
-  const start = Option(event.start?.dateTime).fold(
-    () => "",
-    (v) => v,
-  )
   const location = Option(event.location?.displayName)
     .map((loc) => ` @ ${loc}`)
     .fold(
@@ -220,7 +291,11 @@ export const formatEventSummary = (event: GraphEvent): string => {
       (v) => v,
     )
   const cancelled = event.isCancelled ? " [Cancelled]" : ""
-  return `- **${event.subject ?? "(No Subject)"}** (${start})${location}${cancelled} (ID: ${event.id})`
+  const setIn = Option(setInZone(event)).fold(
+    () => "",
+    (zone) => `; set in ${zone}`,
+  )
+  return `- **${event.subject ?? "(No Subject)"}** (${eventWhen(event)}${setIn})${location}${cancelled} (ID: ${event.id})`
 }
 
 export const formatEventList = (events: ReadonlyArray<GraphEvent>): string =>
@@ -231,7 +306,7 @@ const reminderLine = (event: GraphEvent): string =>
     ? ""
     : `\n- Reminder: ${event.isReminderOn ? `${event.reminderMinutesBeforeStart ?? "?"} minutes before` : "Off"}`
 
-export const formatEventDetail = (event: GraphEvent): string => {
+export const formatEventDetail = (event: GraphEvent, options: { readonly body?: boolean } = {}): string => {
   const organizer = Option(event.organizer?.emailAddress)
     .map((e) => `${e.name ?? ""} <${e.address ?? ""}>`)
     .fold(
@@ -264,27 +339,32 @@ export const formatEventDetail = (event: GraphEvent): string => {
       (v) => v,
     )
 
-  const body = Option(event.body?.content).fold(
+  // A write's reply leaves the body out: the caller has just written it, and Graph answers a create or
+  // update with the body in Exchange's HTML, however it was sent.
+  const body =
+    options.body === false
+      ? ""
+      : `\n\n## Body\n${Option(event.body?.content).fold(
+          () => "",
+          (v) => v,
+        )}`
+  const setIn = Option(setInZone(event)).fold(
     () => "",
-    (v) => v,
+    (zone) => `\n- Set in: ${zone}`,
   )
 
   return `# ${event.subject ?? "(No Subject)"}
 
 ## Details
 - ID: ${event.id}
-- Start: ${event.start?.dateTime ?? ""} (${event.start?.timeZone ?? ""})
-- End: ${event.end?.dateTime ?? ""} (${event.end?.timeZone ?? ""})
+- When: ${eventWhen(event)}${setIn}
 - Location: ${event.location?.displayName ?? "None"}
 - Organizer: ${organizer}
 - All Day: ${event.isAllDay ? "Yes" : "No"}
 - Cancelled: ${event.isCancelled ? "Yes" : "No"}${reminderLine(event)}${meetingUrl}
 
 ## Attendees
-${attendees}
-
-## Body
-${body}`
+${attendees}${body}`
 }
 
 const formatMeetingTimeSuggestion = (suggestion: GraphMeetingTimeSuggestion): string => {
@@ -359,6 +439,14 @@ export const formatContactSummary = (contact: GraphContact): string => {
 export const formatContactList = (contacts: ReadonlyArray<GraphContact>): string =>
   contacts.length === 0 ? "No contacts found." : `# Contacts\n\n${contacts.map(formatContactSummary).join("\n")}`
 
+// Graph stores a birthday as a timestamp at 11:59 UTC on the day (1974-07-22T11:59:00Z), which keeps
+// the date the same in every zone. The date is what a person means, so that is what is printed.
+const contactBirthday = (birthday: string | undefined): string => {
+  if (birthday === undefined) return ""
+  const date = /^(\d{4}-\d{2}-\d{2})T11:59:00(?:\.0+)?Z$/.exec(birthday)?.[1]
+  return date ?? birthday
+}
+
 export const formatContactDetail = (contact: GraphContact): string => {
   const emails = Option(contact.emailAddresses)
     .map((addrs) => addrs.map((e) => `  - ${e.address ?? ""}`).join("\n"))
@@ -388,7 +476,7 @@ export const formatContactDetail = (contact: GraphContact): string => {
 - Company: ${contact.companyName ?? ""}
 - Job Title: ${contact.jobTitle ?? ""}
 - Categories: ${(contact.categories ?? []).join(", ")}
-- Birthday: ${contact.birthday ?? ""}
+- Birthday: ${contactBirthday(contact.birthday)}
 
 ## Email Addresses
 ${emails}
