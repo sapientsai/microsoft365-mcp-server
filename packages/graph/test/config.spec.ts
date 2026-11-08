@@ -62,4 +62,11 @@ describe("resolveServerRuntimeConfig", () => {
     expect(cfg.host).toBe("0.0.0.0")
     expect(cfg.apiKey).toBe("key")
   })
+
+  it("reads FASTMCP_HOST, the older name, only when HOST is unset", () => {
+    const host = (env: Record<string, string>) =>
+      (resolveServerRuntimeConfig({ ...base, ...env }).value as { host: string }).host
+    expect(host({ FASTMCP_HOST: "0.0.0.0" })).toBe("0.0.0.0")
+    expect(host({ HOST: "127.0.0.1", FASTMCP_HOST: "0.0.0.0" })).toBe("127.0.0.1")
+  })
 })

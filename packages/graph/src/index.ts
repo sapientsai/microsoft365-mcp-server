@@ -110,7 +110,7 @@ export const main = async (): Promise<void> => {
   if (config.transport === "httpStream") {
     // somamcp 2 serves httpStream stateless only: every request gets a fresh SDK server, and this
     // server has no server->client features that a session would carry. MCP_STATELESS=false used
-    // to opt into sessions on FastMCP; say that it no longer does, rather than ignore it silently.
+    // to opt into sessions before somamcp 2; say that it no longer does, rather than ignore it silently.
     if (process.env.MCP_STATELESS?.trim().toLowerCase() === "false") {
       console.error("[Config][WARN] MCP_STATELESS=false is ignored: somamcp 2 serves httpStream stateless only.")
     }
