@@ -162,6 +162,26 @@ Endpoints provided automatically:
 
 OAuth tokens are persisted to disk, so users stay authenticated across server restarts. Refresh tokens last 30 days, and a registered client expires 90 days after its last sign-in or refresh. Sign-ins made before the move from FastMCP keep working only while `MS365_OAUTH_BASE_URL`, `MS365_JWT_SIGNING_KEY`, `MS365_TOKEN_ENCRYPTION_KEY` and `TOKEN_STORAGE_PATH` stay the same. Set `TOKEN_STORAGE_PATH` to customize the storage directory (default: `/tmp/ms365-tokens`). For persistence across container recreations, mount a Docker volume at that path.
 
+#### Adding a scope without a reconnect
+
+With `MS365_WIDEN_SCOPES_ON_REFRESH=true`, a new scope reaches people who are already signed in,
+without asking them to sign in again:
+
+1. Add the scope to the app's tenant-wide admin consent grant.
+2. Add it to `MS365_EXTRA_SCOPES`.
+3. Deploy.
+
+Each signed-in user gets the scope at their next token refresh, which happens about an hour after
+their last one. That refresh asks Microsoft for the server's current scope list, and the admin grant
+supplies the consent a sign-in screen would otherwise collect. Checked live on 2026-11-07:
+`Presence.Read` reached an existing sign-in this way. A scope the admin grant doesn't cover still
+needs each user to sign in and consent. Do both steps: only the grant and the list together have
+been tested.
+
+`get_auth_status` lists the scopes in Microsoft's token. Microsoft puts every scope in the admin
+grant into that token, including ones the server didn't request, so the list can be longer than
+`MS365_EXTRA_SCOPES` and the defaults.
+
 ### Azure AD App Registration
 
 You need an Azure AD (Entra ID) app registration:
@@ -923,8 +943,9 @@ MS365_EXTRA_SCOPES="OnlineMeetingTranscript.Read.All,OnlineMeetings.Read"
 ```
 
 Scopes listed here are appended to the default set, so a granted permission reaches the issued
-access token without a code change or a release. Users must sign in again afterwards — an
-already-issued token does not gain a scope retroactively.
+access token without a code change or a release. Users must sign in again afterwards, unless
+`MS365_WIDEN_SCOPES_ON_REFRESH=true` and the scope is in the admin grant (see
+[Adding a scope without a reconnect](#adding-a-scope-without-a-reconnect)).
 
 This applies to **OAuth proxy mode**. The credential-based modes request
 `https://graph.microsoft.com/.default`, meaning "everything this app registration has been consented
