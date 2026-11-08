@@ -158,13 +158,42 @@ describe("respondToEvent", () => {
   })
 })
 
+describe("format: markdown on Teams messages", () => {
+  const markdown = "Steps:\n\n1. sign in\n2. run `pnpm i`\n\n```\na < b\n```"
+  const html = "<p>Steps:</p><ol><li>sign in</li><li>run <code>pnpm i</code></li></ol><pre><code>a &lt; b</code></pre>"
+
+  it("send_chat_message sends it as HTML", async () => {
+    mockClient.sendChatMessage.mockResolvedValue(Right({ id: "m1" }))
+    await sendChatMessage({ chat_id: "19:abc", content: markdown, format: "markdown" })
+    expect(mockClient.sendChatMessage).toHaveBeenCalledWith("19:abc", { contentType: "html", content: html })
+  })
+
+  it("send_channel_message sends it as HTML, in a thread reply too", async () => {
+    mockClient.sendChannelMessage.mockResolvedValue(Right({ id: "m1" }))
+    mockClient.replyToChannelMessage.mockResolvedValue(Right({ id: "r1" }))
+    await sendChannelMessage({ team_id: "t", channel_id: "c", content: markdown, format: "markdown" })
+    await sendChannelMessage({
+      team_id: "t",
+      channel_id: "c",
+      content: markdown,
+      reply_to_message_id: "m1",
+      format: "markdown",
+    })
+    expect(mockClient.sendChannelMessage).toHaveBeenCalledWith("t", "c", { contentType: "html", content: html })
+    expect(mockClient.replyToChannelMessage).toHaveBeenCalledWith("t", "c", "m1", {
+      contentType: "html",
+      content: html,
+    })
+  })
+})
+
 describe("sendChannelMessage", () => {
   it("should start a new thread without reply_to_message_id", async () => {
     mockClient.sendChannelMessage.mockResolvedValue(Right({ id: "m1" }))
 
     await sendChannelMessage({ team_id: "t", channel_id: "c", content: "Hi" })
 
-    expect(mockClient.sendChannelMessage).toHaveBeenCalledWith("t", "c", "Hi")
+    expect(mockClient.sendChannelMessage).toHaveBeenCalledWith("t", "c", { contentType: "text", content: "Hi" })
     expect(mockClient.replyToChannelMessage).not.toHaveBeenCalled()
   })
 
@@ -178,7 +207,10 @@ describe("sendChannelMessage", () => {
       reply_to_message_id: "m1",
     })
 
-    expect(mockClient.replyToChannelMessage).toHaveBeenCalledWith("t", "c", "m1", "Agreed")
+    expect(mockClient.replyToChannelMessage).toHaveBeenCalledWith("t", "c", "m1", {
+      contentType: "text",
+      content: "Agreed",
+    })
     expect(mockClient.sendChannelMessage).not.toHaveBeenCalled()
     expect(message(result)).toBe("Reply posted in the thread.")
   })
@@ -240,7 +272,7 @@ describe("sendChatMessage", () => {
 
     const result = await sendChatMessage({ chat_id: "19:abc", content: "Hi" })
 
-    expect(mockClient.sendChatMessage).toHaveBeenCalledWith("19:abc", "Hi")
+    expect(mockClient.sendChatMessage).toHaveBeenCalledWith("19:abc", { contentType: "text", content: "Hi" })
     expect(mockClient.createChat).not.toHaveBeenCalled()
     expect(message(result)).toBe("Chat message sent.")
   })
@@ -276,7 +308,7 @@ describe("sendChatMessage", () => {
         },
       ],
     })
-    expect(mockClient.sendChatMessage).toHaveBeenCalledWith("19:pair", "Hi")
+    expect(mockClient.sendChatMessage).toHaveBeenCalledWith("19:pair", { contentType: "text", content: "Hi" })
     expect(message(result)).toBe("Chat message sent. Chat ID: 19:pair.")
   })
 

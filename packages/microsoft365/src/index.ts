@@ -141,6 +141,7 @@ import type { AuthConfig } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
 import { DAYS_OF_WEEK, RECURRENCE_PATTERN_TYPES, RECURRENCE_RANGE_TYPES, WEEK_INDEXES } from "./utils/recurrence"
+import { MESSAGE_FORMATS } from "./utils/teams-markdown"
 
 loadEnvFileIfPresent()
 
@@ -296,6 +297,17 @@ const SHOW_IN_ZONE_PARAM = z
   .describe(
     "Show times in this zone: an IANA name (America/New_York) or a Windows one (Eastern Standard Time). " +
       "Default: UTC. Pass the user's own zone to read times as they would.",
+  )
+
+// Teams shows a text body as one block. Markdown is converted to the HTML Teams renders, with all
+// text escaped (see utils/teams-markdown.ts).
+const MESSAGE_FORMAT_PARAM = z
+  .enum(MESSAGE_FORMATS)
+  .optional()
+  .describe(
+    "'text' (default) sends content as typed. 'markdown' formats it: **bold**, *italic*, `code`, ``` code " +
+      "blocks ```, '- ' and '1. ' lists, # headings and [links](https://…). Use markdown for steps, " +
+      "commands or anything with structure.",
   )
 
 const CALENDAR_ID_PARAM = z
@@ -1465,6 +1477,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         ),
       topic: z.string().optional().describe("Title for a new group chat (two or more people in to)"),
       content: z.string().describe("Message content"),
+      format: MESSAGE_FORMAT_PARAM,
     }),
     execute: async (params) => unwrapResult(await sendChatMessage(params)),
     domain: "chats" as const,
@@ -1519,6 +1532,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe(
           "ID of a top-level channel message to reply to, from list_channel_messages. Omit to start a new thread.",
         ),
+      format: MESSAGE_FORMAT_PARAM,
     }),
     execute: async (params) => unwrapResult(await sendChannelMessage(params)),
     domain: "teams",
