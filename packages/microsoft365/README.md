@@ -752,6 +752,12 @@ deleted through Graph, so treat a delete as permanent. Because an id addresses t
 series; that requires `force: true`, and the refusal points at `clear_recurrence` for
 the usual case of wanting the task to stop repeating without losing it.
 
+### Documents (1 tool)
+
+| Tool            | Description                                                                                                                                                |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read_document` | Extract readable text from a PDF, DOCX, XLSX or text file in OneDrive, SharePoint, or a message's attachments. See [Reading documents](#reading-documents) |
+
 ### Auth & Utility (5 tools)
 
 | Tool               | Description                            |
@@ -835,11 +841,11 @@ rather than adding load to an upstream that is already failing.
 
 ### Option A: Desktop Extension (.mcpb)
 
-1. Download the latest `.mcpb` file from [Releases](https://github.com/sapientsai/microsoft365-mcp-server/releases)
+1. Build the `.mcpb` file with `pnpm build:mcpb` from a clone of the repo. Releases don't carry a prebuilt one yet.
 2. In Claude Desktop: **Settings → Extensions → Install Extension**
 3. Select the `.mcpb` file
 4. Enter your Azure App Client ID and Tenant ID when prompted
-5. Authenticate in browser when first tool is used
+5. Sign in through the browser window that opens when the extension starts
 
 ### Option B: Manual Configuration
 

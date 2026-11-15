@@ -16,7 +16,9 @@ stdio, or host it as a remote server with per-user sign-in.
 **1. Register an app in Microsoft Entra ID.** The server needs an application (client) ID. Create one under
 [App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade), add the redirect
 URI `http://localhost` on the _Mobile and desktop_ platform, and grant the delegated Graph permissions for the domains
-you want. The [full checklist](packages/microsoft365/README.md#azure-ad-app-registration) lists every permission.
+you want. To keep `MS365_TENANT_ID` as `common`, choose an account type that covers every organization, plus personal
+accounts if you need them. For one organization only, choose single tenant and set `MS365_TENANT_ID` to its tenant ID.
+The [full checklist](packages/microsoft365/README.md#azure-ad-app-registration) lists every permission.
 
 **2. Add the server to your MCP client** (Claude Desktop, Claude Code, VS Code, Cursor, …):
 
@@ -35,11 +37,9 @@ you want. The [full checklist](packages/microsoft365/README.md#azure-ad-app-regi
 }
 ```
 
-**3. Ask it something.** The first tool call opens a browser to sign in. On a headless machine, set
-`MS365_USE_DEVICE_CODE=true` to get a device code instead. The sign-in is cached, so it survives restarts.
-
-Claude Desktop users can install the `.mcpb` desktop extension from
-[Releases](https://github.com/sapientsai/microsoft365-mcp-server/releases) instead of editing JSON.
+**3. Start your client.** When the client starts the server, a browser opens to sign in. On a headless machine, set
+`MS365_USE_DEVICE_CODE=true` instead: the server prints a device code to its log, and the app registration needs
+_Allow public client flows_ turned on. The sign-in is cached, so it survives restarts.
 
 ## What it can do
 
@@ -76,8 +76,8 @@ carries MCP annotations (read-only, destructive, idempotent), so a client can te
 You decide how much the assistant can touch:
 
 - **`MS365_READ_ONLY=true`** hides every tool that writes.
-- **`MS365_REQUIRE_DRAFT=true`** removes direct sending. The assistant can only write drafts, which you review in
-  Outlook and send yourself, or approve with `send_draft`.
+- **`MS365_REQUIRE_DRAFT=true`** removes direct email sending. The assistant can only write email drafts, which you
+  review in Outlook and send yourself, or approve with `send_draft`. Teams messages and calendar invites still send.
 - **`MS365_PRESETS`** loads only some areas: `personal`, `collaboration`, `productivity`, `rag`, or `all`.
 - **`MS365_ENABLED_TOOLS`** loads only the tools whose names match a regex.
 - **`MS365_ALLOWED_MAILBOXES`** limits which other people's or shared mailboxes it may open.
@@ -96,14 +96,15 @@ and what it can't.
 | Client secret | `client-secret`   | Automation running as an app registration, with no user present |
 | Certificate   | `certificate`     | The same, using a certificate instead of a secret               |
 
-Each mode's settings are in [Authentication](packages/microsoft365/README.md#authentication). Every environment
-variable is listed in [Environment Variables](packages/microsoft365/README.md#environment-variables).
+Each mode's settings are in [Authentication](packages/microsoft365/README.md#authentication). The main
+environment variables are listed in [Environment Variables](packages/microsoft365/README.md#environment-variables).
 
 ## Hosting it as a remote server
 
 `oauth-proxy` mode turns the server into an OAuth 2.1 authorization server in front of Entra ID. Each user signs in
 from their own MCP client, and each request runs with that user's own Graph token. The repo ships a `Dockerfile`
-and `docker-compose.yml`:
+and `docker-compose.yml`. Set `MS365_CLIENT_ID`, `MS365_CLIENT_SECRET` and `MS365_OAUTH_BASE_URL` first; the compose file
+refuses to start without them:
 
 ```bash
 docker compose up -d
