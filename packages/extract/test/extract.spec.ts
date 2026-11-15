@@ -15,6 +15,36 @@ const xlsxBuffer = async (sheets: Record<string, string[][]>): Promise<Buffer> =
   return Buffer.from(await wb.xlsx.writeBuffer())
 }
 
+// A real two-page PDF, built byte by byte with a correct xref table, so extraction runs through
+// unpdf and PDF.js rather than a mock. Each page draws one line of text in Helvetica.
+const pdfBuffer = (pageTexts: ReadonlyArray<string>): Buffer => {
+  const pageIds = pageTexts.map((_, k) => 4 + k * 2)
+  const objects: string[] = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageTexts.length} >>`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ...pageTexts.flatMap((text, k) => {
+      const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET`
+      return [
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + k * 2} 0 R >>`,
+        `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+      ]
+    }),
+  ]
+  const header = "%PDF-1.4\n"
+  const bodies = objects.map((body, k) => `${k + 1} 0 obj\n${body}\nendobj\n`)
+  const offsets = bodies.reduce<number[]>(
+    (acc, _b, k) => [...acc, k === 0 ? header.length : acc[k - 1]! + bodies[k - 1]!.length],
+    [],
+  )
+  const xrefAt = header.length + bodies.join("").length
+  const xref =
+    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` +
+    offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("") +
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`
+  return Buffer.from(header + bodies.join("") + xref, "latin1")
+}
+
 describe("resolveContentType", () => {
   it("resolves octet-stream to a document type by extension", () => {
     expect(resolveContentType("application/octet-stream", "report.pdf")).toBe("application/pdf")
@@ -29,6 +59,24 @@ describe("resolveContentType", () => {
 })
 
 describe("extractTextFromBuffer", () => {
+  it("extracts the text of a real PDF, every page", async () => {
+    const result = await extractTextFromBuffer(
+      pdfBuffer(["Quarterly report", "Second page here"]),
+      "application/pdf",
+      "report.pdf",
+    )
+    expect(result.isRight()).toBe(true)
+    const text = result.value as string
+    expect(text).toMatch(/^\[PDF: 2 pages\]/)
+    expect(text).toContain("Quarterly report")
+    expect(text).toContain("Second page here")
+  })
+
+  it("reports a damaged PDF as a parse error, not a crash", async () => {
+    const result = await extractTextFromBuffer(Buffer.from("%PDF-1.4\nnot really a pdf"), "application/pdf", "bad.pdf")
+    expect(result.isLeft()).toBe(true)
+  })
+
   it("returns plain text / json / csv directly", async () => {
     expect((await extractTextFromBuffer(Buffer.from("Hello"), "text/plain", "n.txt")).value).toBe("Hello")
     const json = JSON.stringify({ a: 1 })
