@@ -1,4 +1,4 @@
-## microsoft365-mcp-server
+# microsoft365-mcp-server
 
 [![Node.js CI](https://github.com/sapientsai/microsoft365-mcp-server/actions/workflows/node.js.yml/badge.svg)](https://github.com/sapientsai/microsoft365-mcp-server/actions/workflows/node.js.yml)
 [![npm version](https://img.shields.io/npm/v/microsoft365-mcp-server.svg)](https://www.npmjs.com/package/microsoft365-mcp-server)
@@ -6,14 +6,14 @@
 A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calendar, contacts, files, Teams chats, channels, Planner, OneNote, To Do, users, and groups via Microsoft Graph API.
 
 > **Which server?** This is the **delegated** (per-user OAuth) server — the full interactive M365
-> assistant. Its sibling in this monorepo, [`microsoft-mcp-server`](../graph), is the **app-only**
+> assistant. Its sibling in this monorepo, [`microsoft-mcp-server`](https://github.com/sapientsai/microsoft365-mcp-server/tree/main/packages/graph), is the **app-only**
 > (`client_credentials`) server for headless, tenant-wide document-RAG. Both sit on the shared
-> [`@sapientsai/ms-graph-core`](../core). Use this one when a user is present to sign in; use
+> [`@sapientsai/ms-graph-core`](https://github.com/sapientsai/microsoft365-mcp-server/tree/main/packages/core). Use this one when a user is present to sign in; use
 > `microsoft-mcp-server` when there's no user to consent (a service/tenant credential).
 
 ## Features
 
-- **79 Tools** across 12 Microsoft 365 domains + generic Graph API escape hatch
+- **99 Tools** across 15 domains, including a generic Graph API escape hatch (27 need `MS365_ORG_MODE=true`)
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -373,6 +373,7 @@ Named bundles of tool domains:
 | `personal`      | mail, calendar, contacts, todo, files, onenote |
 | `collaboration` | chats, teams, meetings, planner, groups        |
 | `productivity`  | mail, calendar, todo                           |
+| `rag`           | read_document, files, graph_query              |
 | `all`           | everything                                     |
 
 ```bash
@@ -523,16 +524,18 @@ mailbox setting the API cannot read), and `update_event` leaves the reminder as 
 | `delete_contact`  | Delete a contact, returning its details                       |
 | `export_contacts` | Export every contact folder to a local JSON file (stdio only) |
 
-### Files / OneDrive (7 tools)
+### Files / OneDrive (8 tools)
 
-| Tool               | Description                                                                   |
-| ------------------ | ----------------------------------------------------------------------------- |
-| `list_drive_items` | List files and folders (supports `folder_id` or `folder_path` for navigation) |
-| `get_drive_item`   | Get file/folder metadata                                                      |
-| `search_files`     | Search OneDrive/SharePoint (25 results by default)                            |
-| `download_file`    | Download a file — returns content inline for text files under 100KB           |
-| `create_folder`    | Create a new folder                                                           |
-| `upload_file`      | Upload a file to OneDrive (text or base64-encoded binary, max ~4MB)           |
+| Tool                    | Description                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `list_drive_items`      | List files and folders (supports `folder_id` or `folder_path` for navigation)          |
+| `get_drive_item`        | Get file/folder metadata                                                               |
+| `search_files`          | Search OneDrive/SharePoint (25 results by default)                                     |
+| `download_file`         | Download a file — returns content inline for text files under 100KB                    |
+| `create_folder`         | Create a new folder                                                                    |
+| `upload_file`           | Upload text content (plain text, Markdown, CSV, JSON, HTML, XML) to OneDrive, max ~4MB |
+| `get_upload_config`     | Get a short-lived link for uploading a file, binary included (HTTP transport only)     |
+| `upload_file_from_path` | Upload a file from the server's own disk to OneDrive (stdio transport only)            |
 
 ### SharePoint Sites (5 tools, org mode)
 
@@ -594,15 +597,18 @@ Requires opt-in scopes that are **not** requested by default — see [Meeting tr
 | `get_group`          | Get group details                |
 | `list_group_members` | List group members               |
 
-### Planner (5 tools, org mode)
+### Planner (8 tools, org mode)
 
-| Tool                  | Description          |
-| --------------------- | -------------------- |
-| `list_plans`          | List Planner plans   |
-| `list_planner_tasks`  | List tasks in a plan |
-| `get_planner_task`    | Get task details     |
-| `create_planner_task` | Create a new task    |
-| `update_planner_task` | Update a task        |
+| Tool                          | Description                                             |
+| ----------------------------- | ------------------------------------------------------- |
+| `list_plans`                  | List Planner plans                                      |
+| `list_planner_buckets`        | List the buckets (columns) in a plan                    |
+| `create_planner_bucket`       | Create a bucket in a plan                               |
+| `list_planner_tasks`          | List tasks in a plan                                    |
+| `get_planner_task`            | Get task details                                        |
+| `create_planner_task`         | Create a new task                                       |
+| `update_planner_task`         | Update a task                                           |
+| `update_planner_task_details` | Update a task's description, checklist items, and links |
 
 ### OneNote (10 tools)
 
@@ -883,7 +889,7 @@ Connect from Claude Desktop or any MCP client:
 
 The Dockerfile sets `HOST=0.0.0.0` (binds to all interfaces; set `HOST` to override it) and uses `/ping` for health checks (pre-auth endpoint).
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full guide — Docker, Azure AD app setup, Dokploy, reverse proxy, and security configuration.
+See **[DEPLOYMENT.md](https://github.com/sapientsai/microsoft365-mcp-server/blob/main/DEPLOYMENT.md)** for the full guide — Docker, Azure AD app setup, Dokploy, reverse proxy, and security configuration.
 
 ## Development
 
@@ -903,14 +909,6 @@ pnpm inspect         # build and open MCP Inspector
 - Raw `fetch` with `Either`-based error handling (no Microsoft Graph SDK dependency)
 - Data-driven tool registration with domain metadata, filtering, and MCP annotations
 - `AsyncLocalStorage` for per-request token injection in OAuth proxy mode
-
-## License
-
-MIT
-
----
-
-**Sponsored by <a href="https://sapientsai.com/"><img src="https://sapientsai.com/images/logo.svg" alt="SapientsAI" width="20" style="vertical-align: middle;"> SapientsAI</a>** — Building agentic AI for businesses
 
 ## Reading documents
 
@@ -1018,3 +1016,11 @@ Worth knowing:
    meeting, its transcripts or its chat when another organization hosts it, and no permission
    changes that. When Graph refuses one and the join URL or the chat shows another tenant, the error
    says so. Scope advice is left out when the token already holds the scope.
+
+## License
+
+MIT
+
+---
+
+**Sponsored by <a href="https://sapientsai.com/"><img src="https://sapientsai.com/images/logo.svg" alt="SapientsAI" width="20" style="vertical-align: middle;"> SapientsAI</a>** — Building agentic AI for businesses
