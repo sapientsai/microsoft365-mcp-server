@@ -130,7 +130,7 @@ Pick by who signs in: `microsoft365` when a person is there to consent, `graph` 
 
 ## Development
 
-Requires Node.js 22.16 or later and pnpm.
+Requires Node.js 24 or later and pnpm.
 
 ```bash
 pnpm install

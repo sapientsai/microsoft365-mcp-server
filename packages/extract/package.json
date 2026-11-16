@@ -35,7 +35,7 @@
     "exceljs": "^4.4.0",
     "functype": "^1.27.0",
     "mammoth": "^1.13.0",
-    "unpdf": "^1.9.1"
+    "unpdf": "^2.2.0"
   },
   "devDependencies": {
     "@sapientsai/ms-graph-core": "workspace:*",
@@ -44,6 +44,6 @@
     "tsdown": "^0.23.7"
   },
   "engines": {
-    "node": ">=22.16"
+    "node": ">=24"
   }
 }

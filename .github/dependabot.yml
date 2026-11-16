@@ -10,7 +10,7 @@ updates:
     schedule:
       interval: "weekly"
     ignore:
-      # @types/node tracks the runtime: .nvmrc pins Node 24 and engines allow >=22. Types for a newer
+      # @types/node tracks the runtime: .nvmrc pins Node 24 and engines require >=24. Types for a newer
       # major typecheck APIs that do not exist at runtime, and nothing else here would catch that.
       # Raise it together with .nvmrc instead.
       - dependency-name: "@types/node"
