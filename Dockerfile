@@ -1,7 +1,8 @@
 # Build stage
 FROM node:24-alpine AS builder
 
-RUN corepack enable && corepack prepare pnpm@11.5.1 --activate
+# corepack activates the pnpm version pinned in package.json's packageManager
+RUN corepack enable
 
 WORKDIR /app
 
