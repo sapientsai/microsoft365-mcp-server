@@ -902,6 +902,7 @@ See **[DEPLOYMENT.md](https://github.com/sapientsai/microsoft365-mcp-server/blob
 ```bash
 pnpm install
 pnpm validate        # format + lint + typecheck + test + build
+pnpm run ci          # validate's checks without fixing, as CI runs them (type `run`: `pnpm ci` is a clean install)
 pnpm dev             # development build with watch mode
 pnpm inspect         # build and open MCP Inspector
 ```

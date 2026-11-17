@@ -18,6 +18,7 @@ All commands delegate to `ts-builds` for consistency across projects:
 
 ```bash
 pnpm validate        # Main command: format + lint + test + build (use before commits)
+pnpm run ci          # validate's checks without fixing, as CI runs them (type `run`: `pnpm ci` is a clean install)
 
 pnpm format          # Format code with Prettier
 pnpm format:check    # Check formatting only
@@ -114,6 +115,6 @@ from the commit, and why `sync:server-json` is a step rather than a `version` li
 hook: the hook would never fire.
 
 The tag drives two workflows: `publish.yml` publishes to npm, and `publish-registry.yml`
-publishes `server.json` to the MCP Registry. The `prepublishOnly` hook runs `pnpm validate`
+publishes `server.json` to the MCP Registry. The `prepublishOnly` hook runs `pnpm run ci`
 and `pnpm check:server-json` before npm accepts the package, and CI runs the same
 `check:server-json` on every PR so drift fails there instead of on the tag.

@@ -135,6 +135,7 @@ Requires Node.js 24 or later and pnpm.
 ```bash
 pnpm install
 pnpm validate   # format, lint, test, and build every package
+pnpm run ci     # validate's checks without fixing, as CI runs them (type `run`: `pnpm ci` is a clean install)
 pnpm --filter microsoft365-mcp-server inspect   # build and open the MCP Inspector
 ```
 
