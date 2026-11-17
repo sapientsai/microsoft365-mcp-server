@@ -119,6 +119,7 @@ jobs:
   merge:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [build]
     permissions:
       contents: read
