@@ -93,7 +93,7 @@ pnpm test -- test/specific.spec.ts          # Run specific file
 
 ## Publishing
 
-Bump `packages/microsoft365/package.json`, re-sync `server.json`, then commit and tag:
+Bump `packages/microsoft365/package.json`, re-sync `server.json` and `manifest.json` (the `.mcpb` desktop extension's version), then commit and tag:
 
 ```bash
 cd packages/microsoft365
@@ -115,6 +115,7 @@ from the commit, and why `sync:server-json` is a step rather than a `version` li
 hook: the hook would never fire.
 
 The tag drives two workflows: `publish.yml` publishes to npm, and `publish-registry.yml`
-publishes `server.json` to the MCP Registry. The `prepublishOnly` hook runs `pnpm run ci`
+publishes `server.json` to the MCP Registry. After the npm publish, `publish.yml` runs `mcpb.yml`, which
+attaches the `.mcpb` bundle to the GitHub release. The `prepublishOnly` hook runs `pnpm run ci`
 and `pnpm check:server-json` before npm accepts the package, and CI runs the same
 `check:server-json` on every PR so drift fails there instead of on the tag.
