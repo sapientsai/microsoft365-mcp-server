@@ -4,6 +4,7 @@ import type { GraphMessage } from "../src/types"
 import { formatMessageScan, formatMessageScanRow } from "../src/utils/formatters"
 import {
   clearMessageRefs,
+  MAX_MESSAGE_REFS,
   describeRefFailure,
   messageRefCount,
   rememberMessageId,
@@ -23,6 +24,23 @@ const message = (overrides: Partial<GraphMessage> = {}): GraphMessage => ({
 
 describe("message refs", () => {
   beforeEach(() => clearMessageRefs())
+
+  it("drops the least recently used ref past MAX_MESSAGE_REFS, and never reissues its number", () => {
+    const oldest = rememberMessageId("id-0")
+    const kept = rememberMessageId("id-1")
+    Array.from({ length: MAX_MESSAGE_REFS - 2 }, (_, i) => rememberMessageId(`fill-${i}`))
+    // Using a ref marks it recent, so it survives the eviction that follows.
+    expect(resolveMessageRef(kept)).toEqual({ kind: "id", id: "id-1" })
+    const newest = rememberMessageId("id-new")
+
+    expect(messageRefCount()).toBe(MAX_MESSAGE_REFS)
+    expect(resolveMessageRef(oldest)).toEqual({ kind: "unknown", ref: oldest })
+    expect(resolveMessageRef(kept)).toEqual({ kind: "id", id: "id-1" })
+    // Re-scanning the evicted message gets a fresh number, not the old one.
+    const reissued = rememberMessageId("id-0")
+    expect(reissued).not.toBe(oldest)
+    expect(Number(reissued.split("-")[1])).toBeGreaterThan(Number(newest.split("-")[1]))
+  })
 
   it("assigns stable refs, reusing the same ref for the same id", () => {
     const first = rememberMessageId("id-a")
