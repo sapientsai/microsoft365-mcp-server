@@ -527,7 +527,10 @@ export const formatDriveItemSummary = (item: GraphDriveItem, options: DriveItemS
   const modified = Option(item.lastModifiedDateTime)
     .map((date) => ` - modified ${date}`)
     .orElse("")
-  return `- **${item.name ?? "Untitled"}** (ID: ${item.id}) - ${type}${size}${parent}${modified}`
+  const eTag = Option(item.eTag)
+    .map((tag) => ` - eTag ${tag}`)
+    .orElse("")
+  return `- **${item.name ?? "Untitled"}** (ID: ${item.id}) - ${type}${size}${parent}${modified}${eTag}`
 }
 
 export const formatDriveItemList = (
@@ -552,11 +555,15 @@ export const formatDriveItemDetail = (item: GraphDriveItem): string => {
   ]
     .map((line) => line.orElse(""))
     .join("")
+  // The value a conditional upload (if_match) takes, so a read-modify-write can't silently overwrite.
+  const eTagLine = Option(item.eTag)
+    .map((tag) => `\n- eTag: ${tag}`)
+    .orElse("")
 
   return `# ${item.name ?? "Untitled"}
 
 ## Details
-- ID: ${item.id}${parentLines}
+- ID: ${item.id}${parentLines}${eTagLine}
 - Type: ${item.folder ? "Folder" : "File"}
 - Size: ${formatBytes(item.size ?? 0)}
 - MIME Type: ${item.file?.mimeType ?? "N/A"}

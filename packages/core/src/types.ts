@@ -43,6 +43,10 @@ export type ODataParams = {
 
 export type GraphDriveItem = {
   readonly id: string
+  // eTag changes with content or metadata; cTag with content only. A conditional write
+  // (If-Match) takes either.
+  readonly eTag?: string
+  readonly cTag?: string
   readonly name?: string
   readonly size?: number
   readonly lastModifiedDateTime?: string

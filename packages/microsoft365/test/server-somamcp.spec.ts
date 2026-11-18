@@ -231,3 +231,45 @@ describe("oauth-proxy sign-in", () => {
     expect(captured.azureConfig?.widenScopesOnRefresh).toBe(expected)
   })
 })
+
+// Issue 187 (conditional file writes): the relay route must honour ifMatch, as the tools do.
+describe("conditional upload over the /upload relay", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const uploadUrl = (query: Record<string, string>) =>
+    `${BASE}/upload?${new URLSearchParams({ path: "/me/drive/root:/state.json:/content", ...query }).toString()}`
+
+  it("refuses ifMatch with a conflict behavior other than replace, before any Graph call", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const server = await startServer("client-token")
+    const response = await server.fetch(
+      new Request(uploadUrl({ ifMatch: '"{A},1"', conflictBehavior: "rename" }), { method: "PUT", body: "x" }),
+    )
+    expect(response.status).toBe(400)
+    expect(((await response.json()) as { error: string }).error).toContain('not "rename"')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("sends If-Match on the upload session and answers 412 precondition-failed on a stale eTag", async () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: { code: "notAllowed", message: "" } }), { status: 412 })),
+    )
+    vi.stubGlobal("fetch", fetchSpy)
+    const server = await startServer("client-token")
+    // Same module instance as the server's, so the ticket resolves there.
+    const { mintUploadTicket } = await import("@sapientsai/ms-graph-core")
+    const response = await server.fetch(
+      new Request(uploadUrl({ ifMatch: '"{A},1"' }), {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${mintUploadTicket("GRAPH.TOKEN")}` },
+        body: "new state",
+      }),
+    )
+    expect(response.status).toBe(412)
+    expect(((await response.json()) as { error: string }).error).toMatch(/^precondition-failed: /)
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain(":/createUploadSession")
+    expect(init.headers).toMatchObject({ "If-Match": '"{A},1"' })
+  })
+})

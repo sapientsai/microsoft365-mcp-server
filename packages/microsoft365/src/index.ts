@@ -5,14 +5,14 @@ import {
   decodeBase64Upload,
   describeFetchError,
   filenameFromPath,
+  ifMatchConflictProblem,
   loadEnvFileIfPresent,
   MAX_ATTACHMENT_SIZE,
   MAX_UPLOAD_SIZE,
   requireDraftMessage,
   resolveUploadContentType,
-  sessionUpload,
   SIMPLE_UPLOAD_LIMIT,
-  simpleUpload,
+  uploadDriveContent,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import type { UserError } from "somamcp"
@@ -1284,7 +1284,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       conflict_behavior: z
         .enum(["rename", "replace", "fail"])
         .optional()
-        .describe('Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns 409 on collision'),
+        .describe(
+          'Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns 409 on collision. Use "fail" to create a file only if none exists yet',
+        ),
+      if_match: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "eTag from download_file, get_drive_item or list_drive_items. Replaces the file only if it hasn't changed since; otherwise fails with precondition-failed, and nothing is written. Implies conflict_behavior replace",
+        ),
     }),
     execute: async (params) => unwrapResult(await uploadFile(params)),
     domain: "files",
@@ -1308,7 +1317,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       conflictBehavior: z
         .enum(["rename", "replace", "fail"])
         .optional()
-        .describe('Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns an error'),
+        .describe(
+          'Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns an error. Use "fail" to create a file only if none exists yet',
+        ),
+      ifMatch: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "eTag from download_file, get_drive_item or list_drive_items. The upload replaces the file only if it hasn't changed since; otherwise the relay answers 412 precondition-failed. Implies conflictBehavior replace",
+        ),
     }),
     execute: async (params) => unwrapResult(await getUploadConfig(params)),
     domain: "files",
@@ -1329,7 +1347,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       conflict_behavior: z
         .enum(["rename", "replace", "fail"])
         .optional()
-        .describe('Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns an error'),
+        .describe(
+          'Conflict behavior: "rename" (default), "replace" overwrites, "fail" returns an error. Use "fail" to create a file only if none exists yet',
+        ),
+      if_match: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "eTag from download_file, get_drive_item or list_drive_items. Replaces the file only if it hasn't changed since; otherwise fails with precondition-failed, and nothing is written. Implies conflict_behavior replace",
+        ),
     }),
     execute: async (params) => unwrapResult(await uploadFileFromPath(params)),
     domain: "files",
@@ -2306,7 +2333,13 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
 
   const apiBase = relayApiBase(req)
   if (apiBase.isLeft()) return apiBase.value as RelayResponse
-  const conflictBehavior = req.query("conflictBehavior") ?? "rename"
+  const requestedConflict = req.query("conflictBehavior")
+  // A blank ifMatch is no condition at all, not a condition nothing can meet.
+  const rawIfMatch = req.query("ifMatch")?.trim()
+  const ifMatch = rawIfMatch === undefined || rawIfMatch === "" ? undefined : rawIfMatch
+  const conflictProblem = ifMatchConflictProblem(requestedConflict, ifMatch)
+  if (conflictProblem) return { status: 400, body: { error: conflictProblem } }
+  const conflictBehavior = requestedConflict ?? (ifMatch !== undefined ? "replace" : "rename")
   const explicitContentType = req.query("contentType")
   const encoding = req.query("encoding")
 
@@ -2323,13 +2356,10 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
   const base = apiBase.value as string
 
   console.error(
-    `[Upload] path=${path} bytes=${buffer.length} contentType=${contentType} mode=${buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}`,
+    `[Upload] path=${path} bytes=${buffer.length} contentType=${contentType} mode=${ifMatch === undefined && buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}${ifMatch !== undefined ? " if-match" : ""}`,
   )
 
-  const result =
-    buffer.length <= SIMPLE_UPLOAD_LIMIT
-      ? await simpleUpload(base, path, token, buffer, contentType, conflictBehavior)
-      : await sessionUpload(base, path, token, buffer, conflictBehavior)
+  const result = await uploadDriveContent(base, path, token, buffer, contentType, conflictBehavior, { ifMatch })
 
   if (result.isLeft()) {
     const err = result.value as { message: string; status?: number }

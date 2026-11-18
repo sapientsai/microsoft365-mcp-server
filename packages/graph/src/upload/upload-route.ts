@@ -4,11 +4,10 @@ import {
   describeFetchError,
   filenameFromPath,
   GRAPH_API_BASE,
+  ifMatchConflictProblem,
   MAX_UPLOAD_SIZE,
   resolveUploadContentType,
-  sessionUpload,
-  SIMPLE_UPLOAD_LIMIT,
-  simpleUpload,
+  uploadDriveContent,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import type { RouteConfig } from "somamcp"
@@ -34,6 +33,12 @@ export const handleUpload = async (
   const path = req.query("path")
   if (!path) return { status: 400, body: { error: "path query parameter is required" } }
   if (!/:\/content$/i.test(path)) return { status: 400, body: { error: 'path must end with ":/content"' } }
+  const requestedConflict = req.query("conflictBehavior")
+  // A blank ifMatch is no condition at all, not a condition nothing can meet.
+  const rawIfMatch = req.query("ifMatch")?.trim()
+  const ifMatch = rawIfMatch === undefined || rawIfMatch === "" ? undefined : rawIfMatch
+  const conflictProblem = ifMatchConflictProblem(requestedConflict, ifMatch)
+  if (conflictProblem) return { status: 400, body: { error: conflictProblem } }
 
   const tokenResult = await auth.getAccessToken()
   if (tokenResult.isLeft()) {
@@ -58,15 +63,12 @@ export const handleUpload = async (
     return { status: 413, body: { error: `File too large (max ${MAX_UPLOAD_SIZE} bytes)` } }
 
   const apiVersion = req.query("apiVersion") ?? "v1.0"
-  const conflictBehavior = req.query("conflictBehavior") ?? "rename"
+  const conflictBehavior = requestedConflict ?? (ifMatch !== undefined ? "replace" : "rename")
   const filename = filenameFromPath(path)
   const contentType = resolveUploadContentType(req.query("contentType"), filename)
   const apiBase = `${GRAPH_API_BASE}/${apiVersion}`
 
-  const result =
-    buffer.length <= SIMPLE_UPLOAD_LIMIT
-      ? await simpleUpload(apiBase, path, token, buffer, contentType, conflictBehavior)
-      : await sessionUpload(apiBase, path, token, buffer, conflictBehavior)
+  const result = await uploadDriveContent(apiBase, path, token, buffer, contentType, conflictBehavior, { ifMatch })
 
   return result.fold<{ status: number; body: unknown }>(
     (error) => ({ status: (error as { status?: number }).status ?? 500, body: { error: error.message } }),

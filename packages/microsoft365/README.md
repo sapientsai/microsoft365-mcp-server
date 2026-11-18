@@ -543,6 +543,24 @@ mailbox setting the API cannot read), and `update_event` leaves the reminder as 
 | `get_upload_config`     | Get a short-lived link for uploading a file, binary included (HTTP transport only)     |
 | `upload_file_from_path` | Upload a file from the server's own disk to OneDrive (stdio transport only)            |
 
+**Concurrent writers.** File uploads replace the file whenever `conflict_behavior` is
+`replace`, so two clients that read the same file and write it back overwrite each
+other without an error. To prevent that:
+
+- Read the file's eTag. `download_file`, `get_drive_item` and `list_drive_items` print
+  it, and every upload returns the new one.
+- Pass it back as `if_match` on `upload_file` or `upload_file_from_path`, or as
+  `ifMatch` on `get_upload_config` (the `/upload` relay takes the same query
+  parameter). The upload then replaces the file only if it still has that eTag.
+- If someone changed the file in between, nothing is written. The call fails with
+  `precondition-failed` (HTTP 412 from the relay). Read the file again, re-apply your
+  change, and retry with the new eTag. The server never retries this for you, because
+  only the caller knows how to merge.
+- To create a file only if none exists yet, use `conflict_behavior: "fail"`.
+
+`if_match` goes through a Graph upload session, the route where Graph documents
+`If-Match`, so it implies `replace` and refuses any other conflict behavior.
+
 ### SharePoint Sites (5 tools, org mode)
 
 | Tool                | Description                                                             |
