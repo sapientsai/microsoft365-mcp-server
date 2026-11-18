@@ -1,4 +1,4 @@
-import { resilientFetch } from "@sapientsai/ms-graph-core"
+import { graphErrorMessage, resilientFetch } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -228,23 +228,25 @@ const contentHttpError = async (attempt: ContentAttempt, params: MeetingRef): Pr
     return new UserError(TENANT_ACCESS_DISABLED)
   }
 
+  // The message carries the status (and Graph's code when the body has one), so the lines below
+  // don't repeat it. A body that isn't JSON is shown as sent, with the status after it.
   const message = ((): string => {
     try {
-      return (JSON.parse(attempt.text) as { error?: { message?: string } }).error?.message ?? attempt.text
+      return graphErrorMessage(attempt.status, "", JSON.parse(attempt.text))
     } catch {
-      return attempt.text
+      const text = attempt.text.trim()
+      return text === "" ? graphErrorMessage(attempt.status, "", undefined) : `${text} (HTTP ${attempt.status})`
     }
   })()
 
   const external = attempt.status === 403 ? await externalMeeting(params) : undefined
-  if (external !== undefined)
-    return new UserError(`Failed to get transcript (${attempt.status}): ${message}\n\n${external}`)
+  if (external !== undefined) return new UserError(`Failed to get transcript: ${message}\n\n${external}`)
 
   if (attempt.status === 403) {
-    return new UserError(`Failed to get transcript (403): ${message}\n\n${await scopeAdvice()}`)
+    return new UserError(`Failed to get transcript: ${message}\n\n${await scopeAdvice()}`)
   }
 
-  return new UserError(`Failed to get transcript (${attempt.status}): ${message}`)
+  return new UserError(`Failed to get transcript: ${message}`)
 }
 
 /**

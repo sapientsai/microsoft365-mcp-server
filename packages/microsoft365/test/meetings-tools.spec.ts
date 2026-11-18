@@ -512,11 +512,21 @@ describe("meetings hosted by another organization", () => {
     expect((result.value as Error).message).toBe("Failed to list transcripts: Too many requests")
   })
 
+  it("names the status and code when the transcript content fails with an empty Graph message", async () => {
+    mockClient.graphQuery.mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
+    // 400, not 503: the retry layer would retry a 503, and the stub answers only once.
+    stubFetch([{ ok: false, status: 400, body: JSON.stringify({ error: { code: "UnknownError", message: "" } }) }])
+    const result = await getMeetingTranscript({ join_web_url: joinUrlIn(OTHER_TENANT), transcript_id: TRANSCRIPT_ID })
+    expect((result.value as Error).message).toBe(
+      "Failed to get transcript: Microsoft Graph API error (HTTP 400, UnknownError)",
+    )
+  })
+
   it("doesn't blame it when the transcript content fails for another reason", async () => {
     mockClient.graphQuery.mockResolvedValueOnce(Right({ value: [{ id: MEETING_ID }] }))
     stubFetch([{ ok: false, status: 404, body: JSON.stringify({ error: { message: "Transcript not found" } }) }])
     const result = await getMeetingTranscript({ join_web_url: joinUrlIn(OTHER_TENANT), transcript_id: TRANSCRIPT_ID })
-    expect((result.value as Error).message).toBe("Failed to get transcript (404): Transcript not found")
+    expect((result.value as Error).message).toBe("Failed to get transcript: Transcript not found (HTTP 404)")
   })
 
   it("names it when the transcript content is refused", async () => {

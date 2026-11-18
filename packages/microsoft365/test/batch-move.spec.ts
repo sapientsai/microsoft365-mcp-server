@@ -40,7 +40,20 @@ describe("parseBatchResponses", () => {
     })
     expect(outcomes).toEqual([
       { id: "a", status: 201 },
-      { id: "b", status: 404, error: "ErrorItemNotFound gone", retryAfterMs: undefined },
+      { id: "b", status: 404, error: "gone (HTTP 404, ErrorItemNotFound)", retryAfterMs: undefined },
+    ])
+  })
+
+  it("names the status and code when Graph sends an empty message, or no error body at all", () => {
+    const outcomes = parseBatchResponses(["a", "b"], {
+      responses: [
+        { id: "0", status: 503, body: { error: { code: "UnknownError", message: "" } } },
+        { id: "1", status: 503 },
+      ],
+    })
+    expect(outcomes.map((o) => o.error)).toEqual([
+      "Microsoft Graph API error (HTTP 503, UnknownError)",
+      "Microsoft Graph API error (HTTP 503)",
     ])
   })
 

@@ -4,7 +4,7 @@
 // their results. It is pure apart from the injected `send` and `wait`, so the retry
 // logic can be tested without a mailbox or a clock.
 
-import { parseRetryAfterMs } from "@sapientsai/ms-graph-core"
+import { graphErrorMessage, parseRetryAfterMs } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 
 import type { GraphApiError, GraphBatchResponse } from "../types"
@@ -73,8 +73,9 @@ export const parseBatchResponses = (
     // "unknown" must never be reported as success.
     if (r === undefined) return { id, status: 0, error: "No response for this message in the batch" }
     if (r.status >= 200 && r.status < 300) return { id, status: r.status }
-    const body = r.body as { error?: { code?: string; message?: string } } | undefined
-    const error = body?.error ? `${body.error.code ?? ""} ${body.error.message ?? ""}`.trim() : `HTTP ${r.status}`
+    // A sub-response has no status text. Graph can send its code with an empty message, and the
+    // shared helper still names the status and code then.
+    const error = graphErrorMessage(r.status, "", r.body)
     // Shared with the core resilience layer: seconds or an HTTP-date, capped at 60 s.
     const retryAfterMs = parseRetryAfterMs(headerValue(r.headers, "Retry-After")) ?? undefined
     return { id, status: r.status, error, retryAfterMs }
