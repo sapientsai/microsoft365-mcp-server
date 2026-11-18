@@ -2,7 +2,7 @@ import { Right } from "functype/either"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { initializeGraphClient } from "../src/client/graph-client"
-import { getMessage, scanMessages } from "../src/tools/mail-tools"
+import { getMessage, MAX_SCAN_CURSORS, scanCursorCount, scanMessages } from "../src/tools/mail-tools"
 
 const auth = { getAccessToken: () => Promise.resolve(Right("test-token")) }
 const message = (id: string) => ({ id, subject: id, hasAttachments: true })
@@ -42,7 +42,14 @@ describe("scan pagination through the Graph client", () => {
       expect(firstUrl.pathname).toBe("/v1.0/me/mailFolders/archive/messages")
       expect(firstUrl.searchParams.get("$top")).toBe("2")
       expect(firstUrl.searchParams.has("$skip")).toBe(false)
-      expect(firstUrl.searchParams.has("$orderby")).toBe(false)
+      // A filter scan keeps newest-first order; a search scan can't be sorted.
+      if ("search" in query) expect(firstUrl.searchParams.has("$orderby")).toBe(false)
+      else {
+        expect(firstUrl.searchParams.get("$orderby")).toBe("receivedDateTime desc")
+        expect(firstUrl.searchParams.get("$filter")).toBe(
+          "receivedDateTime ge 1900-01-01T00:00:00Z and (hasAttachments eq true)",
+        )
+      }
 
       const second = await scanMessages({ cursor: cursorFrom(first.value) })
       expect(second.value).toContain("INCOMPLETE")
@@ -192,5 +199,48 @@ describe("scan pagination through the Graph client", () => {
     const first = await scanMessages({ mailbox: "bel@example.com" })
     expect((await scanMessages({ cursor: cursorFrom(first.value), mailbox: "bel@example.com" })).isLeft()).toBe(true)
     expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+  it("refuses filter and search together without making a request", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    initializeGraphClient(auth)
+    const result = await scanMessages({ filter: "hasAttachments eq true", search: "invoice" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Pass filter or search, not both")
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("drops a cursor once its page has loaded", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({ value: [], "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/messages?$skip=5" }),
+      )
+      .mockResolvedValueOnce(json({ value: [] }))
+    vi.stubGlobal("fetch", fetchSpy)
+    initializeGraphClient(auth)
+    const cursor = cursorFrom((await scanMessages({})).value)
+    expect((await scanMessages({ cursor })).isRight()).toBe(true)
+    const reused = await scanMessages({ cursor })
+    expect((reused.value as Error).message).toContain("Unknown or expired scan cursor")
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps at most MAX_SCAN_CURSORS live cursors, dropping the oldest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(json({ value: [], "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/messages?$skip=1" })),
+      ),
+    )
+    initializeGraphClient(auth)
+    const firstCursor = cursorFrom((await scanMessages({})).value)
+    await Array.from({ length: MAX_SCAN_CURSORS }).reduce<Promise<unknown>>(
+      (previous) => previous.then(() => scanMessages({})),
+      Promise.resolve(),
+    )
+    expect(scanCursorCount()).toBeLessThanOrEqual(MAX_SCAN_CURSORS)
+    const expired = await scanMessages({ cursor: firstCursor })
+    expect((expired.value as Error).message).toContain("Unknown or expired scan cursor")
   })
 })

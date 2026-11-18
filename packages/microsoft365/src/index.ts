@@ -459,8 +459,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .describe(
           "Folder to scan: well-known name (archive, inbox, sentitems), display name, or ID. Default: all mail",
         ),
-      filter: z.string().optional().describe("OData filter, e.g. receivedDateTime ge 2026-01-01T00:00:00Z"),
-      search: z.string().optional().describe("Full-text search term. Cannot be combined with date ordering"),
+      filter: z
+        .string()
+        .optional()
+        .describe(
+          "OData filter, e.g. receivedDateTime ge 2026-01-01T00:00:00Z. Results come newest first. Not with search",
+        ),
+      search: z
+        .string()
+        .optional()
+        .describe("Full-text search term. Results are not date-ordered. Not with filter: Graph can't combine them"),
       top: z.number().int().min(1).max(1000).optional().describe("Rows per page (default 100, max 1000)"),
       cursor: z
         .string()
