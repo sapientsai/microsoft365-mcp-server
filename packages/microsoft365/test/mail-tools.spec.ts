@@ -1009,7 +1009,7 @@ describe("moveMessagesMatching", () => {
     expect(result.isLeft()).toBe(true)
     const message = (result.value as Error).message
     expect(message).toContain("Moved 0/1")
-    expect(message).toContain('FAILED "Subject 1": ErrorItemNotFound gone')
+    expect(message).toContain('FAILED "Subject 1": gone (HTTP 404, ErrorItemNotFound)')
   })
 
   it("stays a success when some messages moved and others failed", async () => {
@@ -1045,7 +1045,9 @@ describe("moveMessagesMatching", () => {
       senders: ["a@x.com"],
       dry_run: false,
     })
-    expect((result.value as Error).message).toContain('FAILED "Hi - FAILED nothing": HTTP 404')
+    expect((result.value as Error).message).toContain(
+      'FAILED "Hi - FAILED nothing": Microsoft Graph API error (HTTP 404)',
+    )
   })
 
   // A sender picks their own display name; a newline in it must not forge the preview's
