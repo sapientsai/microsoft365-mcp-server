@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Keeps server.json in step with package.json.
+// Keeps server.json and manifest.json in step with package.json.
 //
 // The MCP Registry rejects a submission whose server.json version does not name
 // a version that exists on npm, and it verifies ownership by matching
@@ -9,8 +9,12 @@
 // `npm version` bumps package.json alone, so server.json is generated from it
 // rather than hand-edited.
 //
+// manifest.json describes the .mcpb desktop extension, which publish.yml attaches to
+// each release. Only its top-level "version" line is rewritten, so the file's own
+// formatting stays as Prettier leaves it.
+//
 //   node scripts/sync-server-json.mjs           write server.json
-//   node scripts/sync-server-json.mjs --check   fail if it is stale
+//   node scripts/sync-server-json.mjs --check   fail if either is stale
 //
 // There is deliberately no `version` lifecycle hook: `npm version` does not see a
 // repository from packages/microsoft365, which is not a git root, so the hook would
@@ -36,18 +40,30 @@ const synced = {
   packages: server.packages.map((p) => (p.registryType === "npm" ? { ...p, version: pkg.version } : p)),
 }
 
-const contents = `${JSON.stringify(synced, null, 2)}\n`
-const check = process.argv.includes("--check")
+const MANIFEST = "manifest.json"
+// Two-space indent: the top-level key, not a nested "version".
+const MANIFEST_VERSION = /^( {2}"version": ")[^"]*(")/m
 
-if (check) {
-  const current = await readFile(TARGET, "utf8")
-  if (current !== contents) {
-    console.error(`✗ ${TARGET} is out of sync with package.json (${pkg.version}).`)
+const manifest = await readFile(MANIFEST, "utf8")
+if (!MANIFEST_VERSION.test(manifest)) {
+  console.error(`✗ ${MANIFEST} has no top-level "version" line to keep in step.`)
+  process.exit(1)
+}
+
+const files = [
+  { path: TARGET, current: await readFile(TARGET, "utf8"), next: `${JSON.stringify(synced, null, 2)}\n` },
+  { path: MANIFEST, current: manifest, next: manifest.replace(MANIFEST_VERSION, `$1${pkg.version}$2`) },
+]
+
+if (process.argv.includes("--check")) {
+  const stale = files.filter((f) => f.current !== f.next)
+  for (const f of stale) console.error(`✗ ${f.path} is out of sync with package.json (${pkg.version}).`)
+  if (stale.length > 0) {
     console.error("  Run: pnpm sync:server-json")
     process.exit(1)
   }
-  console.log(`✓ ${TARGET} matches package.json (${pkg.version})`)
+  console.log(`✓ ${files.map((f) => f.path).join(" and ")} match package.json (${pkg.version})`)
 } else {
-  await writeFile(TARGET, contents)
-  console.log(`✓ wrote ${TARGET} (${pkg.version})`)
+  for (const f of files) await writeFile(f.path, f.next)
+  console.log(`✓ wrote ${files.map((f) => f.path).join(" and ")} (${pkg.version})`)
 }

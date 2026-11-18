@@ -1,16 +1,39 @@
 name: Build .mcpb Desktop Extension
 
+# Builds the .mcpb bundle and attaches it to a GitHub release.
+#
+# publish.yml calls this once it has created the release. It used to trigger on
+# `release: published`, but publish.yml creates the release with GITHUB_TOKEN, and
+# events caused by that token don't start other workflows, so it never ran.
+#
+# Run it by hand (Actions → Run workflow) to attach a bundle to an existing release.
+# It builds from the tag's own manifest.json, so a tag from before manifest.json was
+# kept in step with package.json gets a bundle carrying that tag's stale version.
+
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build from and attach to, e.g. v1.5.0"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build from and attach to, e.g. v1.5.0"
+        required: true
+        type: string
 
 jobs:
   build-mcpb:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v7
         with:
@@ -20,8 +43,9 @@ jobs:
         working-directory: packages/microsoft365
         run: bash scripts/build-mcpb.sh
 
+      # --clobber makes a rerun replace the asset instead of failing on it.
       - name: Upload .mcpb to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG_NAME" packages/microsoft365/microsoft365-mcp-server-*.mcpb
+          TAG_NAME: ${{ inputs.tag }}
+        run: gh release upload "$TAG_NAME" packages/microsoft365/microsoft365-mcp-server-*.mcpb --clobber

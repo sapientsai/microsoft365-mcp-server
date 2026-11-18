@@ -841,7 +841,7 @@ rather than adding load to an upstream that is already failing.
 
 ### Option A: Desktop Extension (.mcpb)
 
-1. Build the `.mcpb` file with `pnpm build:mcpb` from a clone of the repo. Releases don't carry a prebuilt one yet.
+1. Download the `.mcpb` file attached to the latest [GitHub release](https://github.com/sapientsai/microsoft365-mcp-server/releases), or build it with `pnpm build:mcpb` from a clone of the repo. Releases up to 1.4.0 have none attached.
 2. In Claude Desktop: **Settings → Extensions → Install Extension**
 3. Select the `.mcpb` file
 4. Enter your Azure App Client ID and Tenant ID when prompted

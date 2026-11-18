@@ -54,3 +54,13 @@ jobs:
       - name: Publish to npm
         working-directory: packages/microsoft365
         run: npm publish --provenance --access public
+
+  # A separate job, so a failed bundle build can't hold up or fail the npm publish, and
+  # "Re-run failed jobs" retries only this part.
+  mcpb:
+    needs: publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/mcpb.yml
+    with:
+      tag: ${{ github.ref_name }}
