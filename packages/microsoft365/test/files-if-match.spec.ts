@@ -84,6 +84,24 @@ describe("upload_file with if_match", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it("refuses a blank if_match instead of writing unconditionally", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await uploadFile({ path: "/me/drive/root:/state.json:/content", content: "x", if_match: "  " })
+    expect((result.value as Error).message).toContain("if_match is blank")
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("writes conditionally to an item-ID path through /items/{id}/createUploadSession", async () => {
+    const fetchSpy = sessionThenItem()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await uploadFile({ path: "/me/drive/items/file-1/content", content: "x", if_match: ETAG })
+    expect(result.isRight()).toBe(true)
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    expect(url).toMatch(/\/me\/drive\/items\/file-1\/createUploadSession$/)
+    expect(init.headers).toMatchObject({ "If-Match": ETAG })
+  })
+
   it("without if_match, keeps the single PUT", async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(json(item)))
     vi.stubGlobal("fetch", fetchSpy)
@@ -147,6 +165,11 @@ describe("get_upload_config with ifMatch", () => {
     expect(url.searchParams.get("ifMatch")).toBe(ETAG)
     expect(url.searchParams.get("conflictBehavior")).toBe("replace")
     expect(payload.ifMatch).toBe(ETAG)
+  })
+
+  it("refuses a blank ifMatch, which the relay would read as no condition", async () => {
+    const result = await getUploadConfig({ path: "/me/drive/root:/state.json:/content", ifMatch: " " })
+    expect((result.value as Error).message).toContain("if_match is blank")
   })
 
   it("refuses ifMatch with conflictBehavior fail", async () => {

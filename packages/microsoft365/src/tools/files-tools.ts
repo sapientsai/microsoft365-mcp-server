@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises"
 import { basename } from "node:path"
 
 import {
+  BLANK_IF_MATCH_MESSAGE,
   describeFetchError,
   filenameFromPath,
   formatBytes,
@@ -257,6 +258,8 @@ export const getUploadConfig = async (params: {
   }
   const conflictProblem = ifMatchConflictProblem(params.conflictBehavior, params.ifMatch)
   if (conflictProblem) return Left(new UserError(conflictProblem))
+  // The relay reads a blank ifMatch as no condition, so a blank one here must not reach its URL.
+  if (params.ifMatch?.trim() === "") return Left(new UserError(BLANK_IF_MATCH_MESSAGE))
 
   const baseUrl = resolveUploadBaseUrl()
   if (!baseUrl) {

@@ -68,6 +68,33 @@ describe("conditional drive writes (If-Match)", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
+  it("answers a 412 on the committing chunk as precondition-failed too", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(json({ uploadUrl: "https://upload.example/session" }))
+      .mockResolvedValueOnce(json({ error: { code: "notAllowed", message: "" } }, 412))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await sessionUpload(apiBase, path, "token", data, "replace", ETAG)
+    expect(result.value).toEqual({ type: "api", status: 412, message: PRECONDITION_FAILED_MESSAGE })
+  })
+
+  it("refuses a path with no /content form instead of posting to it", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await sessionUpload(apiBase, "/me/drive/items/file-1", "token", data, "replace", ETAG)
+    expect((result.value as { message: string }).message).toContain('must end with ":/content"')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("refuses a blank ifMatch without calling Graph", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await uploadDriveContent(apiBase, path, "token", data, "text/plain", "replace", { ifMatch: " " })
+    expect((result.value as { message: string }).message).toContain("if_match is blank")
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it("refuses empty content with ifMatch without calling Graph", async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal("fetch", fetchSpy)

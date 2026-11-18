@@ -37,6 +37,9 @@ const parseGraphError = async (response: Response): Promise<string> =>
 export const PRECONDITION_FAILED_MESSAGE =
   "precondition-failed: the file changed since it was read, so its eTag no longer matches. Read it again, re-apply your change, and upload with the new eTag."
 
+export const BLANK_IF_MATCH_MESSAGE =
+  "if_match is blank. Pass the eTag from download_file, get_drive_item or list_drive_items, or leave it out."
+
 const preconditionFailed = (): GraphApiError => ({ type: "api", status: 412, message: PRECONDITION_FAILED_MESSAGE })
 
 /**
@@ -113,7 +116,18 @@ export const sessionUpload = async (
   conflictBehavior: string,
   ifMatch?: string,
 ): Promise<Either<GraphApiError, GraphDriveItem>> => {
-  const sessionPath = path.replace(/:\/?content$/i, ":/createUploadSession")
+  // A drive path names the file as ".../root:/a/b.txt:/content", an item ID as ".../items/{id}/content".
+  // Each has its own createUploadSession form; anything else has none.
+  const sessionPath = /:\/?content$/i.test(path)
+    ? path.replace(/:\/?content$/i, ":/createUploadSession")
+    : path.replace(/\/content$/i, "/createUploadSession")
+  if (sessionPath === path) {
+    return Left({
+      type: "api",
+      status: 400,
+      message: 'An upload path must end with ":/content" (a drive path) or "/content" (an item ID).',
+    })
+  }
   const sessionUrl = `${apiBase}${sessionPath}`
 
   try {
@@ -179,6 +193,9 @@ const uploadChunks = async (
 
     if (!chunkResponse.ok) {
       await resilientFetch(uploadUrl, { method: "DELETE" }).catch(() => {})
+      // Graph's docs don't say whether the condition is checked again when the last chunk
+      // commits. If it is, a 412 here is the same lost race and gets the same answer.
+      if (chunkResponse.status === 412) return Left(preconditionFailed())
       return Left(await toGraphApiError(chunkResponse, `Upload chunk failed at byte ${offset}`))
     }
 
@@ -219,6 +236,11 @@ export const uploadDriveContent = async (
   options: DriveUploadOptions = {},
 ): Promise<Either<GraphApiError, GraphDriveItem>> => {
   const { ifMatch } = options
+  // A blank eTag would go out as an empty If-Match header, which Graph may simply ignore, so the
+  // write would run unconditionally while the caller believes it is guarded.
+  if (ifMatch?.trim() === "") {
+    return Left({ type: "api", status: 400, message: BLANK_IF_MATCH_MESSAGE })
+  }
   if (ifMatch === undefined) {
     return buffer.length <= SIMPLE_UPLOAD_LIMIT
       ? simpleUpload(apiBase, path, accessToken, buffer, contentType, conflictBehavior)
