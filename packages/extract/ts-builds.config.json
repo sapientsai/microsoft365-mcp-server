@@ -1,4 +1,7 @@
 {
   "srcDir": "./src",
-  "validateChain": ["format", "lint", "typecheck", "test", "build"]
+  "validateChain": ["format", "lint", "typecheck", "test", "build"],
+  "lint": {
+    "maxWarnings": 0
+  }
 }

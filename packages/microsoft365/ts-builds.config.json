@@ -3,5 +3,8 @@
   "commands": {
     "check:bundle": "node scripts/check-bundle-deferral.mjs"
   },
-  "validateChain": ["format", "lint", "typecheck", "test", "build", "check:bundle"]
+  "validateChain": ["format", "lint", "typecheck", "test", "build", "check:bundle"],
+  "lint": {
+    "maxWarnings": 0
+  }
 }
