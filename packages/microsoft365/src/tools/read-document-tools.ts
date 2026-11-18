@@ -1,4 +1,4 @@
-import { filenameFromPath, formatBytes, resilientFetch } from "@sapientsai/ms-graph-core"
+import { filenameFromPath, formatBytes, graphErrorMessage, resilientFetch } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -61,11 +61,10 @@ const isAttachmentPath = (path: string): boolean => /\/attachments\/[^/]+\/\$val
 const isMessageMimePath = (path: string): boolean => /\/\$value\/?$/.test(path) && !isAttachmentPath(path)
 
 const httpError = async (response: Response): Promise<UserError> => {
-  if (response.headers.get("content-type")?.includes("application/json")) {
-    const data = (await response.json()) as { error?: { message?: string } }
-    return new UserError(data.error?.message ?? `HTTP ${response.status}: ${response.statusText}`)
-  }
-  return new UserError(`HTTP ${response.status}: ${response.statusText}`)
+  const body: unknown = response.headers.get("content-type")?.includes("application/json")
+    ? await response.json().catch(() => undefined)
+    : undefined
+  return new UserError(graphErrorMessage(response.status, response.statusText, body))
 }
 
 // read_document: fetch a Graph file and return its extracted text.

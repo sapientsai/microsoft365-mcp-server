@@ -2,6 +2,7 @@ import { type Either, Left, Right } from "functype/either"
 
 import type { AuthStrategy } from "./auth-strategy"
 import { GRAPH_API_BASE } from "./constants"
+import { graphErrorMessage } from "./graph-error-message"
 import { type FetchLike, isCircuitOpenError, resilientFetch } from "./resilience"
 import type { GraphApiError, GraphApiVersion, ODataParams, ODataResponse } from "./types"
 import { appendODataQuery, buildODataQuery } from "./utils/odata-helpers"
@@ -32,8 +33,6 @@ export type GraphRequest = {
 // Maps a non-OK Graph HTTP response to a typed GraphApiError. Exported for the few
 // methods that do their own fetch (binary download, abort-controlled upload).
 export const mapHttpError = async <T>(response: Response): Promise<Either<GraphApiError, T>> => {
-  const fallbackMessage = `Microsoft Graph API error: ${response.status} ${response.statusText}`
-
   const { message, graphErrorCode, graphInnerErrorCode } = await (async (): Promise<{
     message: string
     graphErrorCode?: string
@@ -42,12 +41,12 @@ export const mapHttpError = async <T>(response: Response): Promise<Either<GraphA
     try {
       const errorBody = await response.json()
       return {
-        message: (errorBody?.error?.message as string | undefined) ?? fallbackMessage,
+        message: graphErrorMessage(response.status, response.statusText, errorBody),
         graphErrorCode: errorBody?.error?.code as string | undefined,
         graphInnerErrorCode: errorBody?.error?.innerError?.code as string | undefined,
       }
     } catch {
-      return { message: fallbackMessage }
+      return { message: graphErrorMessage(response.status, response.statusText, undefined) }
     }
   })()
 

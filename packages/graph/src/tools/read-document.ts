@@ -1,5 +1,11 @@
 import { extractTextFromBuffer } from "@sapientsai/document-extract"
-import { type AuthStrategy, filenameFromPath, formatBytes, GRAPH_API_BASE } from "@sapientsai/ms-graph-core"
+import {
+  type AuthStrategy,
+  filenameFromPath,
+  formatBytes,
+  GRAPH_API_BASE,
+  graphErrorMessage,
+} from "@sapientsai/ms-graph-core"
 import { z } from "zod"
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
@@ -40,12 +46,10 @@ export const buildReadDocumentTool = (auth: AuthStrategy, fetchImpl: typeof fetc
     const response = await fetchImpl(url, { method: "GET", headers: { Authorization: `Bearer ${token}` } })
 
     if (!response.ok) {
-      const contentType = response.headers.get("content-type")
-      if (contentType?.includes("application/json")) {
-        const errorData = (await response.json()) as { error?: { message?: string } }
-        throw new Error(errorData.error?.message ?? `HTTP ${response.status}: ${response.statusText}`)
-      }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      const body: unknown = response.headers.get("content-type")?.includes("application/json")
+        ? await response.json().catch(() => undefined)
+        : undefined
+      throw new Error(graphErrorMessage(response.status, response.statusText, body))
     }
 
     const contentType = response.headers.get("content-type") ?? "application/octet-stream"

@@ -1,6 +1,7 @@
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
+import { graphErrorMessage } from "../graph-error-message"
 import { resilientFetch } from "../resilience"
 import type { GraphApiError } from "../types"
 import { describeFetchError } from "./upload"
@@ -19,13 +20,11 @@ const OUTLOOK_UPLOAD_HOSTS: ReadonlySet<string> = new Set(["outlook.office.com",
 export type MessageAttachment = { readonly id?: string; readonly name: string; readonly size: number }
 
 const graphError = async (response: Response, prefix: string): Promise<GraphApiError> => {
-  const error = await response
-    .json()
-    .then((body: { error?: { code?: string; message?: string } }) => body.error)
-    .catch(() => undefined)
+  const body: unknown = await response.json().catch(() => undefined)
+  const error = (body as { error?: { code?: string } } | undefined)?.error
   return {
     type: "api",
-    message: `${prefix}: ${error?.message ?? `${response.status} ${response.statusText}`}`,
+    message: `${prefix}: ${graphErrorMessage(response.status, response.statusText, body)}`,
     status: response.status,
     ...(error?.code ? { graphErrorCode: error.code } : {}),
   }
