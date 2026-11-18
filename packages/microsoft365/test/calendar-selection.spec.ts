@@ -156,6 +156,22 @@ describe("calendar selection", () => {
     })
   })
 
+  describe("a blank calendar_id means the default calendar", () => {
+    it.each(["", "   "])("%j stays on /me/events for every event tool", async (calendar_id) => {
+      const runs = [
+        () => createEvent({ subject: "s", start: "2026-11-06T09:00", end: "2026-11-06T10:00", calendar_id }),
+        () => listEvents({ calendar_id }),
+        () => getEvent({ event_id: "evt-1", calendar_id }),
+        () => updateEvent({ event_id: "evt-1", subject: "s", calendar_id }),
+        () => deleteEvent({ event_id: "evt-1", calendar_id }),
+      ]
+      for (const [index, run] of runs.entries()) {
+        expect((await run()).isRight()).toBe(true)
+        expect(sentUrl(index).pathname).toMatch(/\/v1\.0\/me\/events(\/evt-1)?$/)
+      }
+    })
+  })
+
   describe("a calendar_id that is not an ID never reaches Graph", () => {
     const escapes = ["../../users/bel@example.com/events", "x/../../users/bel@example.com", "..", "%2e%2e", " AAMk"]
 

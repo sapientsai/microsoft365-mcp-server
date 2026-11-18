@@ -958,6 +958,23 @@ describe("moveMessagesMatching", () => {
     expect(mockClient.batchRequest).not.toHaveBeenCalled()
   })
 
+  it("doesn't suggest a limit above the maximum when more than that many match", async () => {
+    mockClient.listAllMessages.mockResolvedValue(
+      Right(Array.from({ length: 20001 }, (_, i) => sweepMessage(String(i), "a@x.com", "2026-01-01"))),
+    )
+    const result = await moveMessagesMatching({
+      folder: "inbox",
+      destination: "deleteditems",
+      senders: ["a@x.com"],
+      dry_run: false,
+      limit: 20000,
+    })
+    const message = (result.value as { message: string }).message
+    expect(message).toContain("more than one call can move (max 20000)")
+    expect(message).not.toContain("pass limit: 20001")
+    expect(mockClient.batchRequest).not.toHaveBeenCalled()
+  })
+
   it("refuses a live run above the limit instead of moving part of it", async () => {
     mockClient.listAllMessages.mockResolvedValue(
       Right([sweepMessage("1", "a@x.com", "2026-01-01"), sweepMessage("2", "a@x.com", "2026-01-02")]),
