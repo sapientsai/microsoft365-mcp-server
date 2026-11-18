@@ -438,7 +438,13 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 `scan_messages` returns a compact list of message headers. If there’s another page,
 it includes a `cursor` — pass that back on its own to continue the same scan, even if
-the last page was short or empty. Cursors and message refs work until the server restarts.
+the last page was short or empty. A cursor works once: it is dropped when its page
+loads, though a failed page keeps it so the call can be retried. The server keeps at
+most 1,000 unused cursors and 25,000 message refs, dropping the oldest, and a restart
+clears both. An expired cursor or ref returns a clear error; re-run the scan.
+
+A filter scan comes back newest first. A search scan isn't sorted, and `filter` and
+`search` can't be combined.
 
 Search stops at 1,000 results. To check every matching message, use a filter such as
 `hasAttachments eq true` and keep paging until there’s no cursor left.

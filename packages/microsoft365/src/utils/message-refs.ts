@@ -45,6 +45,11 @@ export type RefResolution =
   | { readonly kind: "unknown"; readonly ref: string }
   | { readonly kind: "wrong-mailbox"; readonly ref: string; readonly mintedFor: MailboxKey }
 
+// The maps would otherwise grow for the life of the process. Past this many refs the least
+// recently used one is dropped; it then resolves as unknown, and the caller re-runs the scan.
+// The counter never goes down, so a dropped ref is never reissued to a different message.
+export const MAX_MESSAGE_REFS = 25_000
+
 const state = { prefix: newPrefix(), counter: 0 }
 const refToEntry = new Map<string, RefEntry>()
 const keyToRef = new Map<string, string>()
@@ -55,16 +60,35 @@ const keyToRef = new Map<string, string>()
 // parts safely because it cannot occur in an address or a Graph message id.
 const cacheKey = (mailbox: MailboxKey, id: string): string => `${mailbox ?? ""}\u0000${id}`
 
+// A Map iterates in insertion order, so re-inserting an entry marks it most recently used and
+// the first key is always the least recently used.
+const touch = (ref: string, entry: RefEntry): void => {
+  refToEntry.delete(ref)
+  refToEntry.set(ref, entry)
+}
+
+const evictOldest = (): void => {
+  const oldest = refToEntry.entries().next()
+  if (oldest.done) return
+  const [ref, entry] = oldest.value
+  refToEntry.delete(ref)
+  keyToRef.delete(cacheKey(entry.mailbox, entry.id))
+}
+
 export const rememberMessageId = (id: string, mailbox?: string): string => {
   const key = cacheKey(mailbox, id)
   const existing = keyToRef.get(key)
-  if (existing !== undefined) return existing
+  if (existing !== undefined) {
+    touch(existing, { id, mailbox })
+    return existing
+  }
 
   // Starts at 1 so "0" in output is obviously a bug.
   state.counter += 1
   const ref = `${state.prefix}-${state.counter}`
   refToEntry.set(ref, { id, mailbox })
   keyToRef.set(key, ref)
+  if (refToEntry.size > MAX_MESSAGE_REFS) evictOldest()
   return ref
 }
 
@@ -72,6 +96,7 @@ export const resolveMessageRef = (ref: string, mailbox?: string): RefResolution 
   const normalized = ref.trim().toLowerCase()
   const entry = refToEntry.get(normalized)
   if (entry === undefined) return { kind: "unknown", ref: normalized }
+  touch(normalized, entry)
   if (entry.mailbox !== mailbox) return { kind: "wrong-mailbox", ref: normalized, mintedFor: entry.mailbox }
   return { kind: "id", id: entry.id }
 }
@@ -96,7 +121,7 @@ export const describeRefFailure = (
   requested: MailboxKey,
 ): string =>
   resolution.kind === "unknown"
-    ? `Unknown message ref "${resolution.ref}". Refs come from scan_messages and last for the session — re-run the scan to refresh them.`
+    ? `Unknown message ref "${resolution.ref}". Refs come from scan_messages and expire after a restart, or once many newer ones push them out — re-run the scan to refresh them.`
     : `Message ref "${resolution.ref}" was scanned in ${describeMailbox(resolution.mintedFor)}, but this call addresses ${describeMailbox(requested)}. Re-scan that mailbox, or pass the mailbox the ref came from.`
 
 export const messageRefCount = (): number => refToEntry.size

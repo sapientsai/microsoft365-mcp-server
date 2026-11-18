@@ -750,16 +750,28 @@ const SCAN_FIELDS = ["id", "subject", "from", "receivedDateTime", "isRead", "has
 // Cursors belong to the client that issued them and cannot become arbitrary URLs.
 // They also remember the mailbox they page through: refs minted from a continued page
 // are qualified by that mailbox, so continuing under a different one would mislabel them.
-const scanCursors = new Map<
-  string,
-  {
-    client: NonNullable<ReturnType<typeof requireClient>>
-    mailbox?: string
-    nextLink: string
-    folder?: string
-    searched: boolean
-  }
->()
+type ScanCursor = {
+  client: NonNullable<ReturnType<typeof requireClient>>
+  mailbox?: string
+  nextLink: string
+  folder?: string
+  searched: boolean
+}
+const scanCursors = new Map<string, ScanCursor>()
+
+// A cursor is dropped once its page loads, so the map holds only scans still in progress. Scans
+// that are abandoned partway would still pile up, so past this many the oldest cursor goes; it
+// then reads as expired, and the caller re-runs the scan.
+export const MAX_SCAN_CURSORS = 1_000
+
+const rememberScanCursor = (cursor: string, entry: ScanCursor): void => {
+  scanCursors.set(cursor, entry)
+  if (scanCursors.size <= MAX_SCAN_CURSORS) return
+  const oldest = scanCursors.keys().next()
+  if (!oldest.done) scanCursors.delete(oldest.value)
+}
+
+export const scanCursorCount = (): number => scanCursors.size
 
 export const scanMessages = async (params: {
   folder?: string
@@ -793,21 +805,33 @@ export const scanMessages = async (params: {
   if (params.top !== undefined && (!Number.isInteger(params.top) || params.top < 1 || params.top > 1000)) {
     return Left(new UserError("top must be an integer between 1 and 1000."))
   }
+  // A blank search is no search: it sends no $search and keeps the date sort.
+  const search = params.search?.trim() ? params.search : undefined
+  // Graph refuses the pair on messages ("The query parameter '$filter' is not supported with
+  // '$search'"), so say so before the call rather than pass its raw error on.
+  if (params.filter?.trim() && search !== undefined) {
+    return Left(
+      new UserError(
+        "Pass filter or search, not both: Graph can't combine them on messages. Use filter for complete, date-ordered coverage, or search for full-text matches.",
+      ),
+    )
+  }
 
   const resolved = !continuation && params.folder ? await resolveDestination(client, params.folder, scope) : undefined
   if (resolved?.isLeft()) return Left(resolved.value as UserError)
   const folder = continuation?.folder ?? params.folder
-  const searched = continuation?.searched ?? params.search !== undefined
+  const searched = continuation?.searched ?? search !== undefined
   const result = continuation
     ? await client.nextMessageScanPage(continuation.nextLink, scope.prefix)
     : await client.listMessages(
         {
           $select: [...SCAN_FIELDS],
-          $filter: params.filter,
-          $search: params.search,
+          // orderableFilter leads with an always-true date condition, so Graph accepts the sort
+          // with any filter (see list_messages). Search results can't be sorted.
+          $filter: orderableFilter(params.filter),
+          $search: search,
           $top: params.top ?? 100,
-          // Avoid InefficientFilter: arbitrary filters need not match a date ordering.
-          $orderby: params.search || params.filter ? undefined : "receivedDateTime desc",
+          $orderby: search !== undefined ? undefined : "receivedDateTime desc",
         },
         resolved?.orThrow().id,
         scope.prefix,
@@ -816,11 +840,13 @@ export const scanMessages = async (params: {
   return result
     .mapLeft((error) => new UserError(`Failed to scan messages: ${error.message}`))
     .map((response) => {
+      // Only once the page has loaded: a failed continuation keeps its cursor, so it can be retried.
+      if (params.cursor !== undefined) scanCursors.delete(params.cursor)
       const page = response as ODataResponse<GraphMessage>
       const nextLink = page["@odata.nextLink"]
       const nextCursor = nextLink ? randomUUID() : undefined
       if (nextCursor && nextLink)
-        scanCursors.set(nextCursor, { client, mailbox: scope.mailbox, nextLink, folder, searched })
+        rememberScanCursor(nextCursor, { client, mailbox: scope.mailbox, nextLink, folder, searched })
       return formatMessageScan(
         page.value,
         page.value.map((msg) => rememberMessageId(msg.id, scope.mailbox)),
