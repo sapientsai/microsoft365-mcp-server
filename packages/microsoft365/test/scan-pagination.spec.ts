@@ -210,6 +210,16 @@ describe("scan pagination through the Graph client", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it("treats a blank search as no search, so a filter scan keeps its sort", async () => {
+    const fetchSpy = vi.fn(() => Promise.resolve(json({ value: [] })))
+    vi.stubGlobal("fetch", fetchSpy)
+    initializeGraphClient(auth)
+    expect((await scanMessages({ filter: "isRead eq false", search: "  " })).isRight()).toBe(true)
+    const url = new URL((fetchSpy.mock.calls[0] as unknown[])[0] as string)
+    expect(url.searchParams.has("$search")).toBe(false)
+    expect(url.searchParams.get("$orderby")).toBe("receivedDateTime desc")
+  })
+
   it("drops a cursor once its page has loaded", async () => {
     const fetchSpy = vi
       .fn()

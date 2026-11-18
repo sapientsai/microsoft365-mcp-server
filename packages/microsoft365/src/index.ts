@@ -474,7 +474,7 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
         .string()
         .optional()
         .describe(
-          "Continuation cursor from a prior scan. Pass alone, plus mailbox if the scan named one; valid for this session",
+          "Continuation cursor from a prior scan. Pass alone, plus mailbox if the scan named one. Each cursor works once; an unused one can expire, and then the scan must be re-run",
         ),
       mailbox: MAILBOX_PARAM,
     }),

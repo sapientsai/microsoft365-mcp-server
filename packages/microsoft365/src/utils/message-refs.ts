@@ -121,7 +121,7 @@ export const describeRefFailure = (
   requested: MailboxKey,
 ): string =>
   resolution.kind === "unknown"
-    ? `Unknown message ref "${resolution.ref}". Refs come from scan_messages and last for the session — re-run the scan to refresh them.`
+    ? `Unknown message ref "${resolution.ref}". Refs come from scan_messages and expire after a restart, or once many newer ones push them out — re-run the scan to refresh them.`
     : `Message ref "${resolution.ref}" was scanned in ${describeMailbox(resolution.mintedFor)}, but this call addresses ${describeMailbox(requested)}. Re-scan that mailbox, or pass the mailbox the ref came from.`
 
 export const messageRefCount = (): number => refToEntry.size

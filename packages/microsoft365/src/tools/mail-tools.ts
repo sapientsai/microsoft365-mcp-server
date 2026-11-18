@@ -805,9 +805,11 @@ export const scanMessages = async (params: {
   if (params.top !== undefined && (!Number.isInteger(params.top) || params.top < 1 || params.top > 1000)) {
     return Left(new UserError("top must be an integer between 1 and 1000."))
   }
+  // A blank search is no search: it sends no $search and keeps the date sort.
+  const search = params.search?.trim() ? params.search : undefined
   // Graph refuses the pair on messages ("The query parameter '$filter' is not supported with
   // '$search'"), so say so before the call rather than pass its raw error on.
-  if (params.filter?.trim() && params.search?.trim()) {
+  if (params.filter?.trim() && search !== undefined) {
     return Left(
       new UserError(
         "Pass filter or search, not both: Graph can't combine them on messages. Use filter for complete, date-ordered coverage, or search for full-text matches.",
@@ -818,7 +820,7 @@ export const scanMessages = async (params: {
   const resolved = !continuation && params.folder ? await resolveDestination(client, params.folder, scope) : undefined
   if (resolved?.isLeft()) return Left(resolved.value as UserError)
   const folder = continuation?.folder ?? params.folder
-  const searched = continuation?.searched ?? params.search !== undefined
+  const searched = continuation?.searched ?? search !== undefined
   const result = continuation
     ? await client.nextMessageScanPage(continuation.nextLink, scope.prefix)
     : await client.listMessages(
@@ -827,9 +829,9 @@ export const scanMessages = async (params: {
           // orderableFilter leads with an always-true date condition, so Graph accepts the sort
           // with any filter (see list_messages). Search results can't be sorted.
           $filter: orderableFilter(params.filter),
-          $search: params.search,
+          $search: search,
           $top: params.top ?? 100,
-          $orderby: params.search ? undefined : "receivedDateTime desc",
+          $orderby: search !== undefined ? undefined : "receivedDateTime desc",
         },
         resolved?.orThrow().id,
         scope.prefix,
