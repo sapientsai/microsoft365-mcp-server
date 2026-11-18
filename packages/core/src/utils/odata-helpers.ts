@@ -1,5 +1,11 @@
 import type { ODataParams } from "../types"
 
+// Graph wants the whole $search clause in double quotes, and a double quote or backslash inside it
+// escaped with a backslash (https://learn.microsoft.com/graph/search-query-parameter). Unescaped,
+// a quoted phrase such as "exact phrase" closes the clause early, and Graph answers
+// "An identifier was expected at position 0".
+export const escapeSearchClause = (search: string): string => search.replace(/[\\"]/g, (c) => `\\${c}`)
+
 export const buildODataQuery = (params?: ODataParams): string => {
   if (!params) return ""
 
@@ -24,7 +30,7 @@ export const buildODataQuery = (params?: ODataParams): string => {
     parts.push(`$skip=${params.$skip}`)
   }
   if (params.$search) {
-    parts.push(`$search="${encodeURIComponent(params.$search)}"`)
+    parts.push(`$search="${encodeURIComponent(escapeSearchClause(params.$search))}"`)
   }
   if (params.$count) {
     parts.push(`$count=true`)

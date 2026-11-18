@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { appendODataQuery, buildODataQuery } from "../src/utils/odata-helpers"
+import { appendODataQuery, buildODataQuery, escapeSearchClause } from "../src/utils/odata-helpers"
 
 describe("buildODataQuery", () => {
   it("should return empty string for no params", () => {
@@ -33,6 +33,19 @@ describe("buildODataQuery", () => {
   it("should build $search query", () => {
     const result = buildODataQuery({ $search: "test query" })
     expect(result).toContain('$search="')
+  })
+
+  it("leaves a plain $search clause unescaped", () => {
+    expect(buildODataQuery({ $search: "test query" })).toBe('?$search="test%20query"')
+  })
+
+  it("escapes a quoted phrase inside $search, so the clause's own quotes still wrap it", () => {
+    // Raw: $search="\"exact phrase\"". Graph accepts this; the unescaped form fails at position 0.
+    expect(buildODataQuery({ $search: '"exact phrase"' })).toBe('?$search="%5C%22exact%20phrase%5C%22"')
+  })
+
+  it("escapes a backslash inside $search before the quotes", () => {
+    expect(escapeSearchClause('a\\b "c"')).toBe('a\\\\b \\"c\\"')
   })
 
   it("should build $count query", () => {
