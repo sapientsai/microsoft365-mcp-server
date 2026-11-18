@@ -1030,11 +1030,12 @@ export const moveMessagesMatching = async (params: {
   // Refusing, rather than moving the first N, keeps a mis-scoped filter from doing
   // partial damage: the caller sees the real count and decides.
   if (messages.length > limit) {
-    return Left(
-      new UserError(
-        `${messages.length} messages match, above the limit of ${limit}. Narrow the filter, or pass limit: ${messages.length} (max ${MAX_SWEEP_LIMIT}) if that count is intended.`,
-      ),
-    )
+    // Above the maximum, raising limit can't help, so don't suggest it.
+    const advice =
+      messages.length > MAX_SWEEP_LIMIT
+        ? `That is more than one call can move (max ${MAX_SWEEP_LIMIT}). Narrow the filter, for example by date range, and move the matches in parts.`
+        : `Narrow the filter, or pass limit: ${messages.length} (max ${MAX_SWEEP_LIMIT}) if that count is intended.`
+    return Left(new UserError(`${messages.length} messages match, above the limit of ${limit}. ${advice}`))
   }
 
   const outcome = await runMoveBatches(

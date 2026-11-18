@@ -1965,7 +1965,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       delta: z
         .boolean()
         .optional()
-        .describe("Start a change feed: return every task and a first delta token. Always reads every page"),
+        .describe(
+          "Start a change feed: return every task and a first delta token. Always reads every page. Not with delta_token",
+        ),
       delta_token: z
         .string()
         .optional()

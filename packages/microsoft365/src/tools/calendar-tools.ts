@@ -18,6 +18,12 @@ const requireClient = () => {
   return client.orThrow()
 }
 
+// A blank calendar_id means the default calendar, as leaving it out does. Model callers often
+// send "" for an optional field, and refusing that helped no one. Anything else is passed on
+// untouched, so " AAMk…" is still refused rather than quietly trimmed into an ID.
+const calendarIdOrDefault = (calendarId: string | undefined): string | undefined =>
+  calendarId?.trim() === "" ? undefined : calendarId
+
 const invalidCalendarId = (calendarId: string | undefined): UserError | undefined =>
   calendarId === undefined || isGraphId(calendarId)
     ? undefined
@@ -79,7 +85,7 @@ export const listEvents = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
-  const badCalendar = invalidCalendarId(params.calendar_id)
+  const badCalendar = invalidCalendarId(calendarIdOrDefault(params.calendar_id))
   if (badCalendar) return Left(badCalendar)
   const badZone = invalidTimeZone(params.time_zone)
   if (badZone) return Left(badZone)
@@ -87,7 +93,7 @@ export const listEvents = async (params: {
   if (params.fetch_all_pages) {
     const result = await client.listAllEvents(
       { $filter: params.filter, $orderby: "start/dateTime" },
-      params.calendar_id,
+      calendarIdOrDefault(params.calendar_id),
       params.time_zone,
     )
     return result
@@ -101,7 +107,7 @@ export const listEvents = async (params: {
       $filter: params.filter,
       $orderby: "start/dateTime",
     },
-    params.calendar_id,
+    calendarIdOrDefault(params.calendar_id),
     params.time_zone,
   )
   return result
@@ -117,7 +123,7 @@ export const getEvent = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
-  const badCalendar = invalidCalendarId(params.calendar_id)
+  const badCalendar = invalidCalendarId(calendarIdOrDefault(params.calendar_id))
   if (badCalendar) return Left(badCalendar)
   const badEvent = invalidEventId(params.event_id)
   if (badEvent) return Left(badEvent)
@@ -129,7 +135,7 @@ export const getEvent = async (params: {
   const result = await client.getEvent(
     params.event_id,
     params.body_format ?? "text",
-    params.calendar_id,
+    calendarIdOrDefault(params.calendar_id),
     params.time_zone,
   )
   return result.mapLeft((error) => new UserError(`Failed to get event: ${error.message}`)).map(formatEventDetail)
@@ -144,7 +150,7 @@ export const listCalendarView = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
-  const badCalendar = invalidCalendarId(params.calendar_id)
+  const badCalendar = invalidCalendarId(calendarIdOrDefault(params.calendar_id))
   if (badCalendar) return Left(badCalendar)
   const badZone = invalidTimeZone(params.time_zone)
   if (badZone) return Left(badZone)
@@ -160,7 +166,7 @@ export const listCalendarView = async (params: {
       $top: params.top ?? 50,
       $orderby: "start/dateTime",
     },
-    params.calendar_id,
+    calendarIdOrDefault(params.calendar_id),
     params.time_zone,
   )
   return result
@@ -217,7 +223,7 @@ const showAsOnUpdate = async (
   params: { event_id: string; all_day?: boolean; show_as?: ShowAs; calendar_id?: string },
 ): Promise<Either<UserError, ShowAs | undefined>> => {
   if (params.show_as !== undefined || params.all_day === undefined) return Right(params.show_as)
-  const current = await client.getEvent(params.event_id, "text", params.calendar_id)
+  const current = await client.getEvent(params.event_id, "text", calendarIdOrDefault(params.calendar_id))
   return current
     .mapLeft((error) => new UserError(`Failed to read the event before updating it: ${error.message}`))
     .map((event) => ((event.isAllDay ?? false) === params.all_day ? undefined : showAsFor(undefined, params.all_day)))
@@ -258,7 +264,7 @@ export const createEvent = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
-  const badCalendar = invalidCalendarId(params.calendar_id)
+  const badCalendar = invalidCalendarId(calendarIdOrDefault(params.calendar_id))
   if (badCalendar) return Left(badCalendar)
   const badZone = invalidTimeZone(params.time_zone)
   if (badZone) return Left(badZone)
@@ -298,10 +304,10 @@ export const createEvent = async (params: {
     }))
   }
 
-  const readOnly = await readOnlyCalendar(client, params.calendar_id)
+  const readOnly = await readOnlyCalendar(client, calendarIdOrDefault(params.calendar_id))
   if (readOnly) return Left(readOnly)
 
-  const result = await client.createEvent(event, params.calendar_id, params.time_zone)
+  const result = await client.createEvent(event, calendarIdOrDefault(params.calendar_id), params.time_zone)
   const draftSuffix =
     params.is_draft && params.attendees
       ? "\n\n_Saved as draft: attendees were not invited. Open in Outlook to add attendees and send the meeting._"
@@ -330,7 +336,7 @@ export const updateEvent = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
-  const badCalendar = invalidCalendarId(params.calendar_id)
+  const badCalendar = invalidCalendarId(calendarIdOrDefault(params.calendar_id))
   if (badCalendar) return Left(badCalendar)
   const badEvent = invalidEventId(params.event_id)
   if (badEvent) return Left(badEvent)
@@ -380,10 +386,15 @@ export const updateEvent = async (params: {
     updates.onlineMeetingProvider = "teamsForBusiness"
   }
 
-  const readOnly = await readOnlyCalendar(client, params.calendar_id)
+  const readOnly = await readOnlyCalendar(client, calendarIdOrDefault(params.calendar_id))
   if (readOnly) return Left(readOnly)
 
-  const result = await client.updateEvent(params.event_id, updates, params.calendar_id, params.time_zone)
+  const result = await client.updateEvent(
+    params.event_id,
+    updates,
+    calendarIdOrDefault(params.calendar_id),
+    params.time_zone,
+  )
   return result
     .mapLeft((error) => new UserError(`Failed to update event: ${error.message}`))
     .map((evt) => `Event updated.\n\n${formatEventDetail(evt, { body: false })}`)
@@ -395,15 +406,15 @@ export const deleteEvent = async (params: {
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
-  const badCalendar = invalidCalendarId(params.calendar_id)
+  const badCalendar = invalidCalendarId(calendarIdOrDefault(params.calendar_id))
   if (badCalendar) return Left(badCalendar)
   const badEvent = invalidEventId(params.event_id)
   if (badEvent) return Left(badEvent)
 
-  const readOnly = await readOnlyCalendar(client, params.calendar_id)
+  const readOnly = await readOnlyCalendar(client, calendarIdOrDefault(params.calendar_id))
   if (readOnly) return Left(readOnly)
 
-  const result = await client.deleteEvent(params.event_id, params.calendar_id)
+  const result = await client.deleteEvent(params.event_id, calendarIdOrDefault(params.calendar_id))
   return result
     .mapLeft((error) => new UserError(`Failed to delete event: ${error.message}`))
     .map(() => "Event deleted successfully.")

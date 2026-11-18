@@ -145,7 +145,11 @@ const signInWhenRequired = (
         if (disableSignIn) {
           throw new Error(
             `[Auth] Sign-in required: ${hadRecord ? "the saved sign-in could not be reused" : "there is no saved sign-in"}, ` +
-              "and MS365_DISABLE_SIGN_IN is set, so none was started. Run the server once without it to sign in.",
+              `and MS365_DISABLE_SIGN_IN is set, so none was started. Run the server once without it to sign in.${
+                // A saved sign-in can fail to refresh for a passing reason, such as the network, and
+                // then signing in again won't help. The Azure log says which.
+                hadRecord ? " Set AZURE_LOG_LEVEL=info to see why it could not be reused." : ""
+              }`,
             { cause: error },
           )
         }

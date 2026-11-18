@@ -259,6 +259,8 @@ describe("interactive authentication mode", () => {
         expect(failure).toBeInstanceOf(Error)
         expect((failure as Error).message).toContain("the saved sign-in could not be reused")
         expect((failure as Error).message).toContain("MS365_DISABLE_SIGN_IN")
+        // A saved sign-in can fail for a passing reason (the network); the Azure log says which.
+        expect((failure as Error).message).toContain("AZURE_LOG_LEVEL=info")
         expect((failure as Error).cause).toBeInstanceOf(AuthenticationRequiredError)
         expect(authenticate).not.toHaveBeenCalled()
       })
@@ -268,7 +270,10 @@ describe("interactive authentication mode", () => {
         const authenticate = vi.spyOn(InteractiveBrowserCredential.prototype, "authenticate")
         const credential = createCredential({ ...config, disableSignIn: true }).value as TokenCredential
 
-        await expect(credential.getToken("scope")).rejects.toThrow("there is no saved sign-in")
+        const failure = await credential.getToken("scope").catch((e: unknown) => e)
+        expect((failure as Error).message).toContain("there is no saved sign-in")
+        // With nothing saved, there is nothing for the log to explain.
+        expect((failure as Error).message).not.toContain("AZURE_LOG_LEVEL")
         expect(authenticate).not.toHaveBeenCalled()
       })
 

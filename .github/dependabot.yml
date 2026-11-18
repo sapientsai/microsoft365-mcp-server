@@ -15,3 +15,8 @@ updates:
       # Raise it together with .nvmrc instead.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+    # One weekly PR for every minor and patch bump, instead of one PR each. Majors still come one
+    # at a time, because each needs its own look.
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
