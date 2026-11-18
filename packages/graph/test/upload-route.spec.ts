@@ -93,3 +93,34 @@ describe("buildUploadRoute", () => {
     expect(res.headers.get("content-type")).toContain("application/json")
   })
 })
+
+describe("handleUpload with ifMatch", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("sends If-Match on the upload session and answers 412 precondition-failed on a stale eTag", async () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: { code: "notAllowed", message: "" } }), { status: 412 })),
+    )
+    vi.stubGlobal("fetch", fetchSpy)
+    const res = await handleUpload(
+      req({ query: { path: contentPath, ifMatch: '"{A},1"' }, body: Buffer.from("hello") }),
+      auth(),
+    )
+    expect(res.status).toBe(412)
+    expect((res.body as { error: string }).error).toMatch(/^precondition-failed: /)
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain(":/createUploadSession")
+    expect(init.headers).toMatchObject({ "If-Match": '"{A},1"' })
+  })
+
+  it("refuses ifMatch with conflictBehavior rename", async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const res = await handleUpload(
+      req({ query: { path: contentPath, ifMatch: '"{A},1"', conflictBehavior: "rename" }, body: Buffer.from("x") }),
+      auth(),
+    )
+    expect(res.status).toBe(400)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})

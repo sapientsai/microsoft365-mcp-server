@@ -210,8 +210,8 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
  * Throws `CircuitOpenError` when the breaker is open.
  *
  * @interop It stands in for `fetch`, so it throws where `fetch` throws (a network error) and on an
- * open breaker. Every call site already handles a thrown fetch, and `isCircuitOpenError` tells the
- * two apart.
+ * open breaker. Most call sites catch it, and `isCircuitOpenError` tells the two apart; the rest let
+ * it reach the tool framework, which reports it as an error.
  */
 export const fetchWithResilience = async (
   url: string,

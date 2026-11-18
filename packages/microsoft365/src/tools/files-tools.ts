@@ -5,15 +5,15 @@ import {
   describeFetchError,
   filenameFromPath,
   formatBytes,
+  ifMatchConflictProblem,
   isTextMimeType,
   isUnknownMimeType,
   looksLikeText,
   MAX_UPLOAD_SIZE,
   mintUploadTicket,
   resolveUploadContentType,
-  sessionUpload,
   SIMPLE_UPLOAD_LIMIT,
-  simpleUpload,
+  uploadDriveContent,
 } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
@@ -184,9 +184,13 @@ export const uploadFile = async (params: {
   content: string
   content_type?: string
   conflict_behavior?: "rename" | "replace" | "fail"
+  if_match?: string
 }): Promise<Either<UserError, string>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
+
+  const conflictProblem = ifMatchConflictProblem(params.conflict_behavior, params.if_match)
+  if (conflictProblem) return Left(new UserError(conflictProblem))
 
   const contentType = params.content_type ?? "text/plain"
   if (!isTextMimeType(contentType)) {
@@ -202,7 +206,13 @@ export const uploadFile = async (params: {
     )
   }
 
-  const result = await client.uploadFile(params.path, params.content, contentType, params.conflict_behavior ?? "rename")
+  const result = await client.uploadFile(
+    params.path,
+    params.content,
+    contentType,
+    params.conflict_behavior ?? (params.if_match !== undefined ? "replace" : "rename"),
+    params.if_match,
+  )
   return result
     .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))
     .map((item) => `File uploaded.\n\n${formatDriveItemDetail(item)}`)
@@ -239,11 +249,14 @@ export const getUploadConfig = async (params: {
   localFile?: string
   contentType?: string
   conflictBehavior?: "rename" | "replace" | "fail"
+  ifMatch?: string
 }): Promise<Either<UserError, string>> => {
   await Promise.resolve()
   if (!/:\/content$/i.test(params.path)) {
     return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
   }
+  const conflictProblem = ifMatchConflictProblem(params.conflictBehavior, params.ifMatch)
+  if (conflictProblem) return Left(new UserError(conflictProblem))
 
   const baseUrl = resolveUploadBaseUrl()
   if (!baseUrl) {
@@ -256,7 +269,7 @@ export const getUploadConfig = async (params: {
 
   const filename = filenameFromPath(params.path)
   const contentType = resolveUploadContentType(params.contentType, filename)
-  const conflictBehavior = params.conflictBehavior ?? "rename"
+  const conflictBehavior = params.conflictBehavior ?? (params.ifMatch !== undefined ? "replace" : "rename")
   const localFile = params.localFile ?? "{local_file_path}"
 
   const query = new URLSearchParams({
@@ -264,6 +277,7 @@ export const getUploadConfig = async (params: {
     conflictBehavior,
     contentType,
     encoding: "base64",
+    ...(params.ifMatch !== undefined ? { ifMatch: params.ifMatch } : {}),
   })
   const uploadUrl = `${baseUrl}/upload?${query.toString()}`
   const authHeader = await relayAuthHeader()
@@ -275,6 +289,7 @@ export const getUploadConfig = async (params: {
     method: "POST",
     contentType,
     conflictBehavior,
+    ...(params.ifMatch !== undefined ? { ifMatch: params.ifMatch } : {}),
     maxSize: "250 MB",
     encoding: "base64",
     ...(authHeader ? { authHeader } : {}),
@@ -285,6 +300,11 @@ export const getUploadConfig = async (params: {
       "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
       "Server decodes base64, then PUTs to Microsoft Graph (simple PUT up to 4 MB; chunked session upload above).",
       "Intermediate folders in the Graph path are auto-created.",
+      ...(params.ifMatch !== undefined
+        ? [
+            "The upload is conditional: it replaces the file only if its eTag still matches. If it changed, the relay answers 412 precondition-failed; read the file again, re-apply the change, and get a new upload config with the new eTag.",
+          ]
+        : []),
       "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not your Graph token. It only authorizes this upload relay.",
       "If a /upload call fails with a network error, check graphReachableFromServer: it reflects whether THIS server can reach Microsoft Graph. false ⇒ a server-side egress/DNS/TLS problem, not your client; true ⇒ retry, and report the returned error text (it now includes the underlying cause).",
     ],
@@ -298,10 +318,13 @@ export const uploadFileFromPath = async (params: {
   path: string
   content_type?: string
   conflict_behavior?: "rename" | "replace" | "fail"
+  if_match?: string
 }): Promise<Either<UserError, string>> => {
   if (!/:\/content$/i.test(params.path)) {
     return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
   }
+  const conflictProblem = ifMatchConflictProblem(params.conflict_behavior, params.if_match)
+  if (conflictProblem) return Left(new UserError(conflictProblem))
 
   const fileNotFoundMessage = `File not found: ${params.local_path}. If this file was generated in a cloud environment (e.g., claude.ai), use Desktop Commander's write_file to save it to the local filesystem first, then retry.`
 
@@ -341,15 +364,15 @@ export const uploadFileFromPath = async (params: {
   const contentType = resolveUploadContentType(params.content_type, filename)
   const conflictBehavior = params.conflict_behavior ?? "rename"
   const apiBase = `${GRAPH_API_BASE}/${defaultVersion()}`
+  const conditional = params.if_match !== undefined
 
   console.error(
-    `[Upload] local=${params.local_path} bytes=${buffer.length} contentType=${contentType} mode=${buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}`,
+    `[Upload] local=${params.local_path} bytes=${buffer.length} contentType=${contentType} mode=${!conditional && buffer.length <= SIMPLE_UPLOAD_LIMIT ? "simple" : "session"}${conditional ? " if-match" : ""}`,
   )
 
-  const result =
-    buffer.length <= SIMPLE_UPLOAD_LIMIT
-      ? await simpleUpload(apiBase, params.path, resolvedToken, buffer, contentType, conflictBehavior)
-      : await sessionUpload(apiBase, params.path, resolvedToken, buffer, conflictBehavior)
+  const result = await uploadDriveContent(apiBase, params.path, resolvedToken, buffer, contentType, conflictBehavior, {
+    ifMatch: params.if_match,
+  })
 
   return result
     .mapLeft((error) => new UserError(`Failed to upload file: ${error.message}`))

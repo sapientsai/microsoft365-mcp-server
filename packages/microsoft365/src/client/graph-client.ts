@@ -5,6 +5,7 @@ import {
   mapHttpError,
   parseJsonResponse,
   resilientFetch,
+  uploadDriveContent,
 } from "@sapientsai/ms-graph-core"
 import { None, type Option, Ref, Some } from "functype"
 import { type Either, Left, Right } from "functype/either"
@@ -709,11 +710,14 @@ const createGraphClient = (auth: AuthStrategy) => {
     request<Record<string, never>>("DELETE", `/me/todo/lists/${listId}/tasks/${taskId}`)
 
   // Text-only file upload. Binary uploads must use get_upload_config (httpStream) or upload_file_from_path (stdio).
+  // With ifMatch the write is conditional: it goes through core's upload session, the route Graph
+  // documents If-Match on, and lands only if the file still has that eTag.
   const uploadFile = async (
     path: string,
     content: string,
     contentType: string = "text/plain",
     conflictBehavior: "rename" | "replace" | "fail" = "rename",
+    ifMatch?: string,
   ): Promise<Either<GraphApiError, GraphDriveItem>> => {
     const tokenResult = await auth.getAccessToken()
     if (tokenResult.isLeft()) {
@@ -725,6 +729,12 @@ const createGraphClient = (auth: AuthStrategy) => {
 
     const token = tokenResult.value as string
     const version = defaultVersion()
+    if (ifMatch !== undefined) {
+      const buffer = Buffer.from(content, "utf8")
+      return uploadDriveContent(`${GRAPH_API_BASE}/${version}`, path, token, buffer, contentType, conflictBehavior, {
+        ifMatch,
+      })
+    }
     const separator = path.includes("?") ? "&" : "?"
     const url = `${GRAPH_API_BASE}/${version}${path}${separator}@microsoft.graph.conflictBehavior=${conflictBehavior}`
 

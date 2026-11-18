@@ -31,6 +31,23 @@ export const describeFetchError = (error: unknown): { message: string; code?: st
 const parseGraphError = async (response: Response): Promise<string> =>
   graphErrorMessage(response.status, response.statusText, await response.json().catch(() => undefined))
 
+// A conditional drive write (If-Match) answers 412 when the file changed since the caller read
+// it. That is a lost race, not a failure to retry: only the caller knows how to merge, so it
+// gets a distinct error that says what to do.
+export const PRECONDITION_FAILED_MESSAGE =
+  "precondition-failed: the file changed since it was read, so its eTag no longer matches. Read it again, re-apply your change, and upload with the new eTag."
+
+const preconditionFailed = (): GraphApiError => ({ type: "api", status: 412, message: PRECONDITION_FAILED_MESSAGE })
+
+/**
+ * A conditional write replaces the file its eTag names, so it can't also rename or fail on a
+ * conflict. Returns the refusal text for any other explicit conflict behavior, or undefined.
+ */
+export const ifMatchConflictProblem = (conflictBehavior: string | undefined, ifMatch: string | undefined) =>
+  ifMatch !== undefined && conflictBehavior !== undefined && conflictBehavior !== "replace"
+    ? `if_match replaces the file whose eTag it names, so conflict behavior must be "replace" or left unset, not "${conflictBehavior}".`
+    : undefined
+
 const toGraphApiError = async (response: Response, prefix: string): Promise<GraphApiError> => {
   const message = await parseGraphError(response)
   return {
@@ -86,12 +103,15 @@ export const simpleUpload = async (
   }
 }
 
+// `ifMatch` goes on the createUploadSession POST, which is where Graph documents it: a mismatch
+// answers 412 before any bytes are sent.
 export const sessionUpload = async (
   apiBase: string,
   path: string,
   accessToken: string,
   buffer: Buffer,
   conflictBehavior: string,
+  ifMatch?: string,
 ): Promise<Either<GraphApiError, GraphDriveItem>> => {
   const sessionPath = path.replace(/:\/?content$/i, ":/createUploadSession")
   const sessionUrl = `${apiBase}${sessionPath}`
@@ -102,12 +122,14 @@ export const sessionUpload = async (
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
+        ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}),
       },
       body: JSON.stringify({
         item: { "@microsoft.graph.conflictBehavior": conflictBehavior },
       }),
     })
 
+    if (createResponse.status === 412) return Left(preconditionFailed())
     if (!createResponse.ok) {
       return Left(await toGraphApiError(createResponse, "Failed to create upload session"))
     }
@@ -174,4 +196,41 @@ const uploadChunks = async (
       message: `Network error uploading chunk at byte ${offset}: ${message}`,
     })
   }
+}
+
+export type DriveUploadOptions = {
+  /** The eTag (or cTag) the caller read. The write lands only if the file still has it. */
+  readonly ifMatch?: string
+}
+
+/**
+ * Writes file content to a drive path ending in ":/content". Up to 4 MB goes as one PUT, larger
+ * files through an upload session. A conditional write always takes the session route, because
+ * Graph documents If-Match on createUploadSession and not on the simple PUT; it also implies
+ * "replace", since it names the file it overwrites.
+ */
+export const uploadDriveContent = async (
+  apiBase: string,
+  path: string,
+  accessToken: string,
+  buffer: Buffer,
+  contentType: string,
+  conflictBehavior: string,
+  options: DriveUploadOptions = {},
+): Promise<Either<GraphApiError, GraphDriveItem>> => {
+  const { ifMatch } = options
+  if (ifMatch === undefined) {
+    return buffer.length <= SIMPLE_UPLOAD_LIMIT
+      ? simpleUpload(apiBase, path, accessToken, buffer, contentType, conflictBehavior)
+      : sessionUpload(apiBase, path, accessToken, buffer, conflictBehavior)
+  }
+  // An upload session has no chunk to send for empty content, so it could never finish.
+  if (buffer.length === 0) {
+    return Left({
+      type: "api",
+      status: 400,
+      message: "if_match needs content: an empty file can't be written conditionally.",
+    })
+  }
+  return sessionUpload(apiBase, path, accessToken, buffer, "replace", ifMatch)
 }
