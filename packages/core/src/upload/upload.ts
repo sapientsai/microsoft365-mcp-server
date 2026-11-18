@@ -1,6 +1,7 @@
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
+import { graphErrorMessage } from "../graph-error-message"
 import { resilientFetch } from "../resilience"
 import type { GraphApiError, GraphDriveItem } from "../types"
 
@@ -27,15 +28,8 @@ export const describeFetchError = (error: unknown): { message: string; code?: st
   return { message: error.message }
 }
 
-const parseGraphError = async (response: Response): Promise<string> => {
-  try {
-    const body = (await response.json()) as { error?: { message?: string } }
-    if (body.error?.message) return body.error.message
-  } catch {
-    // fall through
-  }
-  return `${response.status} ${response.statusText}`
-}
+const parseGraphError = async (response: Response): Promise<string> =>
+  graphErrorMessage(response.status, response.statusText, await response.json().catch(() => undefined))
 
 const toGraphApiError = async (response: Response, prefix: string): Promise<GraphApiError> => {
   const message = await parseGraphError(response)

@@ -1,5 +1,6 @@
 export * from "./auth-strategy"
 export * from "./constants"
+export * from "./graph-error-message"
 export * from "./graph-request"
 export * from "./resilience"
 export * from "./types"

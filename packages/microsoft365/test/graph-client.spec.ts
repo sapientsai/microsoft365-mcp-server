@@ -486,6 +486,10 @@ describe("todoTaskDelta", () => {
       ),
     )
     const result = await initializeGraphClient(auth).todoTaskDelta(LIST, "stale.token")
-    expect(result.value).toMatchObject({ status: 400, graphErrorCode: "BadRequest", message: "Badly formed token." })
+    expect(result.value).toMatchObject({
+      status: 400,
+      graphErrorCode: "BadRequest",
+      message: "Badly formed token. (HTTP 400, BadRequest)",
+    })
   })
 })
