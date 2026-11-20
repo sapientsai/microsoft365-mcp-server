@@ -2598,7 +2598,7 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
   const rawContentType = req.query("contentType")?.trim()
   const explicitContentType = rawContentType === "" ? undefined : rawContentType
   // Checked before the credential and the body: in oauth-proxy mode any bearer gets past
-  // relayAuth, so nothing a caller puts in the query may reach Graph unchecked.
+  // relayAuth, so these header and query values are refused before anything else runs.
   const problem =
     conflictBehaviorProblem(requestedConflict) ??
     ifMatchConflictProblem(requestedConflict, ifMatch) ??

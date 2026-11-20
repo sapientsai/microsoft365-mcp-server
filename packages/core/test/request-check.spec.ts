@@ -52,6 +52,8 @@ const UNSENDABLE: ReadonlyArray<readonly [string, string, RequestInit, Refusal]>
   ["CONNECT", "CONNECT", {}, "fetch"],
   ["TRACE", "TRACE", {}, "fetch"],
   ["TRACK", "TRACK", {}, "fetch"],
+  ["a GET with a body", "GET", { body: "x" }, "fetch"],
+  ["a HEAD with a body", "HEAD", { body: "x" }, "fetch"],
 ]
 
 describe("requestProblem", () => {
@@ -81,6 +83,22 @@ describe("requestProblem", () => {
 
   it("refuses a URL that doesn't parse", () => {
     expect(requestProblem("not a url", undefined)).toMatch(/not a valid URL/)
+  })
+
+  it.each(["ftp://graph.microsoft.com/x", "file:///etc/passwd", "about:blank"])(
+    "refuses the non-http URL %s",
+    (url) => {
+      expect(requestProblem(url, undefined)).toMatch(/not an http\(s\) URL/)
+    },
+  )
+
+  it("refuses a URL with a user name or password, which fetch won't send", () => {
+    expect(requestProblem("https://user:pass@graph.microsoft.com/v1.0/me", undefined)).toMatch(/user name or password/)
+  })
+
+  it("caps a long header name in the message", () => {
+    const problem = requestProblem(URL_OK, { headers: { [`Upgrade${"x".repeat(5000)}`]: "\u007f" } }) ?? ""
+    expect(problem.length).toBeLessThan(200)
   })
 
   it("reads Headers objects and header pairs as well as records", () => {

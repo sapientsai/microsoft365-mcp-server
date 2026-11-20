@@ -122,6 +122,24 @@ describe("upload tools", () => {
   })
 })
 
+describe("a blank content type", () => {
+  it("upload_file treats it as left out and uploads as text/plain", async () => {
+    fetchSpy.mockResolvedValueOnce(json({ id: "f1", name: "a.txt" }))
+    const result = await uploadFile({ path: "/me/drive/root:/a.txt:/content", content: "x", content_type: " " })
+    expect(result.isRight()).toBe(true)
+    expect(new Headers(fetchSpy.mock.calls[0]?.[1]?.headers).get("content-type")).toBe("text/plain")
+  })
+
+  it("upload_file_from_path doesn't refuse it, and goes on to read the file", async () => {
+    const result = await uploadFileFromPath({
+      local_path: "/no/such/file",
+      path: "/me/drive/root:/a.pdf:/content",
+      content_type: "",
+    })
+    expect(message(result)).toContain("File not found")
+  })
+})
+
 describe("update_planner_task etag", () => {
   it.each([
     ["a line break", 'W/"1"\nX: y'],

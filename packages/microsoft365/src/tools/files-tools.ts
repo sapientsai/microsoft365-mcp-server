@@ -191,13 +191,15 @@ export const uploadFile = async (params: {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
+  // A blank content_type means the default, as if it were left out.
+  const explicitContentType = params.content_type?.trim() === "" ? undefined : params.content_type
   const problem =
     ifMatchConflictProblem(params.conflict_behavior, params.if_match) ??
     ifMatchProblem(params.if_match) ??
-    contentTypeProblem(params.content_type)
+    contentTypeProblem(explicitContentType)
   if (problem) return Left(new UserError(problem))
 
-  const contentType = params.content_type ?? "text/plain"
+  const contentType = explicitContentType ?? "text/plain"
   if (!isTextMimeType(contentType)) {
     return Left(new UserError(BINARY_REDIRECT_MESSAGE))
   }
@@ -335,10 +337,12 @@ export const uploadFileFromPath = async (params: {
   if (!/:\/content$/i.test(params.path)) {
     return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
   }
+  // A blank content_type means "work it out from the file name", as if it were left out.
+  const explicitContentType = params.content_type?.trim() === "" ? undefined : params.content_type
   const problem =
     ifMatchConflictProblem(params.conflict_behavior, params.if_match) ??
     ifMatchProblem(params.if_match) ??
-    contentTypeProblem(params.content_type)
+    contentTypeProblem(explicitContentType)
   if (problem) return Left(new UserError(problem))
 
   const fileNotFoundMessage = `File not found: ${params.local_path}. If this file was generated in a cloud environment (e.g., claude.ai), use Desktop Commander's write_file to save it to the local filesystem first, then retry.`
@@ -376,7 +380,7 @@ export const uploadFileFromPath = async (params: {
   }
 
   const filename = filenameFromPath(params.path) ?? basename(params.local_path)
-  const contentType = resolveUploadContentType(params.content_type, filename)
+  const contentType = resolveUploadContentType(explicitContentType, filename)
   const conflictBehavior = params.conflict_behavior ?? "rename"
   const apiBase = `${GRAPH_API_BASE}/${defaultVersion()}`
   const conditional = params.if_match !== undefined

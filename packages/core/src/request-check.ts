@@ -34,7 +34,8 @@ const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 
 const UNSUPPORTED_METHODS: ReadonlySet<string> = new Set(["CONNECT", "TRACE", "TRACK"])
 
-// undici refuses these at dispatch, after the Headers check has passed.
+// undici refuses all but Connection at dispatch, after the Headers check has passed. Connection
+// is refused as policy: fetch manages the connection, and no Graph call needs to set it.
 const REFUSED_HEADERS: ReadonlySet<string> = new Set([
   "connection",
   "expect",
@@ -76,10 +77,12 @@ const contentLengthProblem = (value: string, body: RequestInit["body"]): string 
 const headerProblem = (name: string, value: string, body: RequestInit["body"]): string | undefined => {
   if (!TOKEN.test(name)) return `the header name ${quoteForMessage(name)} is not a valid HTTP header name.`
   const lower = name.toLowerCase()
-  if (REFUSED_HEADERS.has(lower)) return `the ${name} header can't be set on a Graph request.`
+  // A valid name holds no space or line break, but may still be long.
+  const label = name.slice(0, 60)
+  if (REFUSED_HEADERS.has(lower)) return `the ${label} header can't be set on a Graph request.`
   const trimmed = trimHeaderValue(value)
   if (!SENDABLE_VALUE.test(trimmed)) {
-    return `the ${name} header holds a character a header can't carry, such as a line break or a control character.`
+    return `the ${label} header holds a character a header can't carry, such as a line break or a control character.`
   }
   return lower === "content-length" ? contentLengthProblem(trimmed, body) : undefined
 }
@@ -87,9 +90,17 @@ const headerProblem = (name: string, value: string, body: RequestInit["body"]): 
 /** Why fetch would refuse to send this request, or undefined when it can be sent. */
 export const requestProblem = (url: string, init: RequestInit | undefined): string | undefined => {
   if (!URL.canParse(url)) return "the request URL is not a valid URL."
+  const parsed = new URL(url)
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "the request URL is not an http(s) URL."
+  // fetch refuses a URL carrying a user name or password.
+  if (parsed.username !== "" || parsed.password !== "") return "the request URL holds a user name or password."
   const method = init?.method ?? "GET"
   if (!TOKEN.test(method)) return `the HTTP method ${quoteForMessage(method, 20)} is not valid.`
-  if (UNSUPPORTED_METHODS.has(method.toUpperCase())) return `the HTTP method ${method} is not supported.`
+  const upper = method.toUpperCase()
+  if (UNSUPPORTED_METHODS.has(upper)) return `the HTTP method ${method} is not supported.`
+  if ((upper === "GET" || upper === "HEAD") && init?.body !== undefined && init.body !== null) {
+    return `a ${upper} request can't carry a body.`
+  }
   return headerEntries(init?.headers).reduce<string | undefined>(
     (problem, [name, value]) => problem ?? headerProblem(name, value, init?.body),
     undefined,
