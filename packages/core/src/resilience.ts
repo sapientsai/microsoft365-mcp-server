@@ -197,7 +197,8 @@ export const isCircuitOpenError = (err: unknown): err is CircuitOpenError => err
 /** Some Graph PUTs create new resources or advance an upload session rather than replacing state. */
 export type RetryPolicy = { readonly retryTransient?: boolean }
 
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
+// The policy is optional, so plain fetch still fits; the resilient fetch honours it.
+export type FetchLike = (url: string, init?: RequestInit, policy?: RetryPolicy) => Promise<Response>
 
 /**
  * Wraps `fetch` with timeout + retry + circuit-breaker semantics.

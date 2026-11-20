@@ -550,7 +550,8 @@ mailbox setting the API cannot read), and `update_event` leaves the reminder as 
 **Moving, copying and deleting.** All four work in your OneDrive, and in a SharePoint
 document library when you pass its `drive_id` (from `list_site_drives`).
 
-- `move_drive_item` can't cross drives; Graph refuses that. Copy, then delete the original.
+- `move_drive_item` can't cross drives; Graph refuses that. Copy, confirm the copy is in the
+  destination, and only then delete the original.
 - `copy_drive_item` runs in the background on Graph's side, so a large copy appears after
   a delay. It never overwrites: a name clash fails unless `conflict_behavior` is `rename`.
 - `delete_drive_item` sends the item, and a folder's contents, to the recycle bin, where it
@@ -563,10 +564,11 @@ other without an error. To prevent that:
 
 - Read the file's eTag. `download_file`, `get_drive_item` and `list_drive_items` print
   it, and every upload returns the new one.
-- Pass it back as `if_match` on `upload_file`, `upload_file_from_path`, `move_drive_item`,
-  `rename_drive_item` or `delete_drive_item`, or as
+- Pass it back as `if_match` on `upload_file` or `upload_file_from_path`, or as
   `ifMatch` on `get_upload_config` (the `/upload` relay takes the same query
   parameter). The upload then replaces the file only if it still has that eTag.
+  `move_drive_item`, `rename_drive_item` and `delete_drive_item` take `if_match` too,
+  and change the item only if it still has that eTag.
 - If someone changed the file in between, nothing is written. The call fails with
   `precondition-failed` (HTTP 412 from the relay). Read the file again, re-apply your
   change, and retry with the new eTag. The server never retries this for you, because

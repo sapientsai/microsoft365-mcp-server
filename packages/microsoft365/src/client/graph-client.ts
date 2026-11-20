@@ -353,9 +353,10 @@ const createGraphClient = (auth: AuthStrategy) => {
   const ifMatchHeader = (ifMatch?: string) => (ifMatch === undefined ? {} : { headers: { "If-Match": ifMatch } })
 
   // A drive's root has a real ID, and a move or copy needs it: Graph refuses "root" in parentReference.
+  // Its parentReference carries the drive's own ID, which a copy's parentReference should name.
   const getDriveRoot = (driveId?: string) =>
     request<GraphDriveItem>("GET", driveId ? `/drives/${driveId}/root` : "/me/drive/root", {
-      odataParams: { $select: ["id"] },
+      odataParams: { $select: ["id", "parentReference"] },
     })
 
   // Move, rename, or both: one PATCH. Graph can't move an item to another drive this way.
@@ -371,9 +372,13 @@ const createGraphClient = (auth: AuthStrategy) => {
       { body },
     )
 
-  // Moves the item, and a folder's contents, to the recycle bin.
+  // Moves the item, and a folder's contents, to the recycle bin. Retried only on 429: after a 503,
+  // 504 or timeout the delete may have landed, and a retry would answer 404 for a deleted item.
   const deleteDriveItem = (id: string, driveId?: string, ifMatch?: string) =>
-    request<Record<string, never>>("DELETE", driveItemPath(id, driveId), ifMatchHeader(ifMatch))
+    request<Record<string, never>>("DELETE", driveItemPath(id, driveId), {
+      ...ifMatchHeader(ifMatch),
+      retryTransient: false,
+    })
 
   // SharePoint Sites
   const listFollowedSites = () => request<ODataResponse<GraphSite>>("GET", "/me/followedSites")

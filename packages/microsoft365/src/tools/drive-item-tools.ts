@@ -21,19 +21,34 @@ export const ITEM_PRECONDITION_FAILED_MESSAGE =
 // use only letters, digits and ! _ . -, so anything else is refused before Graph is called.
 const GRAPH_ID = /^[A-Za-z0-9!_.-]+$/
 
+// JSON.stringify quotes the value and escapes any newline, so a refused ID can't add lines to the output.
 const idProblem = (label: string, value: string | undefined): string | undefined => {
   if (value === undefined) return undefined
   if (!GRAPH_ID.test(value) || /^\.+$/.test(value)) {
-    return `${label} "${value.slice(0, 80)}" is not a valid ID. Use the ID from list_drive_items, get_drive_item or list_site_drives.`
+    return `${label} ${JSON.stringify(value.slice(0, 80))} is not a valid ID. Use the ID from list_drive_items, get_drive_item or list_site_drives.`
   }
   return undefined
 }
 
+// "root" is a valid path alias, but never an item to delete, rename, move or copy.
+const itemIdProblem = (value: string): string | undefined =>
+  value.toLowerCase() === "root"
+    ? "item_id root is the drive itself; pass the ID of a file or folder in it."
+    : idProblem("item_id", value)
+
 const firstProblem = (...problems: ReadonlyArray<string | undefined>): string | undefined =>
   problems.find((problem) => problem !== undefined)
 
-const ifMatchProblem = (ifMatch: string | undefined): string | undefined =>
-  ifMatch?.trim() === "" ? BLANK_IF_MATCH_MESSAGE : undefined
+// An eTag is printable ASCII. A newline or other character fetch can't put in a header would make
+// fetch throw before sending, which the resilience layer counts as a network failure.
+const ifMatchProblem = (ifMatch: string | undefined): string | undefined => {
+  if (ifMatch === undefined) return undefined
+  if (ifMatch.trim() === "") return BLANK_IF_MATCH_MESSAGE
+  if (!/^[\x20-\x7e]+$/.test(ifMatch)) {
+    return "if_match holds characters an eTag never has. Pass the eTag exactly as get_drive_item or list_drive_items printed it."
+  }
+  return undefined
+}
 
 // OneDrive and SharePoint refuse these characters in a name, and a slash would read as a path.
 const INVALID_NAME_CHARS = /["*:<>?/\\|]/
@@ -41,6 +56,8 @@ const INVALID_NAME_CHARS = /["*:<>?/\\|]/
 const nameProblem = (name: string | undefined): string | undefined => {
   if (name === undefined) return undefined
   if (name.trim() === "") return "new_name is blank."
+  // eslint-disable-next-line no-control-regex -- refusing control characters is the point
+  if (/[\u0000-\u001f\u007f]/.test(name)) return "new_name can't contain control characters such as a line break."
   if (INVALID_NAME_CHARS.test(name)) return `new_name can't contain any of " * : < > ? / \\ |`
   return undefined
 }
@@ -50,13 +67,29 @@ const failure = (action: string, error: GraphApiError): UserError =>
     ? new UserError(`Failed to ${action}: ${ITEM_PRECONDITION_FAILED_MESSAGE}`)
     : new UserError(`Failed to ${action}: ${error.message}`)
 
-/** The destination folder's real ID: Graph refuses "root" in parentReference, so it is looked up. */
-const resolveFolderId = async (folderId: string, driveId: string | undefined): Promise<Either<UserError, string>> => {
-  if (folderId !== "root") return Right(folderId)
+type Destination = { readonly folderId: string; readonly driveId?: string }
+
+/**
+ * Where an item goes. Graph refuses "root" in parentReference, so the root's real ID is looked up. For a
+ * copy, parentReference should also name the drive; when the caller gave none (their own OneDrive),
+ * the root lookup supplies it.
+ */
+const resolveDestination = async (
+  folderId: string,
+  driveId: string | undefined,
+  needDriveId: boolean,
+): Promise<Either<UserError, Destination>> => {
+  if (folderId.toLowerCase() !== "root" && (driveId !== undefined || !needDriveId)) {
+    return Right({ folderId, driveId })
+  }
   const client = getGraphClient().orThrow()
   const root = await client.getDriveRoot(driveId)
   if (root.isLeft()) return Left(failure("find the drive's root folder", root.value as GraphApiError))
-  return Right(root.orThrow().id)
+  const found = root.orThrow()
+  return Right({
+    folderId: folderId.toLowerCase() === "root" ? found.id : folderId,
+    driveId: driveId ?? found.parentReference?.driveId,
+  })
 }
 
 export const moveDriveItem = async (params: {
@@ -67,7 +100,7 @@ export const moveDriveItem = async (params: {
   if_match?: string
 }): Promise<Either<UserError, string>> => {
   const problem = firstProblem(
-    idProblem("item_id", params.item_id),
+    itemIdProblem(params.item_id),
     idProblem("destination_folder_id", params.destination_folder_id),
     idProblem("drive_id", params.drive_id),
     nameProblem(params.new_name),
@@ -76,11 +109,11 @@ export const moveDriveItem = async (params: {
   if (problem) return Left(new UserError(problem))
   if (getGraphClient().isNone()) return Left(new UserError(NOT_INITIALIZED))
 
-  const folderId = await resolveFolderId(params.destination_folder_id, params.drive_id)
-  if (folderId.isLeft()) return Left(folderId.value as UserError)
+  const destination = await resolveDestination(params.destination_folder_id, params.drive_id, false)
+  if (destination.isLeft()) return Left(destination.value as UserError)
 
   const changes = {
-    parentReference: { id: folderId.orThrow() },
+    parentReference: { id: destination.orThrow().folderId },
     ...(params.new_name !== undefined ? { name: params.new_name } : {}),
   }
   const result = await getGraphClient()
@@ -98,7 +131,7 @@ export const renameDriveItem = async (params: {
   if_match?: string
 }): Promise<Either<UserError, string>> => {
   const problem = firstProblem(
-    idProblem("item_id", params.item_id),
+    itemIdProblem(params.item_id),
     idProblem("drive_id", params.drive_id),
     nameProblem(params.new_name),
     ifMatchProblem(params.if_match),
@@ -124,7 +157,7 @@ export const copyDriveItem = async (params: {
   conflict_behavior?: "fail" | "rename"
 }): Promise<Either<UserError, string>> => {
   const problem = firstProblem(
-    idProblem("item_id", params.item_id),
+    itemIdProblem(params.item_id),
     idProblem("destination_folder_id", params.destination_folder_id),
     idProblem("drive_id", params.drive_id),
     idProblem("destination_drive_id", params.destination_drive_id),
@@ -134,14 +167,18 @@ export const copyDriveItem = async (params: {
   if (getGraphClient().isNone()) return Left(new UserError(NOT_INITIALIZED))
 
   // Without a destination drive the copy stays in the source item's drive.
-  const destinationDrive = params.destination_drive_id ?? params.drive_id
-  const folderId = await resolveFolderId(params.destination_folder_id, destinationDrive)
-  if (folderId.isLeft()) return Left(folderId.value as UserError)
+  const resolved = await resolveDestination(
+    params.destination_folder_id,
+    params.destination_drive_id ?? params.drive_id,
+    true,
+  )
+  if (resolved.isLeft()) return Left(resolved.value as UserError)
+  const destination = resolved.orThrow()
 
   const body = {
     parentReference: {
-      id: folderId.orThrow(),
-      ...(destinationDrive !== undefined ? { driveId: destinationDrive } : {}),
+      id: destination.folderId,
+      ...(destination.driveId !== undefined ? { driveId: destination.driveId } : {}),
     },
     ...(params.new_name !== undefined ? { name: params.new_name } : {}),
   }
@@ -153,7 +190,8 @@ export const copyDriveItem = async (params: {
       () =>
         "Copy started. Graph copies in the background, so a large file or folder can take a while to appear. " +
         "List the destination folder with list_drive_items (or list_site_items) to check it has arrived. " +
-        "If a same-named item was already there, the copy fails unless conflict_behavior is rename.",
+        "If a same-named item was already there, the copy fails unless conflict_behavior is rename, and that " +
+        "failure isn't reported here. Don't delete the original until the copy is confirmed in the destination.",
     )
 }
 
@@ -163,7 +201,7 @@ export const deleteDriveItem = async (params: {
   if_match?: string
 }): Promise<Either<UserError, string>> => {
   const problem = firstProblem(
-    idProblem("item_id", params.item_id),
+    itemIdProblem(params.item_id),
     idProblem("drive_id", params.drive_id),
     ifMatchProblem(params.if_match),
   )

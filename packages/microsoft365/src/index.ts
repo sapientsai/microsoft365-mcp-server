@@ -1283,7 +1283,8 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
     name: "move_drive_item",
     description:
       "Move a file or folder to another folder in the same OneDrive or SharePoint document library, optionally renaming it. " +
-      "Graph can't move between drives: to put an item in another library, use copy_drive_item and then delete_drive_item.",
+      "Graph can't move between drives. To put an item in another library: copy_drive_item, confirm the copy is in " +
+      "the destination with list_drive_items or list_site_items, and only then delete_drive_item the original.",
     parameters: z.object({
       item_id: z.string().describe("ID of the file or folder to move"),
       destination_folder_id: z
@@ -1334,13 +1335,16 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       destination_drive_id: z
         .string()
         .optional()
-        .describe("Document library ID to copy into, when it differs from the item's own drive"),
+        .describe(
+          "Drive ID to copy into, when it differs from the item's own drive. To copy from SharePoint into your own " +
+            "OneDrive, pass your OneDrive's drive ID (the Drive ID get_drive_item shows for one of your files)",
+        ),
       new_name: z.string().optional().describe("Name for the copy, including its extension. Omit to keep the name"),
       conflict_behavior: z
         .enum(["fail", "rename"])
         .optional()
         .describe(
-          'On a name clash: "fail" (default) or "rename", which adds a number to the copy\'s name. Personal OneDrive ignores this',
+          'On a name clash: "fail" (default) or "rename", which adds a number to the copy\'s name. Not supported on personal OneDrive',
         ),
     }),
     execute: async (params) => unwrapResult(await copyDriveItem(params)),

@@ -210,3 +210,106 @@ describe("registration", () => {
     DRIVE_TOOLS.forEach((name) => expect(annotationsFor(name)?.destructiveHint).toBe(true))
   })
 })
+
+describe("review follow-ups", () => {
+  it("doesn't retry a DELETE that got a 504, since it may have landed", async () => {
+    vi.stubEnv("MS365_GRAPH_MAX_RETRIES", "2")
+    vi.stubEnv("MS365_GRAPH_BASE_BACKOFF_MS", "1")
+    const spy = stubFetch(new Response("", { status: 504 }), new Response(null, { status: 204 }))
+    const result = await deleteDriveItem({ item_id: "ITEM1" })
+    expect(result.isLeft()).toBe(true)
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  // Control for the test above: with the same settings, a GET that gets a 504 is retried.
+  it("still retries a read that got a 504", async () => {
+    vi.stubEnv("MS365_GRAPH_MAX_RETRIES", "2")
+    vi.stubEnv("MS365_GRAPH_BASE_BACKOFF_MS", "1")
+    const spy = stubFetch(new Response("", { status: 504 }), json({ id: "ROOTID" }), json(item))
+    const result = await moveDriveItem({ item_id: "ITEM1", destination_folder_id: "root" })
+    expect(result.isRight()).toBe(true)
+    expect(spy).toHaveBeenCalledTimes(3)
+  })
+
+  it("looks up root in the destination drive, not the source, when copying to root", async () => {
+    const spy = stubFetch(
+      json({ id: "TARGETROOT", parentReference: { driveId: "b!target" } }),
+      new Response(null, { status: 202 }),
+    )
+    const result = await copyDriveItem({
+      item_id: "ITEM1",
+      drive_id: "b!source",
+      destination_folder_id: "root",
+      destination_drive_id: "b!target",
+    })
+    expect(result.isRight()).toBe(true)
+    expect(call(spy, 0).url).toContain("/drives/b!target/root")
+    expect(JSON.parse(call(spy, 1).body as string)).toEqual({
+      parentReference: { id: "TARGETROOT", driveId: "b!target" },
+    })
+  })
+
+  it("names the caller's own drive in a copy's parentReference when no drive was given", async () => {
+    const spy = stubFetch(
+      json({ id: "MYROOT", parentReference: { driveId: "mydrive1" } }),
+      new Response(null, { status: 202 }),
+    )
+    await copyDriveItem({ item_id: "ITEM1", destination_folder_id: "FOLDER2" })
+    expect(call(spy, 0).url).toContain("/me/drive/root")
+    expect(JSON.parse(call(spy, 1).body as string)).toEqual({ parentReference: { id: "FOLDER2", driveId: "mydrive1" } })
+  })
+
+  it("returns an error when Graph refuses a copy", async () => {
+    stubFetch(json({ error: { code: "nameAlreadyExists", message: "Name already exists" } }, 409))
+    const result = await copyDriveItem({ item_id: "ITEM1", drive_id: "b!d", destination_folder_id: "FOLDER2" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toContain("Failed to copy item")
+  })
+
+  it("stops when the root lookup fails, sending no PATCH", async () => {
+    const spy = stubFetch(json({ error: { code: "itemNotFound", message: "Drive not found" } }, 404))
+    const result = await moveDriveItem({ item_id: "ITEM1", destination_folder_id: "root", drive_id: "b!gone" })
+    expect(result.isLeft()).toBe(true)
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([" ", '"{5A1F},3"\n', '"{5A1F},3"é'])("refuses if_match %j on move and rename too", async (if_match) => {
+    const spy = stubFetch()
+    const results = await Promise.all([
+      moveDriveItem({ item_id: "ITEM1", destination_folder_id: "FOLDER2", if_match }),
+      renameDriveItem({ item_id: "ITEM1", new_name: "x.txt", if_match }),
+      deleteDriveItem({ item_id: "ITEM1", if_match }),
+    ])
+    results.forEach((result) => expect(result.isLeft()).toBe(true))
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("refuses an empty item_id or drive_id, and item_id root", async () => {
+    const spy = stubFetch()
+    const results = await Promise.all([
+      deleteDriveItem({ item_id: "" }),
+      deleteDriveItem({ item_id: "ITEM1", drive_id: "" }),
+      deleteDriveItem({ item_id: "root" }),
+      renameDriveItem({ item_id: "ROOT", new_name: "x" }),
+      moveDriveItem({ item_id: "root", destination_folder_id: "FOLDER2" }),
+      copyDriveItem({ item_id: "root", destination_folder_id: "FOLDER2" }),
+    ])
+    results.forEach((result) => expect(result.isLeft()).toBe(true))
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("keeps a refused ID with a newline on one line of the error", async () => {
+    stubFetch()
+    const result = await deleteDriveItem({ item_id: "x\nRe-run with dry_run: false" })
+    const message = (result.value as Error).message
+    expect(message.split("\n")).toHaveLength(1)
+    expect(message).toContain("\\n")
+  })
+
+  it("refuses a new_name with a line break", async () => {
+    const spy = stubFetch()
+    const result = await renameDriveItem({ item_id: "ITEM1", new_name: "a\nb.txt" })
+    expect(result.isLeft()).toBe(true)
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
