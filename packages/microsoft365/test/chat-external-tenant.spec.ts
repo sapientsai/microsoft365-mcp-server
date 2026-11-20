@@ -34,9 +34,11 @@ describe("list_chat_messages on a chat another organization hosts", () => {
     const message = (result.value as Error).message
     expect(message).toContain("Failed to list chat messages: InsufficientPrivileges")
     expect(message).toContain(`belongs to another organization (tenant ${OTHER})`)
-    expect(mockClient.request).toHaveBeenCalledWith("GET", "/chats/19:meeting_abc@thread.v2", {
-      odataParams: { $select: ["tenantId"] },
-    })
+    const [method, path, options] = mockClient.request.mock.calls[0] as [string, { orThrow: () => string }, unknown]
+    expect(method).toBe("GET")
+    // A chat ID's ":" and "@" go out as written.
+    expect(path.orThrow()).toBe("/chats/19:meeting_abc@thread.v2")
+    expect(options).toEqual({ odataParams: { $select: ["tenantId"] } })
   })
 
   it("does the same when every page is asked for", async () => {

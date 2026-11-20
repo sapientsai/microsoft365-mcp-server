@@ -11,6 +11,7 @@ import {
   MAX_UPLOAD_SIZE,
   resolveUploadContentType,
   uploadDriveContent,
+  uploadPathProblem,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import type { RouteConfig } from "somamcp"
@@ -38,6 +39,8 @@ export const handleUpload = async (
   const path = req.query("path")
   if (!path) return { status: 400, body: { error: "path query parameter is required" } }
   if (!/:\/content$/i.test(path)) return { status: 400, body: { error: 'path must end with ":/content"' } }
+  const pathIssue = uploadPathProblem(path)
+  if (pathIssue) return { status: 400, body: { error: pathIssue } }
   const requestedConflict = req.query("conflictBehavior")
   // A blank ifMatch is no condition at all, not a condition nothing can meet.
   const rawIfMatch = req.query("ifMatch")?.trim()

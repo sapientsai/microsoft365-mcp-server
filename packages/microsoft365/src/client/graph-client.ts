@@ -1,10 +1,14 @@
 import {
   type AuthStrategy,
   createGraphRequest,
+  drivePath,
+  encodedId,
   GRAPH_API_BASE,
+  graphPath,
+  type GraphRequestOptions,
   mapHttpError,
   notSentError,
-  parseJsonResponse,
+  raw,
   resilientFetch,
   uploadDriveContent,
 } from "@sapientsai/ms-graph-core"
@@ -63,12 +67,27 @@ const createGraphClient = (auth: AuthStrategy) => {
   // Generic request machinery (auth injection, OData, error mapping, pagination) lives in
   // @sapientsai/ms-graph-core; this client builds the M365 domain methods on top of it.
   const core = createGraphRequest(auth, { defaultVersion })
-  const request = async <T>(...args: Parameters<typeof core.request>): Promise<Either<GraphApiError, T>> =>
-    explainMailboxRefusal(args[0], args[1], await core.request<T>(...args))
+  // A path is a plain string, or one graphPath built from caller IDs; a refused ID is a Left here,
+  // so nothing is sent.
+  const request = async <T>(
+    method: string,
+    path: string | Either<GraphApiError, string>,
+    options?: GraphRequestOptions,
+  ): Promise<Either<GraphApiError, T>> => {
+    if (typeof path !== "string" && path.isLeft()) return Left<GraphApiError, T>(path.value as GraphApiError)
+    const resolved = typeof path === "string" ? path : path.orThrow()
+    return explainMailboxRefusal(method, resolved, await core.request<T>(method, resolved, options))
+  }
   const requestPaginated = async <T>(
-    ...args: Parameters<typeof core.requestPaginated>
-  ): Promise<Either<GraphApiError, ReadonlyArray<T>>> =>
-    explainMailboxRefusal("GET", args[0], await core.requestPaginated<T>(...args))
+    path: string | Either<GraphApiError, string>,
+    options?: GraphRequestOptions,
+  ): Promise<Either<GraphApiError, ReadonlyArray<T>>> => {
+    if (typeof path !== "string" && path.isLeft()) {
+      return Left<GraphApiError, ReadonlyArray<T>>(path.value as GraphApiError)
+    }
+    const resolved = typeof path === "string" ? path : path.orThrow()
+    return explainMailboxRefusal("GET", resolved, await core.requestPaginated<T>(resolved, options))
+  }
 
   // Mail
   // Every mail path takes a prefix: "/me" for the signed-in user's own mailbox, or
@@ -76,7 +95,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   // /me/messages spans every folder, Sent Items included. A folder takes a well-known name
   // (inbox, sentitems, ...) or a folder ID; Graph accepts either in the same path segment.
   const messagesPath = (folder?: string, prefix: string = "/me") =>
-    folder ? `${prefix}/mailFolders/${encodeURIComponent(folder)}/messages` : `${prefix}/messages`
+    folder ? graphPath`${raw(prefix)}/mailFolders/${encodedId(folder)}/messages` : graphPath`${raw(prefix)}/messages`
 
   const listMessages = (odataParams?: ODataParams, folder?: string, prefix: string = "/me") =>
     request<ODataResponse<GraphMessage>>("GET", messagesPath(folder, prefix), { odataParams })
@@ -92,10 +111,10 @@ const createGraphClient = (auth: AuthStrategy) => {
     bodyContentType ? { headers: { Prefer: `outlook.body-content-type="${bodyContentType}"` } } : undefined
 
   const getMessage = (id: string, bodyContentType?: "text" | "html", prefix: string = "/me") =>
-    request<GraphMessage>("GET", `${prefix}/messages/${id}`, bodyFormat(bodyContentType))
+    request<GraphMessage>("GET", graphPath`${raw(prefix)}/messages/${id}`, bodyFormat(bodyContentType))
 
   const listMailFolders = (odataParams?: ODataParams, prefix: string = "/me") =>
-    request<ODataResponse<GraphMailFolder>>("GET", `${prefix}/mailFolders`, { odataParams })
+    request<ODataResponse<GraphMailFolder>>("GET", graphPath`${raw(prefix)}/mailFolders`, { odataParams })
 
   // Only follow Graph-issued mail collection links; never send a bearer token to another host.
   // Graph writes a folder-scoped nextLink in OData key form, /me/mailFolders('<id>')/messages, not
@@ -135,7 +154,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   }
 
   const moveMessage = (id: string, destinationId: string, prefix: string = "/me") =>
-    request<GraphMessage>("POST", `${prefix}/messages/${id}/move`, { body: { destinationId } })
+    request<GraphMessage>("POST", graphPath`${raw(prefix)}/messages/${id}/move`, { body: { destinationId } })
 
   // JSON batching: up to 20 sub-requests per round-trip, each with its own status. The
   // only way to move thousands of messages without thousands of round-trips.
@@ -145,57 +164,65 @@ const createGraphClient = (auth: AuthStrategy) => {
   // $select omits contentBytes deliberately: fileAttachment includes the full base64 payload
   // by default, which would drag megabytes of binary through the model for a listing.
   const listAttachments = (messageId: string, prefix: string = "/me") =>
-    request<ODataResponse<GraphAttachment>>("GET", `${prefix}/messages/${messageId}/attachments`, {
+    request<ODataResponse<GraphAttachment>>("GET", graphPath`${raw(prefix)}/messages/${messageId}/attachments`, {
       odataParams: { $select: ["id", "name", "contentType", "size", "isInline", "lastModifiedDateTime"] },
     })
 
   const sendMessage = (message: Record<string, unknown>, prefix: string = "/me") =>
-    request<Record<string, never>>("POST", `${prefix}/sendMail`, { body: message })
+    request<Record<string, never>>("POST", graphPath`${raw(prefix)}/sendMail`, { body: message })
 
   const createDraft = (message: Record<string, unknown>, prefix: string = "/me") =>
-    request<GraphMessage>("POST", `${prefix}/messages`, { body: message })
+    request<GraphMessage>("POST", graphPath`${raw(prefix)}/messages`, { body: message })
 
   const sendDraft = (messageId: string, prefix: string = "/me") =>
-    request<Record<string, never>>("POST", `${prefix}/messages/${messageId}/send`)
+    request<Record<string, never>>("POST", graphPath`${raw(prefix)}/messages/${messageId}/send`)
 
   // Draft edits and deletes check isDraft first, so this fetches only what that check needs.
   const getDraftState = (id: string, prefix: string = "/me") =>
-    request<GraphMessage>("GET", `${prefix}/messages/${id}`, { odataParams: { $select: ["id", "isDraft", "subject"] } })
+    request<GraphMessage>("GET", graphPath`${raw(prefix)}/messages/${id}`, {
+      odataParams: { $select: ["id", "isDraft", "subject"] },
+    })
 
   const updateMessage = (id: string, changes: Record<string, unknown>, prefix: string = "/me") =>
-    request<GraphMessage>("PATCH", `${prefix}/messages/${id}`, { body: changes })
+    request<GraphMessage>("PATCH", graphPath`${raw(prefix)}/messages/${id}`, { body: changes })
 
   const deleteMessage = (id: string, prefix: string = "/me") =>
-    request<Record<string, never>>("DELETE", `${prefix}/messages/${id}`)
+    request<Record<string, never>>("DELETE", graphPath`${raw(prefix)}/messages/${id}`)
 
   // Mailbox settings: automatic replies, the master category list, and inbox rules.
   // All need MailboxSettings.Read or MailboxSettings.ReadWrite.
   const getAutomaticReplies = (prefix: string = "/me") =>
-    request<GraphAutomaticRepliesSetting>("GET", `${prefix}/mailboxSettings/automaticRepliesSetting`)
+    request<GraphAutomaticRepliesSetting>("GET", graphPath`${raw(prefix)}/mailboxSettings/automaticRepliesSetting`)
 
   const setAutomaticReplies = (setting: Record<string, unknown>, prefix: string = "/me") =>
-    request<{ automaticRepliesSetting?: GraphAutomaticRepliesSetting }>("PATCH", `${prefix}/mailboxSettings`, {
-      body: { automaticRepliesSetting: setting },
-    })
+    request<{ automaticRepliesSetting?: GraphAutomaticRepliesSetting }>(
+      "PATCH",
+      graphPath`${raw(prefix)}/mailboxSettings`,
+      {
+        body: { automaticRepliesSetting: setting },
+      },
+    )
 
   const listMasterCategories = (prefix: string = "/me") =>
-    request<ODataResponse<GraphOutlookCategory>>("GET", `${prefix}/outlook/masterCategories`)
+    request<ODataResponse<GraphOutlookCategory>>("GET", graphPath`${raw(prefix)}/outlook/masterCategories`)
 
   const createMasterCategory = (displayName: string, color: string, prefix: string = "/me") =>
-    request<GraphOutlookCategory>("POST", `${prefix}/outlook/masterCategories`, { body: { displayName, color } })
+    request<GraphOutlookCategory>("POST", graphPath`${raw(prefix)}/outlook/masterCategories`, {
+      body: { displayName, color },
+    })
 
   const getMessageCategories = (id: string, prefix: string = "/me") =>
-    request<GraphMessage>("GET", `${prefix}/messages/${id}`, {
+    request<GraphMessage>("GET", graphPath`${raw(prefix)}/messages/${id}`, {
       odataParams: { $select: ["id", "subject", "categories"] },
     })
 
   // A rule's moveToFolder takes a real folder ID, so a well-known name such as "archive" is looked up.
   const getMailFolder = (idOrWellKnownName: string, prefix: string = "/me") =>
-    request<GraphMailFolder>("GET", `${prefix}/mailFolders/${encodeURIComponent(idOrWellKnownName)}`, {
+    request<GraphMailFolder>("GET", graphPath`${raw(prefix)}/mailFolders/${encodedId(idOrWellKnownName)}`, {
       odataParams: { $select: ["id", "displayName"] },
     })
 
-  const rulesPath = (prefix: string) => `${prefix}/mailFolders/inbox/messageRules`
+  const rulesPath = (prefix: string) => graphPath`${raw(prefix)}/mailFolders/inbox/messageRules`
 
   const listMessageRules = (prefix: string = "/me") => requestPaginated<GraphMessageRule>(rulesPath(prefix))
 
@@ -205,40 +232,46 @@ const createGraphClient = (auth: AuthStrategy) => {
   // Rule IDs are base64 and may hold "/" or "+", so they are encoded as one path segment. Retried only
   // on 429: after a 503 or timeout the delete may have landed, and a retry would answer 404.
   const deleteMessageRule = (id: string, prefix: string = "/me") =>
-    request<Record<string, never>>("DELETE", `${rulesPath(prefix)}/${encodeURIComponent(id)}`, {
+    request<Record<string, never>>("DELETE", graphPath`${rulesPath(prefix)}/${encodedId(id)}`, {
       retryTransient: false,
     })
 
   const sendReply = (id: string, comment: string, prefix: string = "/me") =>
-    request<Record<string, never>>("POST", `${prefix}/messages/${id}/reply`, { body: { comment } })
+    request<Record<string, never>>("POST", graphPath`${raw(prefix)}/messages/${id}/reply`, { body: { comment } })
 
   // Draft-creating reply actions: return a threaded draft (original quoted) for review.
   const createReplyDraft = (id: string, comment: string, prefix: string = "/me") =>
-    request<GraphMessage>("POST", `${prefix}/messages/${id}/createReply`, { body: { comment } })
+    request<GraphMessage>("POST", graphPath`${raw(prefix)}/messages/${id}/createReply`, { body: { comment } })
 
   const createReplyAllDraft = (id: string, comment: string, prefix: string = "/me") =>
-    request<GraphMessage>("POST", `${prefix}/messages/${id}/createReplyAll`, { body: { comment } })
+    request<GraphMessage>("POST", graphPath`${raw(prefix)}/messages/${id}/createReplyAll`, { body: { comment } })
 
   const createForwardDraft = (
     id: string,
     comment: string,
     toRecipients: ReadonlyArray<{ emailAddress: { address: string } }>,
     prefix: string = "/me",
-  ) => request<GraphMessage>("POST", `${prefix}/messages/${id}/createForward`, { body: { comment, toRecipients } })
+  ) =>
+    request<GraphMessage>("POST", graphPath`${raw(prefix)}/messages/${id}/createForward`, {
+      body: { comment, toRecipients },
+    })
 
   // Immediate-send reply actions: thread + quote, then send in one step.
   const sendReplyAll = (id: string, comment: string, prefix: string = "/me") =>
-    request<Record<string, never>>("POST", `${prefix}/messages/${id}/replyAll`, { body: { comment } })
+    request<Record<string, never>>("POST", graphPath`${raw(prefix)}/messages/${id}/replyAll`, { body: { comment } })
 
   const sendForward = (
     id: string,
     comment: string,
     toRecipients: ReadonlyArray<{ emailAddress: { address: string } }>,
     prefix: string = "/me",
-  ) => request<Record<string, never>>("POST", `${prefix}/messages/${id}/forward`, { body: { comment, toRecipients } })
+  ) =>
+    request<Record<string, never>>("POST", graphPath`${raw(prefix)}/messages/${id}/forward`, {
+      body: { comment, toRecipients },
+    })
 
   const searchMessages = (query: string, odataParams?: ODataParams, prefix: string = "/me") =>
-    request<ODataResponse<GraphMessage>>("GET", `${prefix}/messages`, {
+    request<ODataResponse<GraphMessage>>("GET", graphPath`${raw(prefix)}/messages`, {
       odataParams: { ...odataParams, $search: query },
     })
 
@@ -246,7 +279,8 @@ const createGraphClient = (auth: AuthStrategy) => {
   // Without a calendar ID, events go to the default calendar. With one, the path goes through
   // /me/calendars/{id}, which is the only way to reach a calendar someone else shared with you:
   // /me/events/{id} does not find their events.
-  const eventsPath = (calendarId?: string) => (calendarId ? `/me/calendars/${calendarId}/events` : "/me/events")
+  const eventsPath = (calendarId?: string) =>
+    calendarId ? graphPath`/me/calendars/${calendarId}/events` : graphPath`/me/events`
 
   // Graph answers event times in UTC unless Prefer: outlook.timezone names a zone, IANA or Windows
   // (both checked live, 2026-11-07, together with the body format in one comma-separated header).
@@ -274,32 +308,35 @@ const createGraphClient = (auth: AuthStrategy) => {
     calendarId?: string,
     timeZone?: string,
   ) => {
-    const base = calendarId ? `/me/calendars/${calendarId}/calendarView` : "/me/calendarView"
-    const path = `${base}?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}`
+    const base = calendarId ? graphPath`/me/calendars/${calendarId}/calendarView` : graphPath`/me/calendarView`
+    const query = `?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}`
+    const path = graphPath`${base}${raw(query)}`
     return request<ODataResponse<GraphEvent>>("GET", path, { odataParams, ...eventView(timeZone) })
   }
 
   const getEvent = (id: string, bodyContentType?: "text" | "html", calendarId?: string, timeZone?: string) =>
-    request<GraphEvent>("GET", `${eventsPath(calendarId)}/${id}`, eventView(timeZone, bodyContentType))
+    request<GraphEvent>("GET", graphPath`${eventsPath(calendarId)}/${id}`, eventView(timeZone, bodyContentType))
 
   const getCalendar = (calendarId: string) =>
-    request<GraphCalendar>("GET", `/me/calendars/${calendarId}`, { odataParams: { $select: ["name", "canEdit"] } })
+    request<GraphCalendar>("GET", graphPath`/me/calendars/${calendarId}`, {
+      odataParams: { $select: ["name", "canEdit"] },
+    })
 
   const createEvent = (event: Record<string, unknown>, calendarId?: string, timeZone?: string) =>
     request<GraphEvent>("POST", eventsPath(calendarId), { body: event, ...eventView(timeZone) })
 
   const updateEvent = (id: string, event: Record<string, unknown>, calendarId?: string, timeZone?: string) =>
-    request<GraphEvent>("PATCH", `${eventsPath(calendarId)}/${id}`, { body: event, ...eventView(timeZone) })
+    request<GraphEvent>("PATCH", graphPath`${eventsPath(calendarId)}/${id}`, { body: event, ...eventView(timeZone) })
 
   const deleteEvent = (id: string, calendarId?: string) =>
-    request<Record<string, never>>("DELETE", `${eventsPath(calendarId)}/${id}`)
+    request<Record<string, never>>("DELETE", graphPath`${eventsPath(calendarId)}/${id}`)
 
   // accept, decline and tentativelyAccept take the same body; Graph answers 202 with no content.
   const respondToEvent = (
     id: string,
     action: "accept" | "decline" | "tentativelyAccept",
     body: { comment?: string; sendResponse: boolean },
-  ) => request<Record<string, never>>("POST", `/me/events/${id}/${action}`, { body })
+  ) => request<Record<string, never>>("POST", graphPath`/me/events/${id}/${raw(action)}`, { body })
 
   // findMeetingTimes suggests slots where attendees are free. POST body; Prefer header forces
   // UTC in the response so callers don't get mailbox-local times back unexpectedly.
@@ -313,15 +350,15 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listContacts = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphContact>>("GET", "/me/contacts", { odataParams })
 
-  const getContact = (id: string) => request<GraphContact>("GET", `/me/contacts/${id}`)
+  const getContact = (id: string) => request<GraphContact>("GET", graphPath`/me/contacts/${id}`)
 
   const createContact = (contact: Record<string, unknown>) =>
     request<GraphContact>("POST", "/me/contacts", { body: contact })
 
   const updateContact = (id: string, contact: Record<string, unknown>) =>
-    request<GraphContact>("PATCH", `/me/contacts/${id}`, { body: contact })
+    request<GraphContact>("PATCH", graphPath`/me/contacts/${id}`, { body: contact })
 
-  const deleteContact = (id: string) => request<Record<string, never>>("DELETE", `/me/contacts/${id}`)
+  const deleteContact = (id: string) => request<Record<string, never>>("DELETE", graphPath`/me/contacts/${id}`)
 
   const searchContacts = (query: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphContact>>("GET", "/me/contacts", {
@@ -332,13 +369,13 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listDriveItems = (folderId?: string) =>
     request<ODataResponse<GraphDriveItem>>(
       "GET",
-      folderId ? `/me/drive/items/${folderId}/children` : "/me/drive/root/children",
+      folderId ? graphPath`/me/drive/items/${folderId}/children` : "/me/drive/root/children",
     )
 
   const listDriveItemsByPath = (folderPath: string) =>
-    request<ODataResponse<GraphDriveItem>>("GET", `/me/drive/root:/${folderPath}:/children`)
+    request<ODataResponse<GraphDriveItem>>("GET", graphPath`/me/drive/root:/${drivePath(folderPath)}:/children`)
 
-  const getDriveItem = (id: string) => request<GraphDriveItem>("GET", `/me/drive/items/${id}`)
+  const getDriveItem = (id: string) => request<GraphDriveItem>("GET", graphPath`/me/drive/items/${id}`)
 
   // q is an OData string literal: an apostrophe ends it unless doubled, so "O'Brien" broke the request.
   const searchLiteral = (query: string) => encodeURIComponent(query.replaceAll("'", "''"))
@@ -354,7 +391,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   // items need their own drive, which is why the /me/drive-only version returned "The resource
   // could not be found." for every SharePoint item ID.
   const driveItemPath = (id: string, driveId?: string) =>
-    driveId ? `/drives/${driveId}/items/${id}` : `/me/drive/items/${id}`
+    driveId ? graphPath`/drives/${driveId}/items/${id}` : graphPath`/me/drive/items/${id}`
 
   const downloadFile = (id: string, driveId?: string) => request<GraphDriveItem>("GET", driveItemPath(id, driveId))
 
@@ -367,8 +404,9 @@ const createGraphClient = (auth: AuthStrategy) => {
       })
     }
     const token = tokenResult.value as string
-    const version = defaultVersion()
-    const url = `${GRAPH_API_BASE}/${version}${driveItemPath(id, driveId)}/content`
+    const path = graphPath`${driveItemPath(id, driveId)}/content`
+    if (path.isLeft()) return Left<GraphApiError, Uint8Array>(path.value as GraphApiError)
+    const url = `${GRAPH_API_BASE}/${defaultVersion()}${path.orThrow()}`
 
     try {
       const response = await resilientFetch(url, {
@@ -393,7 +431,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   }
 
   const createFolder = (parentId: string, name: string) =>
-    request<GraphDriveItem>("POST", `/me/drive/items/${parentId}/children`, {
+    request<GraphDriveItem>("POST", graphPath`/me/drive/items/${parentId}/children`, {
       body: { name, folder: {}, "@microsoft.graph.conflictBehavior": "rename" },
     })
 
@@ -402,7 +440,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   // A drive's root has a real ID, and a move or copy needs it: Graph refuses "root" in parentReference.
   // Its parentReference carries the drive's own ID, which a copy's parentReference should name.
   const getDriveRoot = (driveId?: string) =>
-    request<GraphDriveItem>("GET", driveId ? `/drives/${driveId}/root` : "/me/drive/root", {
+    request<GraphDriveItem>("GET", driveId ? graphPath`/drives/${driveId}/root` : "/me/drive/root", {
       odataParams: { $select: ["id", "parentReference"] },
     })
 
@@ -415,7 +453,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   const copyDriveItem = (id: string, body: Record<string, unknown>, driveId?: string, conflictBehavior?: "rename") =>
     request<Record<string, never>>(
       "POST",
-      `${driveItemPath(id, driveId)}/copy${conflictBehavior ? `?@microsoft.graph.conflictBehavior=${conflictBehavior}` : ""}`,
+      graphPath`${driveItemPath(id, driveId)}/copy${raw(conflictBehavior ? `?@microsoft.graph.conflictBehavior=${conflictBehavior}` : "")}`,
       { body },
     )
 
@@ -433,39 +471,45 @@ const createGraphClient = (auth: AuthStrategy) => {
   const searchSites = (query: string) =>
     request<ODataResponse<GraphSite>>("GET", `/sites?search=${encodeURIComponent(query)}`)
 
-  const getSite = (siteId: string) => request<GraphSite>("GET", `/sites/${siteId}`)
+  const getSite = (siteId: string) => request<GraphSite>("GET", graphPath`/sites/${siteId}`)
 
-  const listSiteDrives = (siteId: string) => request<ODataResponse<GraphDrive>>("GET", `/sites/${siteId}/drives`)
+  const listSiteDrives = (siteId: string) =>
+    request<ODataResponse<GraphDrive>>("GET", graphPath`/sites/${siteId}/drives`)
 
   const listSiteDriveItems = (siteId: string, driveId?: string, folderId?: string) => {
     if (driveId && folderId) {
       return request<ODataResponse<GraphDriveItem>>(
         "GET",
-        `/sites/${siteId}/drives/${driveId}/items/${folderId}/children`,
+        graphPath`/sites/${siteId}/drives/${driveId}/items/${folderId}/children`,
       )
     }
     if (folderId) {
-      return request<ODataResponse<GraphDriveItem>>("GET", `/sites/${siteId}/drive/items/${folderId}/children`)
+      return request<ODataResponse<GraphDriveItem>>("GET", graphPath`/sites/${siteId}/drive/items/${folderId}/children`)
     }
     if (driveId) {
-      return request<ODataResponse<GraphDriveItem>>("GET", `/sites/${siteId}/drives/${driveId}/root/children`)
+      return request<ODataResponse<GraphDriveItem>>("GET", graphPath`/sites/${siteId}/drives/${driveId}/root/children`)
     }
-    return request<ODataResponse<GraphDriveItem>>("GET", `/sites/${siteId}/drive/root/children`)
+    return request<ODataResponse<GraphDriveItem>>("GET", graphPath`/sites/${siteId}/drive/root/children`)
   }
 
   const listSiteDriveItemsByPath = (siteId: string, path: string, driveId?: string) => {
-    const cleanPath = path.replace(/^\/+/, "")
     if (driveId) {
       return request<ODataResponse<GraphDriveItem>>(
         "GET",
-        `/sites/${siteId}/drives/${driveId}/root:/${cleanPath}:/children`,
+        graphPath`/sites/${siteId}/drives/${driveId}/root:/${drivePath(path)}:/children`,
       )
     }
-    return request<ODataResponse<GraphDriveItem>>("GET", `/sites/${siteId}/drive/root:/${cleanPath}:/children`)
+    return request<ODataResponse<GraphDriveItem>>(
+      "GET",
+      graphPath`/sites/${siteId}/drive/root:/${drivePath(path)}:/children`,
+    )
   }
 
+  const siteDrivePath = (siteId: string, driveId?: string) =>
+    driveId ? graphPath`/sites/${siteId}/drives/${driveId}` : graphPath`/sites/${siteId}/drive`
+
   const siteSearchPath = (siteId: string, query: string, driveId?: string) =>
-    `${driveId ? `/sites/${siteId}/drives/${driveId}` : `/sites/${siteId}/drive`}/root/search(q='${searchLiteral(query)}')`
+    graphPath`${siteDrivePath(siteId, driveId)}/root/search(q='${raw(searchLiteral(query))}')`
 
   const searchSiteFiles = (siteId: string, query: string, driveId?: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphDriveItem>>("GET", siteSearchPath(siteId, query, driveId), { odataParams })
@@ -477,10 +521,11 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listTeams = () =>
     request<ODataResponse<{ id: string; displayName?: string; description?: string }>>("GET", "/me/joinedTeams")
 
-  const listChannels = (teamId: string) => request<ODataResponse<GraphChannel>>("GET", `/teams/${teamId}/channels`)
+  const listChannels = (teamId: string) =>
+    request<ODataResponse<GraphChannel>>("GET", graphPath`/teams/${teamId}/channels`)
 
   const listChannelMessages = (teamId: string, channelId: string, odataParams?: ODataParams) =>
-    request<ODataResponse<GraphChannelMessage>>("GET", `/teams/${teamId}/channels/${channelId}/messages`, {
+    request<ODataResponse<GraphChannelMessage>>("GET", graphPath`/teams/${teamId}/channels/${channelId}/messages`, {
       odataParams,
     })
 
@@ -488,23 +533,27 @@ const createGraphClient = (auth: AuthStrategy) => {
   type MessageBody = { readonly contentType: "text" | "html"; readonly content: string }
 
   const sendChannelMessage = (teamId: string, channelId: string, body: MessageBody) =>
-    request<GraphChannelMessage>("POST", `/teams/${teamId}/channels/${channelId}/messages`, { body: { body } })
+    request<GraphChannelMessage>("POST", graphPath`/teams/${teamId}/channels/${channelId}/messages`, { body: { body } })
 
   // Graph only accepts replies to a top-level channel message, not to another reply.
   const replyToChannelMessage = (teamId: string, channelId: string, messageId: string, body: MessageBody) =>
-    request<GraphChannelMessage>("POST", `/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies`, {
-      body: { body },
-    })
+    request<GraphChannelMessage>(
+      "POST",
+      graphPath`/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies`,
+      {
+        body: { body },
+      },
+    )
 
   // Chats
   const listChats = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphChat>>("GET", "/me/chats", { odataParams })
 
   const listChatMessages = (chatId: string, odataParams?: ODataParams) =>
-    request<ODataResponse<GraphChatMessage>>("GET", `/chats/${chatId}/messages`, { odataParams })
+    request<ODataResponse<GraphChatMessage>>("GET", graphPath`/chats/${chatId}/messages`, { odataParams })
 
   const sendChatMessage = (chatId: string, body: MessageBody) =>
-    request<GraphChatMessage>("POST", `/chats/${chatId}/messages`, { body: { body } })
+    request<GraphChatMessage>("POST", graphPath`/chats/${chatId}/messages`, { body: { body } })
 
   // Graph returns the existing chat for a one-on-one pair, but creates a new group chat every call.
   const createChat = (chat: Record<string, unknown>) => request<GraphChat>("POST", "/chats", { body: chat })
@@ -514,7 +563,7 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const listUsers = (odataParams?: ODataParams) => request<ODataResponse<GraphUser>>("GET", "/users", { odataParams })
 
-  const getUser = (id: string) => request<GraphUser>("GET", `/users/${id}`)
+  const getUser = (id: string) => request<GraphUser>("GET", graphPath`/users/${id}`)
 
   // /users/{key} accepts an ID or a user principal name, not an email address, so an address that
   // differs from the UPN needs the mail filter below. A guest UPN contains "#EXT#", and "#" would
@@ -522,7 +571,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   const CHAT_MEMBER_FIELDS = ["id", "displayName", "mail", "userPrincipalName", "userType"]
 
   const getUserByKey = (key: string) =>
-    request<GraphUser>("GET", `/users/${key.replace(/#/g, "%23")}`, { odataParams: { $select: CHAT_MEMBER_FIELDS } })
+    request<GraphUser>("GET", graphPath`/users/${key}`, { odataParams: { $select: CHAT_MEMBER_FIELDS } })
 
   // userType is only returned when selected, and the caller needs it too: an in-tenant guest must
   // join a chat as a guest, the caller included.
@@ -536,9 +585,9 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listGroups = (odataParams?: ODataParams) =>
     request<ODataResponse<GraphGroup>>("GET", "/groups", { odataParams })
 
-  const getGroup = (id: string) => request<GraphGroup>("GET", `/groups/${id}`)
+  const getGroup = (id: string) => request<GraphGroup>("GET", graphPath`/groups/${id}`)
 
-  const listGroupMembers = (id: string) => request<ODataResponse<GraphUser>>("GET", `/groups/${id}/members`)
+  const listGroupMembers = (id: string) => request<ODataResponse<GraphUser>>("GET", graphPath`/groups/${id}/members`)
 
   // Planner
   const listPlans = () => request<ODataResponse<GraphPlan>>("GET", "/me/planner/plans")
@@ -550,24 +599,24 @@ const createGraphClient = (auth: AuthStrategy) => {
     request<ODataResponse<GraphGroup>>("GET", "/me/memberOf/microsoft.graph.group?$select=id,displayName")
 
   const listGroupPlans = (groupId: string) =>
-    request<ODataResponse<GraphPlan>>("GET", `/groups/${groupId}/planner/plans`)
+    request<ODataResponse<GraphPlan>>("GET", graphPath`/groups/${groupId}/planner/plans`)
 
   const listPlannerBuckets = (planId: string) =>
-    request<ODataResponse<GraphBucket>>("GET", `/planner/plans/${planId}/buckets`)
+    request<ODataResponse<GraphBucket>>("GET", graphPath`/planner/plans/${planId}/buckets`)
 
   const createPlannerBucket = (bucket: Record<string, unknown>) =>
     request<GraphBucket>("POST", "/planner/buckets", { body: bucket })
 
   const listPlannerTasks = (planId: string) =>
-    request<ODataResponse<GraphPlannerTask>>("GET", `/planner/plans/${planId}/tasks`)
+    request<ODataResponse<GraphPlannerTask>>("GET", graphPath`/planner/plans/${planId}/tasks`)
 
-  const getPlannerTask = (id: string) => request<GraphPlannerTask>("GET", `/planner/tasks/${id}`)
+  const getPlannerTask = (id: string) => request<GraphPlannerTask>("GET", graphPath`/planner/tasks/${id}`)
 
   const createPlannerTask = (task: Record<string, unknown>) =>
     request<GraphPlannerTask>("POST", "/planner/tasks", { body: task })
 
   const updatePlannerTask = (id: string, task: Record<string, unknown>, etag: string) =>
-    request<GraphPlannerTask>("PATCH", `/planner/tasks/${id}`, {
+    request<GraphPlannerTask>("PATCH", graphPath`/planner/tasks/${id}`, {
       body: task,
       headers: { "If-Match": etag },
     })
@@ -575,10 +624,10 @@ const createGraphClient = (auth: AuthStrategy) => {
   // Task details (description / checklist / references) is a separate object with its own ETag,
   // so its writes need a distinct If-Match from the parent task's.
   const getPlannerTaskDetails = (id: string) =>
-    request<{ "@odata.etag": string } & Record<string, unknown>>("GET", `/planner/tasks/${id}/details`)
+    request<{ "@odata.etag": string } & Record<string, unknown>>("GET", graphPath`/planner/tasks/${id}/details`)
 
   const updatePlannerTaskDetails = (id: string, details: Record<string, unknown>, etag: string) =>
-    request<Record<string, unknown>>("PATCH", `/planner/tasks/${id}/details`, {
+    request<Record<string, unknown>>("PATCH", graphPath`/planner/tasks/${id}/details`, {
       body: details,
       headers: { "If-Match": etag },
     })
@@ -587,32 +636,38 @@ const createGraphClient = (auth: AuthStrategy) => {
   const listOnenoteNotebooks = () => request<ODataResponse<GraphNotebook>>("GET", "/me/onenote/notebooks")
 
   const listOnenoteSections = (notebookId: string) =>
-    request<ODataResponse<GraphSection>>("GET", `/me/onenote/notebooks/${notebookId}/sections`)
+    request<ODataResponse<GraphSection>>("GET", graphPath`/me/onenote/notebooks/${notebookId}/sections`)
 
   const listOnenotePages = (sectionId: string) =>
-    request<ODataResponse<GraphPage>>("GET", `/me/onenote/sections/${sectionId}/pages`)
+    request<ODataResponse<GraphPage>>("GET", graphPath`/me/onenote/sections/${sectionId}/pages`)
 
   // The /content endpoint returns text/html, not JSON — read it as raw text.
   const getOnenotePageContent = (pageId: string) =>
-    request<string>("GET", `/me/onenote/pages/${pageId}/content`, { responseType: "text" })
+    request<string>("GET", graphPath`/me/onenote/pages/${pageId}/content`, { responseType: "text" })
 
   // OneNote writes. createOnenotePage sends raw text/html; the rest are JSON.
   const createOnenotePage = (sectionId: string, html: string) =>
-    request<GraphPage>("POST", `/me/onenote/sections/${sectionId}/pages`, { body: html, contentType: "text/html" })
+    request<GraphPage>("POST", graphPath`/me/onenote/sections/${sectionId}/pages`, {
+      body: html,
+      contentType: "text/html",
+    })
 
   const updateOnenotePageContent = (pageId: string, commands: readonly unknown[]) =>
-    request<Record<string, never>>("PATCH", `/me/onenote/pages/${pageId}/content`, { body: commands })
+    request<Record<string, never>>("PATCH", graphPath`/me/onenote/pages/${pageId}/content`, { body: commands })
 
   const createOnenoteSection = (notebookId: string, displayName: string) =>
-    request<GraphSection>("POST", `/me/onenote/notebooks/${notebookId}/sections`, { body: { displayName } })
+    request<GraphSection>("POST", graphPath`/me/onenote/notebooks/${notebookId}/sections`, { body: { displayName } })
 
   const createOnenoteNotebook = (displayName: string) =>
     request<GraphNotebook>("POST", "/me/onenote/notebooks", { body: { displayName } })
 
   const copyOnenotePage = (pageId: string, sectionId: string) =>
-    request<Record<string, never>>("POST", `/me/onenote/pages/${pageId}/copyToSection`, { body: { id: sectionId } })
+    request<Record<string, never>>("POST", graphPath`/me/onenote/pages/${pageId}/copyToSection`, {
+      body: { id: sectionId },
+    })
 
-  const deleteOnenotePage = (pageId: string) => request<Record<string, never>>("DELETE", `/me/onenote/pages/${pageId}`)
+  const deleteOnenotePage = (pageId: string) =>
+    request<Record<string, never>>("DELETE", graphPath`/me/onenote/pages/${pageId}`)
 
   // To Do
   const listTodoLists = () => request<ODataResponse<GraphTodoList>>("GET", "/me/todo/lists")
@@ -620,14 +675,15 @@ const createGraphClient = (auth: AuthStrategy) => {
   const createTodoList = (displayName: string) =>
     request<GraphTodoList>("POST", "/me/todo/lists", { body: { displayName } })
 
-  const getTodoList = (listId: string) => request<GraphTodoList>("GET", `/me/todo/lists/${listId}`)
+  const getTodoList = (listId: string) => request<GraphTodoList>("GET", graphPath`/me/todo/lists/${listId}`)
 
-  const deleteTodoList = (listId: string) => request<Record<string, never>>("DELETE", `/me/todo/lists/${listId}`)
+  const deleteTodoList = (listId: string) =>
+    request<Record<string, never>>("DELETE", graphPath`/me/todo/lists/${listId}`)
 
   // Graph refuses $select on To Do task lists ("Invalid request", checked live 2026-10-30, while
   // $select on messages works), so these reads can't follow the AGENTS.md $select rule.
   // linkedResources is a relationship, so it has to be expanded to be read.
-  const todoTasksPath = (listId: string) => `/me/todo/lists/${listId}/tasks`
+  const todoTasksPath = (listId: string) => graphPath`/me/todo/lists/${listId}/tasks`
 
   const listTodoTasks = (listId: string, odataParams?: ODataParams) =>
     request<ODataResponse<GraphTodoTask>>("GET", todoTasksPath(listId), { odataParams })
@@ -655,7 +711,7 @@ const createGraphClient = (auth: AuthStrategy) => {
         }),
       )
     }
-    return request<ODataResponse<GraphTodoTask>>("GET", `${todoTasksPath(listId)}${url.search}`, {
+    return request<ODataResponse<GraphTodoTask>>("GET", graphPath`${todoTasksPath(listId)}${raw(url.search)}`, {
       version: match[1] as GraphApiVersion,
     })
   }
@@ -694,7 +750,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   // $deltatoken. A token is checked and encoded before it goes into a URL, and every link Graph
   // returns is checked before it is followed. Hitting the page cap or a bad link returns no token,
   // so a caller never moves past changes it didn't read.
-  const todoDeltaPath = (listId: string) => `${todoTasksPath(listId)}/delta`
+  const todoDeltaPath = (listId: string) => graphPath`${todoTasksPath(listId)}/delta`
   const deltaPrefer = { headers: { Prefer: `odata.maxpagesize=${TODO_TASK_PAGE_SIZE}` } }
 
   const deltaLinkToken = (link: string, listId: string, key: "$skiptoken" | "$deltatoken") => {
@@ -723,7 +779,7 @@ const createGraphClient = (auth: AuthStrategy) => {
       return Left({ type: "api", status: 400, message: "Badly formed token." })
     }
     const page = (query: string, version?: GraphApiVersion) =>
-      request<TodoDeltaPage>("GET", `${todoDeltaPath(listId)}${query}`, { ...deltaPrefer, version })
+      request<TodoDeltaPage>("GET", graphPath`${todoDeltaPath(listId)}${raw(query)}`, { ...deltaPrefer, version })
     const step = async (
       response: Either<GraphApiError, TodoDeltaPage>,
       read: ReadonlyArray<TodoDeltaRecord>,
@@ -760,31 +816,31 @@ const createGraphClient = (auth: AuthStrategy) => {
   }
 
   const createTodoTask = (listId: string, task: Record<string, unknown>) =>
-    request<GraphTodoTask>("POST", `/me/todo/lists/${listId}/tasks`, { body: task })
+    request<GraphTodoTask>("POST", graphPath`/me/todo/lists/${listId}/tasks`, { body: task })
 
   const updateTodoTask = (listId: string, taskId: string, task: Record<string, unknown>) =>
-    request<GraphTodoTask>("PATCH", `/me/todo/lists/${listId}/tasks/${taskId}`, { body: task })
+    request<GraphTodoTask>("PATCH", graphPath`/me/todo/lists/${listId}/tasks/${taskId}`, { body: task })
 
   const getTodoTask = (listId: string, taskId: string, odataParams?: ODataParams) =>
-    request<GraphTodoTask>("GET", `/me/todo/lists/${listId}/tasks/${taskId}`, { odataParams })
+    request<GraphTodoTask>("GET", graphPath`/me/todo/lists/${listId}/tasks/${taskId}`, { odataParams })
 
   // A task's open extensions. A PATCH replaces the whole extension (checked live 2026-10-30), so a
   // caller that means to change some fields reads, merges, and sends them all.
-  const extensionPath = (listId: string, taskId: string) => `${todoTasksPath(listId)}/${taskId}/extensions`
+  const extensionPath = (listId: string, taskId: string) => graphPath`${todoTasksPath(listId)}/${taskId}/extensions`
 
   const getTodoTaskExtension = (listId: string, taskId: string, name: string) =>
-    request<Record<string, unknown>>("GET", `${extensionPath(listId, taskId)}/${encodeURIComponent(name)}`)
+    request<Record<string, unknown>>("GET", graphPath`${extensionPath(listId, taskId)}/${encodedId(name)}`)
 
   const createTodoTaskExtension = (listId: string, taskId: string, body: Record<string, unknown>) =>
     request<Record<string, unknown>>("POST", extensionPath(listId, taskId), { body })
 
   const replaceTodoTaskExtension = (listId: string, taskId: string, name: string, body: Record<string, unknown>) =>
-    request<Record<string, unknown>>("PATCH", `${extensionPath(listId, taskId)}/${encodeURIComponent(name)}`, {
+    request<Record<string, unknown>>("PATCH", graphPath`${extensionPath(listId, taskId)}/${encodedId(name)}`, {
       body,
     })
 
   const deleteTodoTask = (listId: string, taskId: string) =>
-    request<Record<string, never>>("DELETE", `/me/todo/lists/${listId}/tasks/${taskId}`)
+    request<Record<string, never>>("DELETE", graphPath`/me/todo/lists/${listId}/tasks/${taskId}`)
 
   // Text-only file upload. Binary uploads must use get_upload_config (httpStream) or upload_file_from_path (stdio).
   // With ifMatch the write is conditional: it goes through core's upload session, the route Graph
@@ -804,45 +860,18 @@ const createGraphClient = (auth: AuthStrategy) => {
       })
     }
 
-    const token = tokenResult.value as string
-    const version = defaultVersion()
-    if (ifMatch !== undefined) {
-      const buffer = Buffer.from(content, "utf8")
-      return uploadDriveContent(`${GRAPH_API_BASE}/${version}`, path, token, buffer, contentType, conflictBehavior, {
-        ifMatch,
-      })
-    }
-    const separator = path.includes("?") ? "&" : "?"
-    const url = `${GRAPH_API_BASE}/${version}${path}${separator}@microsoft.graph.conflictBehavior=${conflictBehavior}`
-
-    try {
-      const response = await resilientFetch(
-        url,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": contentType,
-          },
-          body: content,
-        },
-        { retryTransient: false },
-      )
-
-      if (!response.ok) {
-        return mapHttpError<GraphDriveItem>(response)
-      }
-
-      const text = await response.text()
-      return parseJsonResponse<GraphDriveItem>(text)
-    } catch (error) {
-      const notSent = notSentError(error)
-      if (notSent) return Left<GraphApiError, GraphDriveItem>(notSent)
-      return Left<GraphApiError, GraphDriveItem>({
-        type: "network",
-        message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
-      })
-    }
+    // Every upload goes through core, which checks the path, eTag, content type and conflict
+    // behavior. Up to 4 MB, and without ifMatch, that is one PUT; upload_file caps text at 4 MB.
+    const buffer = Buffer.from(content, "utf8")
+    return uploadDriveContent(
+      `${GRAPH_API_BASE}/${defaultVersion()}`,
+      path,
+      tokenResult.value as string,
+      buffer,
+      contentType,
+      conflictBehavior,
+      { ifMatch },
+    )
   }
 
   // Generic escape hatch. Optional headers unlock header-gated ops (If-Match for Planner

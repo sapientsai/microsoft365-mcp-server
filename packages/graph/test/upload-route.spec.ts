@@ -55,6 +55,8 @@ describe("handleUpload mechanics", () => {
     ["an unknown conflictBehavior", { conflictBehavior: "rename&x=1" }, "conflictBehavior must be one of"],
     ["an ifMatch with a line break", { ifMatch: '"{A},1"\nX: y' }, "ifMatch holds characters"],
     ["a contentType with a line break", { contentType: "text/plain\nX: y" }, "contentType must be a MIME type"],
+    ["a path that climbs out", { path: "/drives/b!x/root:/../../../sites/s/drive/root:/a.txt:/content" }, '".."'],
+    ["a path with a hash", { path: "/me/drive/root:/a#b.txt:/content" }, '"#"'],
   ])("refuses %s with a 400, before taking a token or calling Graph", async (_, query, expected) => {
     const fetchSpy = vi.fn()
     vi.stubGlobal("fetch", fetchSpy)

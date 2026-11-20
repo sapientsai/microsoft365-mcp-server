@@ -5,6 +5,7 @@ import { graphErrorMessage } from "../graph-error-message"
 import { notSentError } from "../request-check"
 import { resilientFetch } from "../resilience"
 import type { GraphApiError, GraphDriveItem } from "../types"
+import { graphPathProblem } from "../utils/graph-path"
 import { conflictBehaviorProblem, contentTypeProblem, ifMatchProblem } from "../utils/header-values"
 
 export const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024 // 4 MB
@@ -220,6 +221,22 @@ const uploadChunks = async (
   }
 }
 
+/**
+ * Why an upload path can't be written to, or undefined. Content goes only to a drive item's
+ * content: a drive path ending ":/content" or an item path ending "/content". Anything else would
+ * PUT the bytes to whatever Graph resource the path names. A query string is refused because the
+ * upload adds its own.
+ */
+export const uploadPathProblem = (path: string): string | undefined => {
+  const problem = graphPathProblem(path)
+  if (problem !== undefined) return problem
+  if (path.includes("?")) return "An upload path can't hold a query string."
+  if (!/\/content$/i.test(path)) {
+    return 'An upload path must end with ":/content" (a drive path) or "/content" (an item ID).'
+  }
+  return undefined
+}
+
 export type DriveUploadOptions = {
   /** The eTag (or cTag) the caller read. The write lands only if the file still has it. */
   readonly ifMatch?: string
@@ -245,7 +262,10 @@ export const uploadDriveContent = async (
   // A blank eTag would go out as an empty If-Match header, which Graph may simply ignore, so the
   // write would run unconditionally while the caller believes it is guarded.
   const problem =
-    ifMatchProblem(ifMatch) ?? contentTypeProblem(contentType) ?? conflictBehaviorProblem(conflictBehavior)
+    uploadPathProblem(path) ??
+    ifMatchProblem(ifMatch) ??
+    contentTypeProblem(contentType) ??
+    conflictBehaviorProblem(conflictBehavior)
   if (problem !== undefined) return Left({ type: "api", status: 400, message: problem })
   if (ifMatch === undefined) {
     return buffer.length <= SIMPLE_UPLOAD_LIMIT

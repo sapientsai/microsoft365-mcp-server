@@ -1,4 +1,4 @@
-import type { GraphApiError, GraphRequest } from "@sapientsai/ms-graph-core"
+import { type GraphApiError, graphPath, type GraphRequest } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import { z } from "zod"
 
@@ -72,7 +72,9 @@ const resolveSiteClause = async (
 ): Promise<Either<GraphApiError, string>> => {
   if (config.defaultSiteUrl && !args.siteId) return Right(` site:${config.defaultSiteUrl}`)
   if (!args.siteId) return Right("")
-  const result = await graph.request<{ webUrl?: string }>("GET", `/sites/${args.siteId}`, {
+  const path = graphPath`/sites/${args.siteId}`
+  if (path.isLeft()) return Left(path.value as GraphApiError)
+  const result = await graph.request<{ webUrl?: string }>("GET", path.orThrow(), {
     odataParams: { $select: ["webUrl"] },
   })
   return result.fold<Either<GraphApiError, string>>(

@@ -258,6 +258,9 @@ describe("conditional upload over the /upload relay", () => {
     ["an ifMatch with a DEL", { ifMatch: '"{A},1"\u007f' }, "ifMatch holds characters"],
     ["a contentType with a line break", { contentType: "text/plain\nX: y" }, "contentType must be a MIME type"],
     ["an unknown conflictBehavior", { conflictBehavior: "rename&x=1" }, "conflictBehavior must be one of"],
+    ["a path that climbs out", { path: "/me/drive/root:/../../../users/v@x.com/drive/root:/a.txt:/content" }, '".."'],
+    ["a path with a hash", { path: "/me/drive/root:/a#b.txt:/content" }, '"#"'],
+    ["a path with a query", { path: "/me/drive/root:/a.txt:/content?x=1:/content" }, "query string"],
   ])("refuses %s with a 400 before any Graph call, whatever the bearer", async (_, query, expected) => {
     const fetchSpy = vi.fn()
     vi.stubGlobal("fetch", fetchSpy)

@@ -31,6 +31,8 @@ Mail subjects, sender names and addresses, file and attachment names, and link U
 ## Paths and URLs
 
 - Check a Graph URL's target by parsing it with `new URL(url, base)` and comparing its `origin` before reading the path. Don't split the raw string. Leading whitespace, repeated or back slashes, and encoded `%2f` all change what Graph resolves. `mailboxOfUrl` in `src/mail/mailbox-path.ts` is the reference.
+- Build every Graph path that holds a caller's value with core's `graphPath` tagged template, never a plain template string. Each interpolated value goes in as exactly one encoded segment, and an empty value, `.`, `..` or one holding a slash is refused. Wrap text the code built itself in `raw()`, a drive-relative path in `drivePath()`, and an ID a site has always sent through `encodeURIComponent` in `encodedId()`. fetch resolves dot segments, reads `\` as `/` and cuts at `#` before sending, so a value put in as written can reach a different resource than the tool names.
+- Core refuses a path holding a dot segment, a backslash, a `#` or a control character, on every request and every `resilientFetch` call. `test/path-safety-property.spec.ts` calls every tool with hostile values in each string parameter, so a new tool is checked without being added to it.
 
 ## Results
 

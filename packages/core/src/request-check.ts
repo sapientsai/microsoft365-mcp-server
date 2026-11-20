@@ -1,4 +1,6 @@
 import type { GraphApiError } from "./types"
+import { graphPathProblem } from "./utils/graph-path"
+import { quoteForMessage } from "./utils/quote"
 
 /**
  * Checks for a request that fetch would refuse to send.
@@ -25,9 +27,6 @@ export const isRequestNotSentError = (err: unknown): err is RequestNotSentError 
 /** The 400 a refused request maps to, or undefined for any other error. */
 export const notSentError = (err: unknown): GraphApiError | undefined =>
   isRequestNotSentError(err) ? { type: "api", status: 400, message: err.message } : undefined
-
-/** A caller-chosen string, quoted and cut short so it can't add lines to a message. */
-export const quoteForMessage = (value: string, max = 60): string => JSON.stringify(value.slice(0, max))
 
 // RFC 9110 token characters: what a method or header name may hold.
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
@@ -94,6 +93,10 @@ export const requestProblem = (url: string, init: RequestInit | undefined): stri
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "the request URL is not an http(s) URL."
   // fetch refuses a URL carrying a user name or password.
   if (parsed.username !== "" || parsed.password !== "") return "the request URL holds a user name or password."
+  // fetch would resolve a dot segment, cut at "#" or drop a tab before sending, so the request
+  // would reach another resource than the one written. Read from the raw text, before parsing.
+  const pathProblem = graphPathProblem(url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, ""))
+  if (pathProblem !== undefined) return pathProblem
   const method = init?.method ?? "GET"
   if (!TOKEN.test(method)) return `the HTTP method ${quoteForMessage(method, 20)} is not valid.`
   const upper = method.toUpperCase()
