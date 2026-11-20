@@ -350,6 +350,31 @@ const createGraphClient = (auth: AuthStrategy) => {
       body: { name, folder: {}, "@microsoft.graph.conflictBehavior": "rename" },
     })
 
+  const ifMatchHeader = (ifMatch?: string) => (ifMatch === undefined ? {} : { headers: { "If-Match": ifMatch } })
+
+  // A drive's root has a real ID, and a move or copy needs it: Graph refuses "root" in parentReference.
+  const getDriveRoot = (driveId?: string) =>
+    request<GraphDriveItem>("GET", driveId ? `/drives/${driveId}/root` : "/me/drive/root", {
+      odataParams: { $select: ["id"] },
+    })
+
+  // Move, rename, or both: one PATCH. Graph can't move an item to another drive this way.
+  const updateDriveItem = (id: string, changes: Record<string, unknown>, driveId?: string, ifMatch?: string) =>
+    request<GraphDriveItem>("PATCH", driveItemPath(id, driveId), { body: changes, ...ifMatchHeader(ifMatch) })
+
+  // Graph answers 202 with an empty body and copies in the background. The conflict setting is a query
+  // parameter, sent only when asked for: Graph's default is fail, and OneDrive personal doesn't support it.
+  const copyDriveItem = (id: string, body: Record<string, unknown>, driveId?: string, conflictBehavior?: "rename") =>
+    request<Record<string, never>>(
+      "POST",
+      `${driveItemPath(id, driveId)}/copy${conflictBehavior ? `?@microsoft.graph.conflictBehavior=${conflictBehavior}` : ""}`,
+      { body },
+    )
+
+  // Moves the item, and a folder's contents, to the recycle bin.
+  const deleteDriveItem = (id: string, driveId?: string, ifMatch?: string) =>
+    request<Record<string, never>>("DELETE", driveItemPath(id, driveId), ifMatchHeader(ifMatch))
+
   // SharePoint Sites
   const listFollowedSites = () => request<ODataResponse<GraphSite>>("GET", "/me/followedSites")
 
@@ -830,6 +855,10 @@ const createGraphClient = (auth: AuthStrategy) => {
     downloadFile,
     downloadFileContent,
     createFolder,
+    getDriveRoot,
+    updateDriveItem,
+    copyDriveItem,
+    deleteDriveItem,
     // SharePoint
     listFollowedSites,
     searchSites,

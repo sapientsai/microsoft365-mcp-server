@@ -43,7 +43,7 @@ _Allow public client flows_ turned on. The sign-in is cached, so it survives res
 
 ## What it can do
 
-**99 tools.** 27 of them need a work or school tenant, so they stay hidden until you set
+**103 tools.** 27 of them need a work or school tenant, so they stay hidden until you set
 `MS365_ORG_MODE=true`.
 
 | Area                  | Tools | What the assistant can do                                                      |
@@ -51,7 +51,7 @@ _Allow public client flows_ turned on. The sign-in is cached, so it survives res
 | Mail                  |    23 | Read, search, send, reply, forward, move, and draft messages; save attachments |
 | Calendar              |     9 | List and manage events, find free time, accept or decline invitations          |
 | Contacts              |     7 | List, search, create, update, delete, and export contacts                      |
-| Files (OneDrive)      |     8 | Browse, search, download, and upload files; create folders                     |
+| Files (OneDrive)      |    12 | Browse, search, download, and upload files; create folders; move, rename, copy, delete |
 | SharePoint ¹          |     5 | Browse sites, their drives and items; search a site's files                    |
 | Documents             |     1 | Extract readable text from PDF, DOCX, XLSX, and text files (`read_document`)   |
 | OneNote               |    10 | List notebooks, sections and pages; read, create, update, copy, delete pages   |
