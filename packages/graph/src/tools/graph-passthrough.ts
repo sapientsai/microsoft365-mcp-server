@@ -116,6 +116,8 @@ export const buildMicrosoftGraphBatchTool = (graph: GraphRequest) => ({
     const result = await graph.request<unknown>("POST", "/$batch", {
       version: args.api_version,
       body: { requests: batchRequests },
+      // A batch of reads changes nothing, so its failure isn't reported as one that may have.
+      readOnly: args.requests.every((req) => req.method === "GET"),
     })
     return unwrap(result)
   },

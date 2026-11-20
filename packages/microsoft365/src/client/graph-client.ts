@@ -229,12 +229,9 @@ const createGraphClient = (auth: AuthStrategy) => {
   const createMessageRule = (rule: Record<string, unknown>, prefix: string = "/me") =>
     request<GraphMessageRule>("POST", rulesPath(prefix), { body: rule })
 
-  // Rule IDs are base64 and may hold "/" or "+", so they are encoded as one path segment. Retried only
-  // on 429: after a 503 or timeout the delete may have landed, and a retry would answer 404.
+  // Rule IDs are base64 and may hold "/" or "+", so they are encoded as one path segment.
   const deleteMessageRule = (id: string, prefix: string = "/me") =>
-    request<Record<string, never>>("DELETE", graphPath`${rulesPath(prefix)}/${encodedId(id)}`, {
-      retryTransient: false,
-    })
+    request<Record<string, never>>("DELETE", graphPath`${rulesPath(prefix)}/${encodedId(id)}`)
 
   const sendReply = (id: string, comment: string, prefix: string = "/me") =>
     request<Record<string, never>>("POST", graphPath`${raw(prefix)}/messages/${id}/reply`, { body: { comment } })
@@ -342,6 +339,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   // UTC in the response so callers don't get mailbox-local times back unexpectedly.
   const findMeetingTimes = (body: Record<string, unknown>) =>
     request<GraphMeetingTimeSuggestionsResult>("POST", "/me/findMeetingTimes", {
+      readOnly: true,
       body,
       headers: { Prefer: 'outlook.timezone="UTC"' },
     })
@@ -457,13 +455,9 @@ const createGraphClient = (auth: AuthStrategy) => {
       { body },
     )
 
-  // Moves the item, and a folder's contents, to the recycle bin. Retried only on 429: after a 503,
-  // 504 or timeout the delete may have landed, and a retry would answer 404 for a deleted item.
+  // Moves the item, and a folder's contents, to the recycle bin.
   const deleteDriveItem = (id: string, driveId?: string, ifMatch?: string) =>
-    request<Record<string, never>>("DELETE", driveItemPath(id, driveId), {
-      ...ifMatchHeader(ifMatch),
-      retryTransient: false,
-    })
+    request<Record<string, never>>("DELETE", driveItemPath(id, driveId), ifMatchHeader(ifMatch))
 
   // SharePoint Sites
   const listFollowedSites = () => request<ODataResponse<GraphSite>>("GET", "/me/followedSites")

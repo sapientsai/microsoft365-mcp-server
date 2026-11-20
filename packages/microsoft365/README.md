@@ -892,15 +892,15 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 Every Graph call goes through a retry / timeout / circuit-breaker layer. The defaults suit
 normal use; these knobs exist for tuning a deployment without a code change.
 
-| Variable                          | Description                                                          | Default  |
-| --------------------------------- | -------------------------------------------------------------------- | -------- |
-| `MS365_GRAPH_MAX_RETRIES`         | Retries for a throttled (429) or transient (503/504/network) call    | `3`      |
-| `MS365_GRAPH_TIMEOUT_MS`          | Per-attempt fetch timeout. Sized for slow large uploads              | `100000` |
-| `MS365_GRAPH_BASE_BACKOFF_MS`     | Base for exponential backoff with full jitter                        | `200`    |
-| `MS365_GRAPH_MAX_BACKOFF_MS`      | Backoff ceiling. A 429's `Retry-After` overrides it (capped at 60 s) | `5000`   |
-| `MS365_GRAPH_CIRCUIT_THRESHOLD`   | Consecutive failures before the breaker opens                        | `5`      |
-| `MS365_GRAPH_CIRCUIT_COOLDOWN_MS` | How long the breaker stays open before allowing a probe              | `30000`  |
-| `MS365_GRAPH_CIRCUIT_DISABLED`    | Disable the breaker entirely                                         | `false`  |
+| Variable                          | Description                                                                    | Default  |
+| --------------------------------- | ------------------------------------------------------------------------------ | -------- |
+| `MS365_GRAPH_MAX_RETRIES`         | Retries for a 429, or for a read that got a 503, 504, timeout or network error | `3`      |
+| `MS365_GRAPH_TIMEOUT_MS`          | Per-attempt fetch timeout. Sized for slow large uploads                        | `100000` |
+| `MS365_GRAPH_BASE_BACKOFF_MS`     | Base for exponential backoff with full jitter                                  | `200`    |
+| `MS365_GRAPH_MAX_BACKOFF_MS`      | Backoff ceiling. A 429's `Retry-After` overrides it (capped at 60 s)           | `5000`   |
+| `MS365_GRAPH_CIRCUIT_THRESHOLD`   | Consecutive failures before the breaker opens                                  | `5`      |
+| `MS365_GRAPH_CIRCUIT_COOLDOWN_MS` | How long the breaker stays open before allowing a probe                        | `30000`  |
+| `MS365_GRAPH_CIRCUIT_DISABLED`    | Disable the breaker entirely                                                   | `false`  |
 
 Throttling (429) never counts toward the process-wide circuit breaker. Only
 503/504 responses, timeouts and network errors count as breaker failures.
@@ -909,12 +909,13 @@ value, fails as a 400 before anything goes out. It is never retried and never
 counts, so bad input can't open the breaker for other users.
 
 A 429 is retried on every method — Graph decides to throttle before it executes the
-operation, so nothing has landed server-side. A 503/504/network failure is retried only
-for idempotent methods (GET/HEAD/PUT/DELETE); retrying a POST or PATCH there could
-duplicate a side effect that already succeeded, so those surface to the caller instead.
-Uploads also avoid retries on 503/504/network failures: a renamed file may already
-exist, or a chunk may already have advanced its upload session. They still honour
-timeouts, circuit-breaker settings, and retries on 429.
+operation, so nothing has landed server-side. A 503, 504, timeout or network failure is
+retried only for reads (GET and HEAD). A write (POST, PATCH, PUT or DELETE, uploads
+included) may already have run when one of those comes back: a retry could send a
+second message, create a duplicate file, or report a delete that landed as "not found".
+So a write that fails that way is reported once, and its error says the change may have
+gone through, to check before repeating it. Writes still honour timeouts,
+circuit-breaker settings, and retries on 429.
 
 When the breaker is open, calls fail fast as a `throttle` error carrying `retryAfter`,
 rather than adding load to an upstream that is already failing.

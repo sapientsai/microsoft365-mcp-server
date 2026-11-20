@@ -4,7 +4,14 @@ import type { AuthStrategy } from "./auth-strategy"
 import { GRAPH_API_BASE } from "./constants"
 import { graphErrorMessage } from "./graph-error-message"
 import { notSentError } from "./request-check"
-import { type FetchLike, isCircuitOpenError, resilientFetch } from "./resilience"
+import {
+  type FetchLike,
+  isCircuitOpenError,
+  isReadMethod,
+  MAY_HAVE_LANDED,
+  mayHaveLandedStatus,
+  resilientFetch,
+} from "./resilience"
 import type { GraphApiError, GraphApiVersion, ODataParams, ODataResponse } from "./types"
 import { graphPathProblem } from "./utils/graph-path"
 import { appendODataQuery, buildODataQuery } from "./utils/odata-helpers"
@@ -18,10 +25,10 @@ export type GraphRequestOptions = {
   readonly odataParams?: ODataParams
   readonly headers?: Record<string, string>
   /**
-   * false stops retries on 503, 504, timeouts and network errors (429 is still retried). For a
-   * DELETE whose retry would turn a delete that landed into a "not found" failure.
+   * A POST that only reads (findMeetingTimes, a search query, a $batch of GETs). Its failures
+   * aren't noted as a change that may have gone through. It still isn't retried on a 503.
    */
-  readonly retryTransient?: boolean
+  readonly readOnly?: boolean
 }
 
 export type GraphRequestConfig = {
@@ -119,6 +126,17 @@ const requestHeaders = (
 
 const BODY_METHODS: ReadonlySet<string> = new Set(["POST", "PUT", "PATCH"])
 
+const serialiseBody = (verb: string, body: GraphRequestOptions["body"]): Either<GraphApiError, string | undefined> => {
+  if (body === undefined || !BODY_METHODS.has(verb)) return Right(undefined)
+  if (typeof body === "string") return Right(body)
+  try {
+    return Right(JSON.stringify(body))
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return Left({ type: "api", status: 400, message: `Request not sent: the body can't be sent as JSON (${reason}).` })
+  }
+}
+
 export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfig = {}): GraphRequest => {
   const resolveVersion = config.defaultVersion ?? (() => "v1.0" as const)
   const doFetch = config.fetchImpl ?? resilientFetch
@@ -144,24 +162,29 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
     // fetch upper-cases only some methods, and would send "patch" as written. Comparing the
     // upper-cased form also keeps a lower-case "post" from silently dropping its body.
     const verb = method.toUpperCase()
+    const changes = !isReadMethod(verb) && options?.readOnly !== true
+    const note = (error: GraphApiError): GraphApiError =>
+      changes ? { ...error, message: `${error.message} ${MAY_HAVE_LANDED}` } : error
+
+    // Serialised before the request, so a body that can't be turned into JSON is reported as
+    // that, not as a network failure of a request that never left.
+    const serialised = serialiseBody(verb, options?.body)
+    if (serialised.isLeft()) return Left<GraphApiError, T>(serialised.value as GraphApiError)
+    const body = serialised.orThrow()
 
     try {
       const fetchOptions: RequestInit = {
         method: verb,
         headers: requestHeaders(token, options?.contentType ?? "application/json", options?.headers),
+        ...(body !== undefined ? { body } : {}),
       }
 
-      if (options?.body !== undefined && BODY_METHODS.has(verb)) {
-        fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
+      const response = await doFetch(url, fetchOptions)
+
+      if (!response.ok) {
+        const mapped = await mapHttpError<T>(response)
+        return mayHaveLandedStatus(response.status) ? mapped.mapLeft(note) : mapped
       }
-
-      const response = await doFetch(
-        url,
-        fetchOptions,
-        options?.retryTransient === undefined ? undefined : { retryTransient: options.retryTransient },
-      )
-
-      if (!response.ok) return mapHttpError<T>(response)
       if (response.status === 204) return Right<GraphApiError, T>({} as T)
 
       const text = await response.text()
@@ -173,10 +196,12 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
       if (isCircuitOpenError(error)) return Left<GraphApiError, T>(circuitOpenError(error))
       const notSent = notSentError(error)
       if (notSent) return Left<GraphApiError, T>(notSent)
-      return Left<GraphApiError, T>({
-        type: "network",
-        message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
-      })
+      return Left<GraphApiError, T>(
+        note({
+          type: "network",
+          message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+      )
     }
   }
 

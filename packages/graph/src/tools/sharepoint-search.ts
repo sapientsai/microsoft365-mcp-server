@@ -109,6 +109,7 @@ export const buildSharePointSearchTool = (graph: GraphRequest, config: SharePoin
     const queryString = `${args.query}${fileTypeClause}${siteClause}`
 
     const result = await graph.request<SearchResponse>("POST", "/search/query", {
+      readOnly: true,
       body: {
         requests: [
           { entityTypes: ["driveItem"], query: { queryString }, from: 0, size: args.top, region: config.region },

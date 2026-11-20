@@ -1,3 +1,4 @@
+import { MAY_HAVE_LANDED, mayHaveLandedStatus } from "@sapientsai/ms-graph-core"
 import { Option } from "functype"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
@@ -497,23 +498,37 @@ type ExtensionWrite = { readonly fields: Readonly<Record<string, ExtensionValue>
 // Read the extension, apply the fields sent, and write the whole set back: a PATCH replaces every
 // field (checked live 2026-10-30), so sending only the new ones would delete the rest. A missing
 // extension is created instead.
+// A write that failed on a 503, 504 or network error may have run anyway; core's message then
+// ends with MAY_HAVE_LANDED. This tool sets a state, so it says that repeating it is safe instead.
+const mayHaveLanded = (error: GraphApiError): boolean => error.type === "network" || mayHaveLandedStatus(error.status)
+const withoutLandedNote = (error: GraphApiError): string => error.message.replace(` ${MAY_HAVE_LANDED}`, "")
+
+type ExtensionFailure = { readonly message: string; readonly mayHaveLanded: boolean }
+
+const writeFailure = (what: string, error: GraphApiError): ExtensionFailure => ({
+  message: `${what} failed: ${withoutLandedNote(error)}`,
+  mayHaveLanded: mayHaveLanded(error),
+})
+
 const writeExtension = async (
   client: NonNullable<ReturnType<typeof requireClient>>,
   listId: string,
   taskId: string,
   extension: ExtensionInput,
-): Promise<Either<string, ExtensionWrite>> => {
+): Promise<Either<ExtensionFailure, ExtensionWrite>> => {
   const existing = await client.getTodoTaskExtension(listId, taskId, extension.name)
   if (existing.isLeft()) {
     const error = existing.value as GraphApiError
-    if (error.type !== "not_found") return Left(`reading the extension failed: ${error.message}`)
+    if (error.type !== "not_found") {
+      return Left({ message: `reading the extension failed: ${error.message}`, mayHaveLanded: false })
+    }
     const created = await client.createTodoTaskExtension(
       listId,
       taskId,
       toExtensionBody(extension.name, extension.fields),
     )
     return created.fold(
-      (e) => Left(`creating the extension failed: ${e.message}`),
+      (e) => Left(writeFailure("creating the extension", e)),
       () => Right({ fields: extension.fields, changed: true }),
     )
   }
@@ -524,10 +539,10 @@ const writeExtension = async (
     return Right({ fields: merged, changed: false })
   }
   const tooBig = extensionFieldsProblem(merged)
-  if (tooBig) return Left(`the extension can't take these fields: ${tooBig}`)
+  if (tooBig) return Left({ message: `the extension can't take these fields: ${tooBig}`, mayHaveLanded: false })
   const replaced = await client.replaceTodoTaskExtension(listId, taskId, extension.name, toExtensionPatch(merged))
   return replaced.fold(
-    (e) => Left(`writing the extension failed: ${e.message}`),
+    (e) => Left(writeFailure("writing the extension", e)),
     () => Right({ fields: merged, changed: true }),
   )
 }
@@ -586,8 +601,14 @@ export const setTodoTaskState = async (params: {
   if (changedTask) {
     const patched = await client.updateTodoTask(params.list_id, params.task_id, fields)
     if (patched.isLeft()) {
+      const error = patched.value as GraphApiError
       return Left(
-        new UserError(`Failed to update the task, so nothing was changed: ${(patched.value as GraphApiError).message}`),
+        new UserError(
+          mayHaveLanded(error)
+            ? `Failed to update the task, but the change may have gone through: ${withoutLandedNote(error)}. ` +
+                "Repeating the call is safe: it sets the same state."
+            : `Failed to update the task, so nothing was changed: ${error.message}`,
+        ),
       )
     }
   }
@@ -605,8 +626,15 @@ export const setTodoTaskState = async (params: {
 
   const written = await writeExtension(client, params.list_id, params.task_id, params.extension)
   if (written.isLeft()) {
-    const prefix = changedTask ? `${saved} on task ${params.task_id}, but ` : "Nothing was changed: "
-    return Left(new UserError(`${prefix}${written.value as string}. Repeating the call is safe.`))
+    const failure = written.value as ExtensionFailure
+    const landed = failure.mayHaveLanded ? ", though it may have gone through" : ""
+    const detail = `${failure.message}${landed}. Repeating the call is safe.`
+    const text = changedTask
+      ? `${saved} on task ${params.task_id}, but ${detail}`
+      : failure.mayHaveLanded
+        ? `${detail.charAt(0).toUpperCase()}${detail.slice(1)}`
+        : `Nothing was changed: ${detail}`
+    return Left(new UserError(text))
   }
   const { fields: now, changed: extensionChanged } = written.value as ExtensionWrite
   const holds = `It now holds ${extensionJson(now)}.`

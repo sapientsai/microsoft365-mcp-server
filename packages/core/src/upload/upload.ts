@@ -3,7 +3,7 @@ import { Left, Right } from "functype/either"
 
 import { graphErrorMessage } from "../graph-error-message"
 import { notSentError } from "../request-check"
-import { resilientFetch } from "../resilience"
+import { MAY_HAVE_LANDED, mayHaveLandedStatus, resilientFetch, thrownWriteNote } from "../resilience"
 import type { GraphApiError, GraphDriveItem } from "../types"
 import { graphPathProblem } from "../utils/graph-path"
 import { conflictBehaviorProblem, contentTypeProblem, ifMatchProblem } from "../utils/header-values"
@@ -51,11 +51,15 @@ export const ifMatchConflictProblem = (conflictBehavior: string | undefined, ifM
     ? `if_match replaces the file whose eTag it names, so conflict behavior must be "replace" or left unset, not "${conflictBehavior}".`
     : undefined
 
-const toGraphApiError = async (response: Response, prefix: string): Promise<GraphApiError> => {
+// A simple PUT or the last chunk that failed on a 503, 504 or network error wasn't retried,
+// because the file may exist now, so its message says so. A session that wasn't created, or a
+// middle chunk, leaves no file: the file appears only when the last chunk is accepted.
+const toGraphApiError = async (response: Response, prefix: string, mayCreateFile = true): Promise<GraphApiError> => {
   const message = await parseGraphError(response)
+  const note = mayCreateFile && mayHaveLandedStatus(response.status) ? ` ${MAY_HAVE_LANDED}` : ""
   return {
     type: "api",
-    message: `${prefix}: ${message}`,
+    message: `${prefix}: ${message}${note}`,
     status: response.status,
   }
 }
@@ -75,20 +79,15 @@ export const simpleUpload = async (
   const url = `${apiBase}${path}${separator}@microsoft.graph.conflictBehavior=${conflictBehavior}`
 
   try {
-    // A lost response may already have created a renamed file. Only a 429 is safe to retry.
-    const response = await resilientFetch(
-      url,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": contentType,
-          "Content-Length": String(buffer.length),
-        },
-        body: new Uint8Array(buffer),
+    const response = await resilientFetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": contentType,
+        "Content-Length": String(buffer.length),
       },
-      { retryTransient: false },
-    )
+      body: new Uint8Array(buffer),
+    })
 
     if (!response.ok) {
       return Left(await toGraphApiError(response, "Upload failed"))
@@ -103,7 +102,7 @@ export const simpleUpload = async (
     console.error(`[Upload] simple PUT to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error during upload: ${message}`,
+      message: `Network error during upload: ${message}${thrownWriteNote(error)}`,
     })
   }
 }
@@ -147,7 +146,7 @@ export const sessionUpload = async (
 
     if (createResponse.status === 412) return Left(preconditionFailed())
     if (!createResponse.ok) {
-      return Left(await toGraphApiError(createResponse, "Failed to create upload session"))
+      return Left(await toGraphApiError(createResponse, "Failed to create upload session", false))
     }
 
     const session = (await createResponse.json()) as { uploadUrl: string }
@@ -181,26 +180,21 @@ const uploadChunks = async (
   const chunk = buffer.subarray(offset, end)
 
   try {
-    // An accepted chunk advances the session; replaying it after a lost response is unsafe.
-    const chunkResponse = await resilientFetch(
-      uploadUrl,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Length": String(chunk.length),
-          "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
-        },
-        body: new Uint8Array(chunk),
+    const chunkResponse = await resilientFetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(chunk.length),
+        "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
       },
-      { retryTransient: false },
-    )
+      body: new Uint8Array(chunk),
+    })
 
     if (!chunkResponse.ok) {
       await resilientFetch(uploadUrl, { method: "DELETE" }).catch(() => {})
       // Graph's docs don't say whether the condition is checked again when the last chunk
       // commits. If it is, a 412 here is the same lost race and gets the same answer.
       if (chunkResponse.status === 412) return Left(preconditionFailed())
-      return Left(await toGraphApiError(chunkResponse, `Upload chunk failed at byte ${offset}`))
+      return Left(await toGraphApiError(chunkResponse, `Upload chunk failed at byte ${offset}`, end >= totalSize))
     }
 
     if (chunkResponse.status === 200 || chunkResponse.status === 201) {
@@ -216,7 +210,7 @@ const uploadChunks = async (
     console.error(`[Upload] chunk PUT at byte ${offset} threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error uploading chunk at byte ${offset}: ${message}`,
+      message: `Network error uploading chunk at byte ${offset}: ${message}${end >= totalSize ? thrownWriteNote(error) : ""}`,
     })
   }
 }
