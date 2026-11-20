@@ -945,9 +945,12 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       body_contains: z.array(z.string()).optional().describe("Text in the body, any of which matches"),
       body_or_subject_contains: z.array(z.string()).optional().describe("Text in the body or subject"),
       recipient_contains: z.array(z.string()).optional().describe("Text in the To or CC recipients"),
-      has_attachments: z.boolean().optional().describe("Only messages with attachments"),
+      has_attachments: z.boolean().optional().describe("true: only messages with attachments. false is ignored"),
       importance: z.enum(["low", "normal", "high"]).optional().describe("Only messages of this importance"),
-      sent_only_to_me: z.boolean().optional().describe("Only messages where you are the only recipient"),
+      sent_only_to_me: z
+        .boolean()
+        .optional()
+        .describe("true: only messages where you are the only recipient. false is ignored"),
       move_to_folder: z
         .string()
         .optional()

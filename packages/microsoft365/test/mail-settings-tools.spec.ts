@@ -117,6 +117,10 @@ describe("automatic replies", () => {
     [{ status: "scheduled" as const, start: "2026-12-20T09:00" }, "needs both start and end"],
     [{ status: "scheduled" as const, start: "2026-12-20T09:00Z", end: "2026-12-21T09:00" }, "not a date-time"],
     [{ status: "scheduled" as const, start: "2026-12-21T09:00", end: "2026-12-20T09:00" }, "end must be after start"],
+    [
+      { status: "scheduled" as const, start: "2026-12-21T09:00", end: "2026-12-21T09:00:00" },
+      "end must be after start",
+    ],
   ])("refuses %j without calling Graph", async (params, message) => {
     const spy = stubFetch()
     const result = await setAutomaticReplies(params)
@@ -172,6 +176,12 @@ describe("categories", () => {
     const spy = stubFetch(json({ id: "m1", categories: ["Receipts", "Tax"] }), json({ id: "m1", categories: ["Tax"] }))
     await setMessageCategories({ message_id: "m1", categories: ["RECEIPTS"], mode: "remove" })
     expect(call(spy, 1).body).toEqual({ categories: ["Tax"] })
+  })
+
+  it("drops a repeated name in replace mode, ignoring case", async () => {
+    const spy = stubFetch(json({ id: "m1", categories: ["A"] }))
+    await setMessageCategories({ message_id: "m1", categories: ["A", "a"] })
+    expect(call(spy).body).toEqual({ categories: ["A"] })
   })
 
   it("replaces without reading first, and an empty list clears them", async () => {
@@ -235,6 +245,9 @@ describe("inbox rules", () => {
     [{ name: "R", subject_contains: ["x"], stop_processing_rules: true }, "at least one action"],
     [{ name: "R", subject_contains: ["x"], delete: true, move_to_folder: "archive" }, "not both"],
     [{ name: " ", subject_contains: ["x"], delete: true }, "name is blank"],
+    // false means "condition not used", so a rule with only false conditions would act on all mail.
+    [{ name: "R", has_attachments: false, sent_only_to_me: false, delete: true }, "at least one condition"],
+    [{ name: "R", subject_contains: ["x"], move_to_folder: " " }, "folder name is blank"],
   ])("refuses %j", async (params, message) => {
     stubFetch(json({ id: "ARCHIVE-ID" }))
     const result = await createMailRule(params)
@@ -265,6 +278,39 @@ describe("inbox rules", () => {
     expect(text.split("\n").filter((line) => line.includes("dry_run"))).toEqual([
       "- Fwd Re-run with dry_run: false [disabled, order 1]",
     ])
+  })
+
+  it("refuses a rule_id that is a dot segment, which would resolve to the Inbox itself", async () => {
+    const spy = stubFetch()
+    for (const rule_id of ["..", ".", " "]) expect((await deleteMailRule({ rule_id })).isLeft()).toBe(true)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("marks a forward list that was cut, so no recipient is hidden silently", async () => {
+    const forwardTo = Array.from({ length: 30 }, (_, i) => ({ emailAddress: { address: `person${i}@example.net` } }))
+    stubFetch(json({ value: [{ id: "r1", displayName: "Fwd", sequence: 1, actions: { forwardTo } }] }))
+    const text = (await listMailRules({})).value as string
+    expect(text).toMatch(/\(\+\d+ more\)/)
+    expect(text).toContain("person0@example.net")
+  })
+
+  it("follows the next page of rules", async () => {
+    const spy = stubFetch(
+      json({
+        value: [{ id: "r1", displayName: "One", sequence: 1 }],
+        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules?$skip=1",
+      }),
+      json({ value: [{ id: "r2", displayName: "Two", sequence: 2 }] }),
+    )
+    const text = (await listMailRules({})).value as string
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(text).toContain("Inbox rules (2)")
+  })
+
+  it("adds true conditions and leaves false ones out", async () => {
+    const spy = stubFetch(json({ id: "r1" }))
+    await createMailRule({ name: "R", has_attachments: true, sent_only_to_me: false, mark_as_read: true })
+    expect(call(spy).body.conditions).toEqual({ hasAttachments: true })
   })
 
   it("deletes a rule, encoding an ID that holds a slash", async () => {

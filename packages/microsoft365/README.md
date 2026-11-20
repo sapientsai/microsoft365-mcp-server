@@ -462,9 +462,11 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 > quoted history) for review, then send via `send_draft`. They remain available under
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode, and `graph_query`
 > refuses requests that send mail without a draft (`sendMail`, and `reply`, `replyAll` or
-> `forward` on a message, including inside a `$batch`). It also refuses creating or changing
-> an inbox rule that forwards or redirects mail. `create_mail_rule` never offers those
-> actions. Automatic replies stay available in that mode: they are a mailbox setting.
+> `forward` on a message, including inside a `$batch`). It also refuses creating an inbox
+> rule that forwards or redirects mail, and any change to an existing rule, since turning on
+> or widening a forwarding rule is as good as creating one. Deleting a rule stays allowed.
+> `create_mail_rule` never offers forward or redirect actions. Automatic replies stay
+> available in that mode: they are a mailbox setting.
 
 > **Mailbox settings.** Automatic replies, the category list and inbox rules need the
 > `MailboxSettings.ReadWrite` permission. It is in the default sign-in scopes and needs no

@@ -216,6 +216,14 @@ describe("isForwardingRuleWrite", () => {
     ["POST", "/me/mailFolders/inbox/message%52ules", forward],
     ["post", RULES, "not an object"],
     ["POST", RULES, { actions: "forwardTo" }],
+    // Duplicate case variants: whichever one Graph honours, the forward is seen.
+    ["POST", RULES, { Actions: { markAsRead: true }, actions: { forwardTo: [] } }],
+    ["POST", RULES, { actions: { nested: { FORWARDTO: [] } } }],
+    // Any write to an existing rule: enabling or widening a forwarding rule is as good as creating one.
+    ["PATCH", `${RULES}/r1`, { isEnabled: true }],
+    ["PATCH", `${RULES}/r1/actions`, { forwardTo: [] }],
+    ["PATCH", "/me/mailFolders/inbox/messageRules('r1')", { isEnabled: true }],
+    [undefined, `${RULES}/r1`, { isEnabled: true }],
   ])("refuses %s %s", (method, url, body) => {
     expect(isForwardingRuleWrite(method, url, body)).toBe(true)
   })
@@ -223,11 +231,23 @@ describe("isForwardingRuleWrite", () => {
   it.each([
     ["GET", RULES, undefined],
     ["POST", RULES, { actions: { moveToFolder: "abc", markAsRead: true } }],
-    ["PATCH", `${RULES}/r1`, { isEnabled: false }],
     ["DELETE", `${RULES}/r1`, undefined],
     ["POST", "/me/messages", forward],
   ])("allows %s %s", (method, url, body) => {
     expect(isForwardingRuleWrite(method, url, body)).toBe(false)
+  })
+
+  it.each([
+    [{ requests: [{ id: "0", method: "POST", url: "/me/messages", URL: RULES, body: forward }] }],
+    [{ requests: [{ id: "0", method: "POST", url: RULES, body: '{"actions":{"forwardTo":[]}}' }] }],
+    [{ requests: [{ id: "0", method: "PATCH", url: `${RULES}/r1`, body: { isEnabled: true } }] }],
+  ])("refuses a $batch whose rule request can't be shown safe: %j", (batch) => {
+    expect(isForwardingRuleWrite("POST", "/$batch", batch)).toBe(true)
+  })
+
+  it("refuses a $batch send hidden behind a duplicate url key", () => {
+    const batch = { requests: [{ id: "0", method: "POST", url: "/me/messages", URL: "/me/sendMail", body: {} }] }
+    expect(isDirectMailSend("POST", "/$batch", batch)).toBe(true)
   })
 
   it("refuses a forwarding rule inside a $batch", () => {

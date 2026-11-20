@@ -26,9 +26,11 @@ const MAX_TEXT = 300
 
 // Graph answers a token without MailboxSettings with a bare 403 "Access is denied", which doesn't
 // say what is missing. Settings are the one thing these calls need beyond the mail scopes.
-const settingsFailure = (action: string, error: GraphApiError): UserError =>
+// For another mailbox a 403 has other causes (mailbox access, or Graph refusing delegated access to
+// someone else's settings), so the hint is given only for the caller's own.
+const settingsFailure = (action: string, error: GraphApiError, prefix: string): UserError =>
   new UserError(
-    error.type === "forbidden"
+    error.type === "forbidden" && prefix === "/me"
       ? `Failed to ${action}: ${error.message}. This needs the MailboxSettings.ReadWrite permission: grant it ` +
           "on the app registration, then sign in again."
       : `Failed to ${action}: ${error.message}`,
@@ -46,7 +48,7 @@ export const getAutomaticReplies = async (params: { mailbox?: string }): Promise
 
   const result = await client.getAutomaticReplies(scope.prefix)
   return result
-    .mapLeft((error) => settingsFailure("read automatic replies", error))
+    .mapLeft((error) => settingsFailure("read automatic replies", error, scope.prefix))
     .map(
       (setting) =>
         `# Automatic replies\n\n- Status: ${setting.status ?? "unknown"}` +
@@ -83,7 +85,12 @@ export const setAutomaticReplies = async (params: {
       new UserError(`"${badTime.slice(0, 40)}" is not a date-time like 2026-12-20T09:00. Put the zone in time_zone.`),
     )
   }
-  if (params.start !== undefined && params.end !== undefined && params.end <= params.start) {
+  // Both are naive times in the same zone, so reading them as UTC compares them correctly.
+  if (
+    params.start !== undefined &&
+    params.end !== undefined &&
+    Date.parse(`${params.end}Z`) <= Date.parse(`${params.start}Z`)
+  ) {
     return Left(new UserError("end must be after start."))
   }
 
@@ -103,7 +110,8 @@ export const setAutomaticReplies = async (params: {
   }
 
   const result = await client.setAutomaticReplies(setting, scope.prefix)
-  if (result.isLeft()) return Left(settingsFailure("set automatic replies", result.value as GraphApiError))
+  if (result.isLeft())
+    return Left(settingsFailure("set automatic replies", result.value as GraphApiError, scope.prefix))
   return getAutomaticReplies({ mailbox: params.mailbox }).then((read) =>
     read.fold(
       () => Right(`Automatic replies set to ${params.status}.`),
@@ -169,7 +177,7 @@ export const listMailCategories = async (params: { mailbox?: string }): Promise<
 
   const result = await client.listMasterCategories(scope.prefix)
   return result
-    .mapLeft((error) => settingsFailure("list categories", error))
+    .mapLeft((error) => settingsFailure("list categories", error, scope.prefix))
     .map((response) => {
       const categories = (response as ODataResponse<GraphOutlookCategory>).value
       if (categories.length === 0) return "No categories defined."
@@ -198,7 +206,7 @@ export const createMailCategory = async (params: {
 
   const result = await client.createMasterCategory(name, color, scope.prefix)
   return result
-    .mapLeft((error) => settingsFailure("create category", error))
+    .mapLeft((error) => settingsFailure("create category", error, scope.prefix))
     .map((c) => `Category created: ${oneLine(c.displayName ?? name, MAX_TEXT)} (${colorName(c.color)})`)
 }
 
@@ -237,7 +245,7 @@ export const setMessageCategories = async (params: {
 
   const next =
     mode === "replace"
-      ? requested
+      ? requested.filter((c, i) => requested.findIndex((other) => sameName(other, c)) === i)
       : mode === "add"
         ? [...before, ...requested.filter((c) => !before.some((b) => sameName(b, c)))]
         : before.filter((b) => !requested.some((c) => sameName(b, c)))
@@ -254,7 +262,16 @@ export const setMessageCategories = async (params: {
 // ---------- Inbox rules ----------
 
 const valueText = (value: unknown): string => {
-  if (Array.isArray(value)) return value.map(valueText).join(", ")
+  if (Array.isArray(value)) {
+    // Every entry counts when checking where mail goes, so a cut list says how many were left out.
+    const items = value.map((item) => oneLine(valueText(item), MAX_TEXT))
+    const shown = items.reduce<ReadonlyArray<string>>(
+      (kept, item) => (kept.join(", ").length + item.length <= MAX_TEXT || kept.length === 0 ? [...kept, item] : kept),
+      [],
+    )
+    const hidden = items.length - shown.length
+    return hidden > 0 ? `${shown.join(", ")} (+${hidden} more)` : shown.join(", ")
+  }
   if (typeof value === "object" && value !== null) {
     const address = (value as { emailAddress?: { address?: string } }).emailAddress?.address
     return address ?? JSON.stringify(value)
@@ -265,7 +282,7 @@ const valueText = (value: unknown): string => {
 const partLines = (label: string, part: Record<string, unknown> | undefined): string => {
   const entries = Object.entries(part ?? {}).filter(([, v]) => v !== null && v !== false && v !== undefined)
   if (entries.length === 0) return ""
-  return `\n  ${label}: ${entries.map(([k, v]) => `${k}=${oneLine(valueText(v), MAX_TEXT)}`).join("; ")}`
+  return `\n  ${label}: ${entries.map(([k, v]) => `${k}=${Array.isArray(v) ? valueText(v) : oneLine(valueText(v), MAX_TEXT)}`).join("; ")}`
 }
 
 const formatRule = (rule: GraphMessageRule): string =>
@@ -283,11 +300,9 @@ export const listMailRules = async (params: { mailbox?: string }): Promise<Eithe
 
   const result = await client.listMessageRules(scope.prefix)
   return result
-    .mapLeft((error) => settingsFailure("list inbox rules", error))
+    .mapLeft((error) => settingsFailure("list inbox rules", error, scope.prefix))
     .map((response) => {
-      const rules = [...(response as ODataResponse<GraphMessageRule>).value].sort(
-        (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0),
-      )
+      const rules = [...response].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
       if (rules.length === 0) return "No inbox rules."
       return `# Inbox rules (${rules.length})\n\n${rules.map(formatRule).join("\n")}`
     })
@@ -332,9 +347,10 @@ const ruleConditions = (params: CreateMailRuleParams): Record<string, unknown> =
     bodyContains: words(params.body_contains),
     bodyOrSubjectContains: words(params.body_or_subject_contains),
     recipientContains: words(params.recipient_contains),
-    hasAttachments: params.has_attachments,
+    // Sent only when true: a false predicate means "not used", so it must not count as a condition.
+    hasAttachments: params.has_attachments === true ? true : undefined,
     importance: params.importance,
-    sentOnlyToMe: params.sent_only_to_me,
+    sentOnlyToMe: params.sent_only_to_me === true ? true : undefined,
   })
 
 /** A rule's folder action needs a real folder ID: names and well-known names are looked up. */
@@ -343,6 +359,7 @@ const ruleFolderId = async (
   folder: string | undefined,
 ): Promise<Either<UserError, string | undefined>> => {
   if (folder === undefined) return Right(undefined)
+  if (folder.trim() === "") return Left(new UserError("A folder name is blank."))
   const destination = await resolveDestination(scoped.client, folder, scoped.scope)
   if (destination.isLeft()) return Left(destination.value as UserError)
   const target = destination.orThrow()
@@ -407,7 +424,7 @@ export const createMailRule = async (params: CreateMailRuleParams): Promise<Eith
   }
   const result = await scoped.client.createMessageRule(rule, scoped.scope.prefix)
   return result
-    .mapLeft((error) => settingsFailure("create inbox rule", error))
+    .mapLeft((error) => settingsFailure("create inbox rule", error, scoped.scope.prefix))
     .map((created) => `Inbox rule created.\n\n${formatRule(created)}`)
 }
 
@@ -415,13 +432,16 @@ export const deleteMailRule = async (params: {
   rule_id: string
   mailbox?: string
 }): Promise<Either<UserError, string>> => {
-  if (params.rule_id.trim() === "") return Left(new UserError("rule_id is blank."))
+  // Encoding keeps a slash inside one segment, but "." and ".." would still be resolved as a path.
+  if (params.rule_id.trim() === "" || /^\.+$/.test(params.rule_id.trim())) {
+    return Left(new UserError("rule_id is not a rule ID. Use the ID from list_mail_rules."))
+  }
   const resolved = await withScope(params.mailbox)
   if (resolved.isLeft()) return scopeFailure(resolved)
   const { scope, client } = resolved.orThrow()
 
   const result = await client.deleteMessageRule(params.rule_id, scope.prefix)
   return result
-    .mapLeft((error) => settingsFailure("delete inbox rule", error))
-    .map(() => `Inbox rule ${params.rule_id} deleted.`)
+    .mapLeft((error) => settingsFailure("delete inbox rule", error, scope.prefix))
+    .map(() => `Inbox rule ${oneLine(params.rule_id, MAX_TEXT)} deleted.`)
 }

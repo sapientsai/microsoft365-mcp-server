@@ -52,7 +52,7 @@ beforeEach(() => {
   mockClient.listMasterCategories.mockResolvedValue(Right({ value: [] }))
   mockClient.createMasterCategory.mockResolvedValue(Right({ id: "c1", displayName: "A", color: "none" }))
   mockClient.updateMessage.mockResolvedValue(Right({ id: "m1", categories: ["A"] }))
-  mockClient.listMessageRules.mockResolvedValue(Right({ value: [] }))
+  mockClient.listMessageRules.mockResolvedValue(Right([]))
   mockClient.createMessageRule.mockResolvedValue(Right({ id: "r1", displayName: "R" }))
   mockClient.deleteMessageRule.mockResolvedValue(Right({}))
   mockClient.listMailFolders.mockResolvedValue(Right({ value: [] }))
@@ -100,6 +100,13 @@ describe("mailbox routing", () => {
   it("looks up a rule's folder in the same mailbox", async () => {
     await createMailRule({ name: "R", subject_contains: ["x"], move_to_folder: "archive", mailbox: BEL })
     expect(lastPrefix(mockClient.getMailFolder)).toBe(BEL_PREFIX)
+  })
+
+  it("doesn't blame MailboxSettings for a 403 on another mailbox", async () => {
+    mockClient.listMessageRules.mockResolvedValue(Left({ type: "forbidden", message: "Access is denied." }))
+    const result = await listMailRules({ mailbox: BEL })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).not.toContain("MailboxSettings")
   })
 
   it.each(CASES)("%s never reaches Graph for a mailbox outside the allowlist", async (_name, run, mock) => {

@@ -196,8 +196,7 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const rulesPath = (prefix: string) => `${prefix}/mailFolders/inbox/messageRules`
 
-  const listMessageRules = (prefix: string = "/me") =>
-    request<ODataResponse<GraphMessageRule>>("GET", rulesPath(prefix))
+  const listMessageRules = (prefix: string = "/me") => requestPaginated<GraphMessageRule>(rulesPath(prefix))
 
   const createMessageRule = (rule: Record<string, unknown>, prefix: string = "/me") =>
     request<GraphMessageRule>("POST", rulesPath(prefix), { body: rule })
