@@ -1,3 +1,4 @@
+import { graphPath } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left } from "functype/either"
 import { UserError } from "somamcp"
@@ -45,7 +46,9 @@ export const listOnenoteSections = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphSection>(`/me/onenote/notebooks/${params.notebook_id}/sections`)
+    const result = await client.requestPaginated<GraphSection>(
+      graphPath`/me/onenote/notebooks/${params.notebook_id}/sections`,
+    )
     return result
       .mapLeft((error) => new UserError(`Failed to list sections: ${error.message}`))
       .map((items) => formatSectionList(items))
@@ -65,7 +68,7 @@ export const listOnenotePages = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphPage>(`/me/onenote/sections/${params.section_id}/pages`)
+    const result = await client.requestPaginated<GraphPage>(graphPath`/me/onenote/sections/${params.section_id}/pages`)
     return result
       .mapLeft((error) => new UserError(`Failed to list pages: ${error.message}`))
       .map((items) => formatPageList(items))

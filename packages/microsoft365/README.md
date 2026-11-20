@@ -316,6 +316,18 @@ agent; it does not authorise anything.
     -PolicyScopeGroupId mailbox-group@example.com -AccessRight RestrictAccess
   ```
 
+Every ID a tool takes goes into its Graph request as exactly one path segment. An ID that
+is empty, `.` or `..`, or holds a slash, is refused before anything is sent, and any `?`,
+`#`, `%` or space in it is encoded. The exceptions are IDs Graph itself may issue with a
+slash (mail folders, inbox rules, To Do extension names, attachments and transcripts): those
+are sent with the slash encoded as `%2F`, and refused only if a piece of them is `.` or `..`.
+A site ID goes in its comma form (`hostname,siteId,webId`, as `list_sites` prints it); the
+`hostname:/sites/name` form holds a slash and is refused. So no ID can move a request into another mailbox, or
+turn a draft-creating tool into one that sends. A `folder_path` is split on `/`, and a `.`
+or `..` piece in it is refused. Every request path, raw ones included, is refused if it
+holds a `.` or `..` segment, a backslash, a `#` or a control character. Uploads write only
+to a path ending in `:/content` or `/content`.
+
 `read_document` and `graph_query` take raw Graph paths, so they apply the same check to
 any path under `/users/{address}/...` (or `/users('{address}')/...`), reads included, and
 `graph_query` to every sub-request of a `$batch`, refusing the whole batch if one fails.

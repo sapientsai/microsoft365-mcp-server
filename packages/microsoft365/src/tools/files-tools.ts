@@ -4,8 +4,10 @@ import { basename } from "node:path"
 import {
   contentTypeProblem,
   describeFetchError,
+  drivePath,
   filenameFromPath,
   formatBytes,
+  graphPath,
   ifMatchConflictProblem,
   ifMatchProblem,
   isTextMimeType,
@@ -73,7 +75,9 @@ export const listDriveItems = async (params: {
   if (params.folder_path) {
     const path = params.folder_path.replace(/^\/+/, "")
     if (params.fetch_all_pages) {
-      const result = await client.requestPaginated<GraphDriveItem>(`/me/drive/root:/${path}:/children`)
+      const result = await client.requestPaginated<GraphDriveItem>(
+        graphPath`/me/drive/root:/${drivePath(path)}:/children`,
+      )
       if (result.isLeft()) return Left(await driveError("list drive items", result.value as GraphApiError))
       return Right(result.map((items) => formatDriveItemList(items)).orThrow())
     }
@@ -83,7 +87,7 @@ export const listDriveItems = async (params: {
   }
 
   if (params.fetch_all_pages) {
-    const path = params.folder_id ? `/me/drive/items/${params.folder_id}/children` : "/me/drive/root/children"
+    const path = params.folder_id ? graphPath`/me/drive/items/${params.folder_id}/children` : "/me/drive/root/children"
     const result = await client.requestPaginated<GraphDriveItem>(path)
     if (result.isLeft()) return Left(await driveError("list drive items", result.value as GraphApiError))
     return Right(result.map((items) => formatDriveItemList(items)).orThrow())

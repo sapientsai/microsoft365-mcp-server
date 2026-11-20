@@ -16,6 +16,7 @@ import {
   resolveUploadContentType,
   SIMPLE_UPLOAD_LIMIT,
   uploadDriveContent,
+  uploadPathProblem,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import type { UserError } from "somamcp"
@@ -2587,6 +2588,8 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
   if (!/:\/content$/i.test(path)) {
     return { status: 400, body: { error: 'path must end with ":/content"' } }
   }
+  const pathIssue = uploadPathProblem(path)
+  if (pathIssue) return { status: 400, body: { error: pathIssue } }
 
   const apiBase = relayApiBase(req)
   if (apiBase.isLeft()) return apiBase.value as RelayResponse

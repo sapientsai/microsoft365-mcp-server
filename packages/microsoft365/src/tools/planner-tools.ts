@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 
-import { isPrintableAscii } from "@sapientsai/ms-graph-core"
+import { graphPath, isPrintableAscii } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -95,7 +95,7 @@ export const listPlannerTasks = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphPlannerTask>(`/planner/plans/${params.plan_id}/tasks`)
+    const result = await client.requestPaginated<GraphPlannerTask>(graphPath`/planner/plans/${params.plan_id}/tasks`)
     return result
       .mapLeft((error) => new UserError(`Failed to list tasks: ${error.message}`))
       .map((items) => formatPlannerTaskList(items))

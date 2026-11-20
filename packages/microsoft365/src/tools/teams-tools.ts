@@ -1,3 +1,4 @@
+import { graphPath } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left } from "functype/either"
 import { UserError } from "somamcp"
@@ -40,7 +41,7 @@ export const listChannels = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphChannel>(`/teams/${params.team_id}/channels`)
+    const result = await client.requestPaginated<GraphChannel>(graphPath`/teams/${params.team_id}/channels`)
     return result
       .mapLeft((error) => new UserError(`Failed to list channels: ${error.message}`))
       .map((items) => formatChannelList(items))
@@ -63,7 +64,7 @@ export const listChannelMessages = async (params: {
 
   if (params.fetch_all_pages) {
     const result = await client.requestPaginated<GraphChannelMessage>(
-      `/teams/${params.team_id}/channels/${params.channel_id}/messages`,
+      graphPath`/teams/${params.team_id}/channels/${params.channel_id}/messages`,
     )
     return result
       .mapLeft((error) => new UserError(`Failed to list channel messages: ${error.message}`))

@@ -1,3 +1,4 @@
+import { graphPath } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left } from "functype/either"
 import { UserError } from "somamcp"
@@ -51,7 +52,7 @@ export const listGroupMembers = async (params: {
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphUser>(`/groups/${params.group_id}/members`)
+    const result = await client.requestPaginated<GraphUser>(graphPath`/groups/${params.group_id}/members`)
     return result
       .mapLeft((error) => new UserError(`Failed to list group members: ${error.message}`))
       .map((items) => formatUserList(items))

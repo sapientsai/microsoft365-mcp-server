@@ -6,6 +6,7 @@ import { graphErrorMessage } from "./graph-error-message"
 import { notSentError } from "./request-check"
 import { type FetchLike, isCircuitOpenError, resilientFetch } from "./resilience"
 import type { GraphApiError, GraphApiVersion, ODataParams, ODataResponse } from "./types"
+import { graphPathProblem } from "./utils/graph-path"
 import { appendODataQuery, buildODataQuery } from "./utils/odata-helpers"
 import { fetchAllPages, parseJsonResponse } from "./utils/pagination"
 
@@ -127,6 +128,9 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
     path: string,
     options?: GraphRequestOptions,
   ): Promise<Either<GraphApiError, T>> => {
+    const pathIssue = graphPathProblem(path)
+    if (pathIssue !== undefined) return Left<GraphApiError, T>({ type: "api", status: 400, message: pathIssue })
+
     const tokenResult = await auth.getAccessToken()
     if (tokenResult.isLeft()) {
       return Left<GraphApiError, T>({ type: "auth", message: (tokenResult.value as { message: string }).message })
@@ -180,6 +184,11 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
     path: string,
     options?: GraphRequestOptions,
   ): Promise<Either<GraphApiError, ReadonlyArray<T>>> => {
+    // Only the first path is the caller's; the pages after it come from Graph's own nextLink.
+    const pathIssue = graphPathProblem(path)
+    if (pathIssue !== undefined) {
+      return Left<GraphApiError, ReadonlyArray<T>>({ type: "api", status: 400, message: pathIssue })
+    }
     const version = options?.version ?? resolveVersion()
     const queryString = buildODataQuery(options?.odataParams)
     const initialUrl = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`

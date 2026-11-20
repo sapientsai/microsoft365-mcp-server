@@ -1,3 +1,4 @@
+import { graphPath } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -125,7 +126,7 @@ export const listChats = async (params?: {
 const chatMessagesFailure = async (client: Client, chatId: string, error: GraphApiError): Promise<UserError> => {
   const message = `Failed to list chat messages: ${error.message}`
   if (error.type !== "forbidden") return new UserError(message)
-  const chat = await client.request<{ tenantId?: string }>("GET", `/chats/${chatId}`, {
+  const chat = await client.request<{ tenantId?: string }>("GET", graphPath`/chats/${chatId}`, {
     odataParams: { $select: ["tenantId"] },
   })
   const host = chat.fold(
@@ -207,7 +208,7 @@ export const listChatMessages = async (params: {
   }
 
   if (params.fetch_all_pages) {
-    const result = await client.requestPaginated<GraphChatMessage>(`/chats/${params.chat_id}/messages`)
+    const result = await client.requestPaginated<GraphChatMessage>(graphPath`/chats/${params.chat_id}/messages`)
     if (result.isLeft()) return Left(await chatMessagesFailure(client, params.chat_id, result.value as GraphApiError))
     return Right(formatChatMessageList(result.value as ReadonlyArray<GraphChatMessage>, options))
   }
