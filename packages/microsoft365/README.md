@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **103 Tools** across 15 domains, including a generic Graph API escape hatch (27 need `MS365_ORG_MODE=true`)
+- **111 Tools** across 15 domains, including a generic Graph API escape hatch (27 need `MS365_ORG_MODE=true`)
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -202,6 +202,7 @@ You need an Azure AD (Entra ID) app registration:
 | `Calendars.ReadWrite.Shared` (optional)        | Writing to calendars others shared with you    |
 | `Contacts.Read`                                | Contacts                                       |
 | `Contacts.ReadWrite`                           | Creating, updating and deleting contacts       |
+| `MailboxSettings.ReadWrite`                    | Automatic replies, categories, inbox rules     |
 | `Files.ReadWrite`                              | OneDrive                                       |
 | `Sites.Read.All`, `Sites.ReadWrite.All`        | SharePoint sites                               |
 | `Chat.ReadWrite`                               | Teams chats                                    |
@@ -408,7 +409,7 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 
 ## Available Tools
 
-### Mail (23 tools)
+### Mail (31 tools)
 
 | Tool                           | Description                                                               |
 | ------------------------------ | ------------------------------------------------------------------------- |
@@ -435,6 +436,14 @@ Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listi
 | `batch_move_messages`          | Move up to 50 messages to one folder in a single call                     |
 | `summarize_senders`            | Count a folder by sender, server-side — find what to sweep                |
 | `move_messages_matching`       | Move everything matching senders/filter, batched; dry-run by default      |
+| `get_automatic_replies`        | Show automatic replies (out of office): status, dates and messages        |
+| `set_automatic_replies`        | Turn automatic replies on, off or on for a date range; set the messages   |
+| `list_mail_categories`         | List the Outlook categories (master list) with their colors               |
+| `create_mail_category`         | Add a category to the master list, with a color                           |
+| `set_message_categories`       | Replace, add or remove a message's categories                             |
+| `list_mail_rules`              | List inbox rules in run order, with conditions and actions                |
+| `create_mail_rule`             | Create an inbox rule that files, flags, categorizes or deletes mail       |
+| `delete_mail_rule`             | Delete an inbox rule                                                      |
 
 `scan_messages` returns a compact list of message headers. If there’s another page,
 it includes a `cursor` — pass that back on its own to continue the same scan, even if
@@ -453,7 +462,18 @@ Search stops at 1,000 results. To check every matching message, use a filter suc
 > quoted history) for review, then send via `send_draft`. They remain available under
 > `MS365_REQUIRE_DRAFT=true`; the `send_*` tools are hidden in that mode, and `graph_query`
 > refuses requests that send mail without a draft (`sendMail`, and `reply`, `replyAll` or
-> `forward` on a message, including inside a `$batch`).
+> `forward` on a message, including inside a `$batch`). It also refuses creating an inbox
+> rule that forwards or redirects mail, and any change to an existing rule, since turning on
+> or widening a forwarding rule is as good as creating one. Deleting a rule stays allowed.
+> `create_mail_rule` never offers forward or redirect actions. Automatic replies stay
+> available in that mode: they are a mailbox setting.
+
+> **Mailbox settings.** Automatic replies, the category list and inbox rules need the
+> `MailboxSettings.ReadWrite` permission. It is in the default sign-in scopes and needs no
+> admin consent, but a tenant that blocks user consent refuses new sign-ins until it is
+> granted on the app registration. Tagging a message with `set_message_categories` needs
+> only `Mail.ReadWrite`. A category that isn't on the master list still applies; it just
+> shows with no color.
 
 > **Reading attachments.** `read_document` extracts _text_, so a scanned PDF or a
 > photographed letter comes back empty — there is no text layer to extract. Use

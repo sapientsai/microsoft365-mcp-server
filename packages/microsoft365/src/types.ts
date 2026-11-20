@@ -85,6 +85,7 @@ export type GraphMessage = {
   readonly body?: { readonly contentType?: string; readonly content?: string }
   readonly importance?: string
   readonly isDraft?: boolean
+  readonly categories?: ReadonlyArray<string>
 }
 
 export type GraphBatchResponse = {
@@ -103,6 +104,37 @@ export type GraphMailFolder = {
   readonly childFolderCount?: number
   readonly unreadItemCount?: number
   readonly totalItemCount?: number
+}
+
+export type GraphDateTimeTimeZone = { readonly dateTime: string; readonly timeZone: string }
+
+export type GraphAutomaticRepliesSetting = {
+  readonly status?: string
+  readonly externalAudience?: string
+  readonly internalReplyMessage?: string
+  readonly externalReplyMessage?: string
+  readonly scheduledStartDateTime?: GraphDateTimeTimeZone
+  readonly scheduledEndDateTime?: GraphDateTimeTimeZone
+}
+
+export type GraphOutlookCategory = {
+  readonly id: string
+  readonly displayName?: string
+  readonly color?: string
+}
+
+export type GraphRecipient = { readonly emailAddress?: { readonly name?: string; readonly address?: string } }
+
+export type GraphMessageRule = {
+  readonly id: string
+  readonly displayName?: string
+  readonly sequence?: number
+  readonly isEnabled?: boolean
+  readonly hasError?: boolean
+  readonly isReadOnly?: boolean
+  readonly conditions?: Record<string, unknown>
+  readonly exceptions?: Record<string, unknown>
+  readonly actions?: Record<string, unknown>
 }
 
 export type GraphAttachment = {

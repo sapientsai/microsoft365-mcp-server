@@ -3,6 +3,8 @@ export const GRAPH_SCOPES = {
   MAIL_READ: "Mail.Read",
   MAIL_READWRITE: "Mail.ReadWrite",
   MAIL_SEND: "Mail.Send",
+  // Automatic replies, the master category list, and inbox rules.
+  MAILBOX_SETTINGS_READWRITE: "MailboxSettings.ReadWrite",
 
   // Calendar
   CALENDARS_READ: "Calendars.Read",
@@ -80,6 +82,11 @@ export const DEFAULT_INTERACTIVE_SCOPES: ReadonlyArray<string> = [
   GRAPH_SCOPES.MAIL_READ,
   GRAPH_SCOPES.MAIL_READWRITE,
   GRAPH_SCOPES.MAIL_SEND,
+  // get_automatic_replies, set_automatic_replies, the category list and the inbox rule tools need it.
+  // Like Contacts.ReadWrite it needs no admin consent, but a tenant that blocks user consent will refuse
+  // new sign-ins until it is granted, so grant it on the app registration before deploying. Existing
+  // sessions keep refreshing on their original grant until they sign in again.
+  GRAPH_SCOPES.MAILBOX_SETTINGS_READWRITE,
   GRAPH_SCOPES.CALENDARS_READWRITE,
   GRAPH_SCOPES.CALENDARS_READ_SHARED,
   GRAPH_SCOPES.CONTACTS_READ,

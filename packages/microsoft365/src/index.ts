@@ -28,6 +28,7 @@ import { defaultVersion } from "./client/graph-version"
 import { resolveMailbox } from "./mail/mailbox"
 import {
   batchMoveMessages,
+  CATEGORY_COLORS,
   copyDriveItem,
   copyOnenotePage,
   createContact,
@@ -35,6 +36,8 @@ import {
   createEvent,
   createFolder,
   createForwardDraft,
+  createMailCategory,
+  createMailRule,
   createOnenoteNotebook,
   createOnenotePage,
   createOnenoteSection,
@@ -48,6 +51,7 @@ import {
   deleteDraft,
   deleteDriveItem,
   deleteEvent,
+  deleteMailRule,
   deleteOnenotePage,
   deleteTodoList,
   deleteTodoTask,
@@ -56,6 +60,7 @@ import {
   findMeetingAvailability,
   getAttachmentUploadConfig,
   getAuthStatusTool,
+  getAutomaticReplies,
   getContact,
   getDriveItem,
   getEvent,
@@ -82,7 +87,9 @@ import {
   listEvents,
   listGroupMembers,
   listGroups,
+  listMailCategories,
   listMailFolders,
+  listMailRules,
   listMeetingTranscripts,
   listMessages,
   listOnenoteNotebooks,
@@ -118,6 +125,8 @@ import {
   sendReply,
   sendReplyAll,
   setAccessTokenTool,
+  setAutomaticReplies,
+  setMessageCategories,
   setTodoTaskState,
   SHOW_AS,
   summarizeSenders,
@@ -830,6 +839,144 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       mailbox: MAILBOX_PARAM,
     }),
     execute: async (params) => unwrapResult(await deleteDraft(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "get_automatic_replies",
+    description:
+      "Show the mailbox's automatic replies (out of office): on, off or scheduled, the dates, and the messages.",
+    parameters: z.object({ mailbox: MAILBOX_PARAM }),
+    execute: async (params) => unwrapResult(await getAutomaticReplies(params)),
+    domain: "mail",
+    readOnly: true,
+  },
+  {
+    name: "set_automatic_replies",
+    description:
+      "Turn automatic replies (out of office) on, off, or on for a date range, and set their messages. " +
+      "Messages left out keep their current text. The replies go out on their own to people who write in.",
+    parameters: z.object({
+      status: z
+        .enum(["disabled", "alwaysEnabled", "scheduled"])
+        .describe("disabled turns replies off; alwaysEnabled turns them on now; scheduled uses start and end"),
+      internal_message: z.string().optional().describe("Reply to people in your organization (HTML or text)"),
+      external_message: z.string().optional().describe("Reply to people outside your organization (HTML or text)"),
+      external_audience: z
+        .enum(["none", "contactsOnly", "all"])
+        .optional()
+        .describe("Who outside the organization gets the external reply"),
+      start: z.string().optional().describe("Start, like 2026-12-20T09:00, in time_zone. Required for scheduled"),
+      end: z.string().optional().describe("End, like 2027-01-02T09:00, in time_zone. Required for scheduled"),
+      time_zone: z
+        .string()
+        .optional()
+        .describe('Time zone for start and end, e.g. "Eastern Standard Time" or "UTC" (default UTC)'),
+      mailbox: MAILBOX_PARAM,
+    }),
+    execute: async (params) => unwrapResult(await setAutomaticReplies(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "list_mail_categories",
+    description: "List the mailbox's Outlook categories (its master list) with their colors.",
+    parameters: z.object({ mailbox: MAILBOX_PARAM }),
+    execute: async (params) => unwrapResult(await listMailCategories(params)),
+    domain: "mail",
+    readOnly: true,
+  },
+  {
+    name: "create_mail_category",
+    description:
+      "Add a category to the mailbox's Outlook master list, so it shows with a color. A message can carry a " +
+      "category that isn't on the list, but it then shows with no color.",
+    parameters: z.object({
+      name: z.string().describe("Category name; it can't be renamed later"),
+      color: z
+        .string()
+        .optional()
+        .describe(`Color: ${CATEGORY_COLORS.join(", ")}, or preset0 to preset24. Default none`),
+      mailbox: MAILBOX_PARAM,
+    }),
+    execute: async (params) => unwrapResult(await createMailCategory(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "set_message_categories",
+    description:
+      "Set the categories on a message: replace them all, or add or remove some. Categories are Outlook's labels; " +
+      "see list_mail_categories for the defined ones.",
+    parameters: z.object({
+      message_id: z.string().describe("The message ID, or a ref from scan_messages"),
+      categories: z.array(z.string()).describe("Category names. With mode replace, an empty list clears them"),
+      mode: z
+        .enum(["replace", "add", "remove"])
+        .optional()
+        .describe("replace (default) sets exactly these; add keeps the existing ones; remove takes these off"),
+      mailbox: MAILBOX_PARAM,
+    }),
+    execute: async (params) => unwrapResult(await setMessageCategories(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "list_mail_rules",
+    description:
+      "List the inbox rules, in the order they run, with each rule's conditions and actions. Shows forwarding " +
+      "rules too, so it is a way to check where mail is being sent.",
+    parameters: z.object({ mailbox: MAILBOX_PARAM }),
+    execute: async (params) => unwrapResult(await listMailRules(params)),
+    domain: "mail",
+    readOnly: true,
+  },
+  {
+    name: "create_mail_rule",
+    description:
+      "Create an inbox rule that acts on new incoming mail: move or copy it to a folder, mark it read, set its " +
+      "importance, add categories, or delete it. Needs at least one condition and one action; several conditions " +
+      "must all match. Rules here never forward or redirect mail.",
+    parameters: z.object({
+      name: z.string().describe("Rule name"),
+      from_addresses: z.array(z.string()).optional().describe("Sender email addresses, any of which matches"),
+      sender_contains: z.array(z.string()).optional().describe("Text in the sender's name or address"),
+      subject_contains: z.array(z.string()).optional().describe("Text in the subject, any of which matches"),
+      body_contains: z.array(z.string()).optional().describe("Text in the body, any of which matches"),
+      body_or_subject_contains: z.array(z.string()).optional().describe("Text in the body or subject"),
+      recipient_contains: z.array(z.string()).optional().describe("Text in the To or CC recipients"),
+      has_attachments: z.boolean().optional().describe("true: only messages with attachments. false is ignored"),
+      importance: z.enum(["low", "normal", "high"]).optional().describe("Only messages of this importance"),
+      sent_only_to_me: z
+        .boolean()
+        .optional()
+        .describe("true: only messages where you are the only recipient. false is ignored"),
+      move_to_folder: z
+        .string()
+        .optional()
+        .describe("Folder to move matches to: a well-known name (archive, junkemail), display name, or ID"),
+      copy_to_folder: z.string().optional().describe("Folder to copy matches to, named the same ways"),
+      mark_as_read: z.boolean().optional().describe("Mark matches as read"),
+      mark_importance: z.enum(["low", "normal", "high"]).optional().describe("Set matches' importance"),
+      assign_categories: z.array(z.string()).optional().describe("Categories to add to matches"),
+      delete: z.boolean().optional().describe("Move matches to Deleted Items"),
+      stop_processing_rules: z.boolean().optional().describe("Skip later rules for a message this rule matched"),
+      sequence: z.number().int().min(1).optional().describe("Position among the rules; lower runs first (default 1)"),
+      enabled: z.boolean().optional().describe("Create the rule turned on (default) or off"),
+      mailbox: MAILBOX_PARAM,
+    }),
+    execute: async (params) => unwrapResult(await createMailRule(params)),
+    domain: "mail",
+    readOnly: false,
+  },
+  {
+    name: "delete_mail_rule",
+    description: "Delete an inbox rule. Get its ID from list_mail_rules.",
+    parameters: z.object({
+      rule_id: z.string().describe("The rule's ID from list_mail_rules"),
+      mailbox: MAILBOX_PARAM,
+    }),
+    execute: async (params) => unwrapResult(await deleteMailRule(params)),
     domain: "mail",
     readOnly: false,
   },

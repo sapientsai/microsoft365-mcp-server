@@ -43,27 +43,27 @@ _Allow public client flows_ turned on. The sign-in is cached, so it survives res
 
 ## What it can do
 
-**103 tools.** 27 of them need a work or school tenant, so they stay hidden until you set
+**111 tools.** 27 of them need a work or school tenant, so they stay hidden until you set
 `MS365_ORG_MODE=true`.
 
-| Area                  | Tools | What the assistant can do                                                              |
-| --------------------- | ----: | -------------------------------------------------------------------------------------- |
-| Mail                  |    23 | Read, search, send, reply, forward, move, and draft messages; save attachments         |
-| Calendar              |     9 | List and manage events, find free time, accept or decline invitations                  |
-| Contacts              |     7 | List, search, create, update, delete, and export contacts                              |
-| Files (OneDrive)      |    12 | Browse, search, download, and upload files; create folders; move, rename, copy, delete |
-| SharePoint ¹          |     5 | Browse sites, their drives and items; search a site's files                            |
-| Documents             |     1 | Extract readable text from PDF, DOCX, XLSX, and text files (`read_document`)           |
-| OneNote               |    10 | List notebooks, sections and pages; read, create, update, copy, delete pages           |
-| To Do                 |     8 | Manage task lists and tasks, including repeating ones                                  |
-| Teams chats ¹         |     3 | List chats and messages; send a chat message                                           |
-| Teams channels ¹      |     4 | List teams, channels and messages; post to a channel                                   |
-| Meeting transcripts ¹ |     2 | List and read Teams meeting transcripts                                                |
-| Planner ¹             |     8 | List plans, buckets and tasks; create and update tasks                                 |
-| Users                 |     3 | Your own profile; look up other users ¹                                                |
-| Groups ¹              |     3 | List groups and their members                                                          |
-| Accounts              |     4 | Check sign-in status, switch between accounts, supply a token                          |
-| Graph query           |     1 | Call any Microsoft Graph endpoint the user has access to (`graph_query`)               |
+| Area                  | Tools | What the assistant can do                                                                                                         |
+| --------------------- | ----: | --------------------------------------------------------------------------------------------------------------------------------- |
+| Mail                  |    31 | Read, search, send, reply, forward, move, and draft messages; save attachments; set automatic replies, categories and inbox rules |
+| Calendar              |     9 | List and manage events, find free time, accept or decline invitations                                                             |
+| Contacts              |     7 | List, search, create, update, delete, and export contacts                                                                         |
+| Files (OneDrive)      |    12 | Browse, search, download, and upload files; create folders; move, rename, copy, delete                                            |
+| SharePoint ¹          |     5 | Browse sites, their drives and items; search a site's files                                                                       |
+| Documents             |     1 | Extract readable text from PDF, DOCX, XLSX, and text files (`read_document`)                                                      |
+| OneNote               |    10 | List notebooks, sections and pages; read, create, update, copy, delete pages                                                      |
+| To Do                 |     8 | Manage task lists and tasks, including repeating ones                                                                             |
+| Teams chats ¹         |     3 | List chats and messages; send a chat message                                                                                      |
+| Teams channels ¹      |     4 | List teams, channels and messages; post to a channel                                                                              |
+| Meeting transcripts ¹ |     2 | List and read Teams meeting transcripts                                                                                           |
+| Planner ¹             |     8 | List plans, buckets and tasks; create and update tasks                                                                            |
+| Users                 |     3 | Your own profile; look up other users ¹                                                                                           |
+| Groups ¹              |     3 | List groups and their members                                                                                                     |
+| Accounts              |     4 | Check sign-in status, switch between accounts, supply a token                                                                     |
+| Graph query           |     1 | Call any Microsoft Graph endpoint the user has access to (`graph_query`)                                                          |
 
 ¹ Needs `MS365_ORG_MODE=true`. In the Users row, only the lookup of other users does; your own profile does not.
 
@@ -77,7 +77,8 @@ You decide how much the assistant can touch:
 
 - **`MS365_READ_ONLY=true`** hides every tool that writes.
 - **`MS365_REQUIRE_DRAFT=true`** removes direct email sending. The assistant can only write email drafts, which you
-  review in Outlook and send yourself, or approve with `send_draft`. Teams messages and calendar invites still send.
+  review in Outlook and send yourself, or approve with `send_draft`. Teams messages and calendar invites still send,
+  and so do automatic replies. Inbox rules can't forward mail in this mode, even through `graph_query`.
 - **`MS365_PRESETS`** loads only some areas: `personal`, `collaboration`, `productivity`, `rag`, or `all`.
 - **`MS365_ENABLED_TOOLS`** loads only the tools whose names match a regex.
 - **`MS365_ALLOWED_MAILBOXES`** limits which other people's or shared mailboxes it may open.

@@ -67,6 +67,11 @@ const property = (value: unknown, name: string): unknown => {
   return key === undefined ? undefined : (value as Record<string, unknown>)[key]
 }
 
+// Two keys that differ only in case (url and URL) leave it to Graph which one counts, so a request
+// holding them can't be checked and is treated as unsafe.
+const ambiguous = (value: unknown, name: string): boolean =>
+  typeof value === "object" && value !== null && Object.keys(value).filter((k) => k.toLowerCase() === name).length > 1
+
 // GET and HEAD can never send. Every other method is treated as a possible send, so an unknown
 // or missing method (or a method-override header) can't open a gap. Exempting reads keeps a
 // path-addressed drive item named "Forward" or "Reply" readable.
@@ -84,12 +89,67 @@ export const isDirectMailSend = (method: unknown, url: string, body?: unknown): 
   if (SEND_ACTIONS.has(action)) return true
   if (action !== "$batch") return false
 
+  if (ambiguous(body, "requests")) return true
   const requests = property(body, "requests")
   if (!Array.isArray(requests)) return false
   return requests.some((request) => {
+    if (["url", "method", "body"].some((name) => ambiguous(request, name))) return true
     const inner = property(request, "url")
     return typeof inner === "string" && isDirectMailSend(property(request, "method"), inner, property(request, "body"))
   })
+}
+
+// Inbox rule actions that send each matching message to someone else, with no draft step.
+const FORWARD_ACTIONS: ReadonlySet<string> = new Set(["forwardto", "forwardasattachmentto", "redirectto"])
+
+// Every key in a body, at any depth, folded to lower case.
+const deepKeys = (value: unknown): ReadonlyArray<string> => {
+  if (typeof value !== "object" || value === null) return []
+  if (Array.isArray(value)) return value.flatMap(deepKeys)
+  return Object.entries(value).flatMap(([key, inner]) => [key.toLowerCase(), ...deepKeys(inner)])
+}
+
+const isDelete = (method: unknown): boolean => typeof method === "string" && method.trim().toUpperCase() === "DELETE"
+
+/**
+ * True when a request could leave an inbox rule forwarding or redirecting mail, directly or inside a
+ * JSON $batch. Such a rule sends mail on every match with no draft, so MS365_REQUIRE_DRAFT refuses it
+ * like a direct send.
+ *
+ * - A new rule (a write to the messageRules collection) is refused if any key in its body, at any
+ *   depth and in any case, names a forward action, or if the body isn't a JSON object.
+ * - Any write to an existing rule, or to a property of one, is refused outright. Turning on a disabled
+ *   forwarding rule, or widening its conditions, is as good as creating one, and telling those apart
+ *   would mean reading the rule first. Deleting a rule stays allowed, as does any read.
+ */
+export const isForwardingRuleWrite = (method: unknown, url: string, body?: unknown): boolean => {
+  if (typeof method === "string" && READ_METHODS.has(method.trim().toUpperCase())) return false
+  const segments = pathSegments(url)
+  if (segments.at(-1) === "$batch") {
+    if (ambiguous(body, "requests")) return true
+    const requests = property(body, "requests")
+    if (!Array.isArray(requests)) return false
+    return requests.some((request) => {
+      if (["url", "method", "body"].some((name) => ambiguous(request, name))) return true
+      const inner = property(request, "url")
+      return (
+        typeof inner === "string" &&
+        isForwardingRuleWrite(property(request, "method"), inner, property(request, "body"))
+      )
+    })
+  }
+  const index = segments.findIndex((segment) => segment.startsWith("messagerules"))
+  if (index === -1 || isDelete(method)) return false
+  const targetsExistingRule = segments[index] !== "messagerules" || index < segments.length - 1
+  if (targetsExistingRule) return true
+  if (body === undefined) return false
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return true
+  // An actions value that isn't an object can't be read, so it can't be shown to be safe.
+  const unreadableActions = Object.entries(body).some(
+    ([key, value]) =>
+      key.toLowerCase() === "actions" && value !== null && (typeof value !== "object" || Array.isArray(value)),
+  )
+  return unreadableActions || deepKeys(body).some((key) => FORWARD_ACTIONS.has(key))
 }
 
 /**
@@ -116,6 +176,11 @@ const DRAFT_REQUIRED_MESSAGE =
   "This server requires mail to go through a draft (MS365_REQUIRE_DRAFT), so graph_query can't send it " +
   "directly. Create a draft with create_draft, create_reply_draft, create_reply_all_draft or " +
   "create_forward_draft, then send it with send_draft."
+
+const FORWARDING_RULE_MESSAGE =
+  "This server requires mail to go through a draft (MS365_REQUIRE_DRAFT), so graph_query can't create an " +
+  "inbox rule that forwards or redirects mail, or change an existing rule. Use create_mail_rule for rules " +
+  "that file, flag, categorize or delete mail, and delete_mail_rule to remove one."
 
 const parseBody = (raw: string | undefined): Either<UserError, Record<string, unknown> | undefined> => {
   if (!raw) return Right(undefined)
@@ -149,6 +214,9 @@ export const graphQuery = async (params: {
   const url = `${GRAPH_API_BASE}/${version ?? "v1.0"}${params.path}`
   if (requireDraftEnabled() && isDirectMailSend(params.method, url, body)) {
     return Left(new UserError(DRAFT_REQUIRED_MESSAGE))
+  }
+  if (requireDraftEnabled() && isForwardingRuleWrite(params.method, url, body)) {
+    return Left(new UserError(FORWARDING_RULE_MESSAGE))
   }
 
   const client = requireClient()

@@ -14,6 +14,7 @@ import type {
   GraphApiError,
   GraphApiVersion,
   GraphAttachment,
+  GraphAutomaticRepliesSetting,
   GraphBatchResponse,
   GraphBucket,
   GraphCalendar,
@@ -29,7 +30,9 @@ import type {
   GraphMailFolder,
   GraphMeetingTimeSuggestionsResult,
   GraphMessage,
+  GraphMessageRule,
   GraphNotebook,
+  GraphOutlookCategory,
   GraphPage,
   GraphPlan,
   GraphPlannerTask,
@@ -163,6 +166,47 @@ const createGraphClient = (auth: AuthStrategy) => {
 
   const deleteMessage = (id: string, prefix: string = "/me") =>
     request<Record<string, never>>("DELETE", `${prefix}/messages/${id}`)
+
+  // Mailbox settings: automatic replies, the master category list, and inbox rules.
+  // All need MailboxSettings.Read or MailboxSettings.ReadWrite.
+  const getAutomaticReplies = (prefix: string = "/me") =>
+    request<GraphAutomaticRepliesSetting>("GET", `${prefix}/mailboxSettings/automaticRepliesSetting`)
+
+  const setAutomaticReplies = (setting: Record<string, unknown>, prefix: string = "/me") =>
+    request<{ automaticRepliesSetting?: GraphAutomaticRepliesSetting }>("PATCH", `${prefix}/mailboxSettings`, {
+      body: { automaticRepliesSetting: setting },
+    })
+
+  const listMasterCategories = (prefix: string = "/me") =>
+    request<ODataResponse<GraphOutlookCategory>>("GET", `${prefix}/outlook/masterCategories`)
+
+  const createMasterCategory = (displayName: string, color: string, prefix: string = "/me") =>
+    request<GraphOutlookCategory>("POST", `${prefix}/outlook/masterCategories`, { body: { displayName, color } })
+
+  const getMessageCategories = (id: string, prefix: string = "/me") =>
+    request<GraphMessage>("GET", `${prefix}/messages/${id}`, {
+      odataParams: { $select: ["id", "subject", "categories"] },
+    })
+
+  // A rule's moveToFolder takes a real folder ID, so a well-known name such as "archive" is looked up.
+  const getMailFolder = (idOrWellKnownName: string, prefix: string = "/me") =>
+    request<GraphMailFolder>("GET", `${prefix}/mailFolders/${encodeURIComponent(idOrWellKnownName)}`, {
+      odataParams: { $select: ["id", "displayName"] },
+    })
+
+  const rulesPath = (prefix: string) => `${prefix}/mailFolders/inbox/messageRules`
+
+  const listMessageRules = (prefix: string = "/me") => requestPaginated<GraphMessageRule>(rulesPath(prefix))
+
+  const createMessageRule = (rule: Record<string, unknown>, prefix: string = "/me") =>
+    request<GraphMessageRule>("POST", rulesPath(prefix), { body: rule })
+
+  // Rule IDs are base64 and may hold "/" or "+", so they are encoded as one path segment. Retried only
+  // on 429: after a 503 or timeout the delete may have landed, and a retry would answer 404.
+  const deleteMessageRule = (id: string, prefix: string = "/me") =>
+    request<Record<string, never>>("DELETE", `${rulesPath(prefix)}/${encodeURIComponent(id)}`, {
+      retryTransient: false,
+    })
 
   const sendReply = (id: string, comment: string, prefix: string = "/me") =>
     request<Record<string, never>>("POST", `${prefix}/messages/${id}/reply`, { body: { comment } })
@@ -826,6 +870,15 @@ const createGraphClient = (auth: AuthStrategy) => {
     getDraftState,
     updateMessage,
     deleteMessage,
+    getAutomaticReplies,
+    setAutomaticReplies,
+    listMasterCategories,
+    createMasterCategory,
+    getMessageCategories,
+    getMailFolder,
+    listMessageRules,
+    createMessageRule,
+    deleteMessageRule,
     sendReply,
     sendReplyAll,
     sendForward,

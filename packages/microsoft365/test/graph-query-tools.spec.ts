@@ -7,7 +7,7 @@ vi.mock("../src/client/graph-client", () => ({
 }))
 
 import { getGraphClient } from "../src/client/graph-client"
-import { graphQuery, isDirectMailSend } from "../src/tools/graph-query-tools"
+import { graphQuery, isDirectMailSend, isForwardingRuleWrite } from "../src/tools/graph-query-tools"
 
 const mockClient = {
   graphQuery: vi.fn(),
@@ -200,5 +200,70 @@ describe("graphQuery", () => {
       ),
     ).toContain("not valid JSON")
     expect(mockClient.graphQuery).not.toHaveBeenCalled()
+  })
+})
+
+// A forwarding inbox rule sends every matching message to someone else with no draft, so
+// MS365_REQUIRE_DRAFT refuses it in graph_query, like a direct send.
+describe("isForwardingRuleWrite", () => {
+  const RULES = "/me/mailFolders/inbox/messageRules"
+  const forward = { actions: { forwardTo: [{ emailAddress: { address: "x@example.net" } }] } }
+
+  it.each([
+    ["POST", RULES, forward],
+    ["PATCH", `${RULES}/AQAAAJ5dZqA=`, { actions: { RedirectTo: [] } }],
+    ["POST", "/users/it@contoso.com/mailFolders('inbox')/messageRules", { actions: { forwardAsAttachmentTo: [] } }],
+    ["POST", "/me/mailFolders/inbox/message%52ules", forward],
+    ["post", RULES, "not an object"],
+    ["POST", RULES, { actions: "forwardTo" }],
+    // Duplicate case variants: whichever one Graph honours, the forward is seen.
+    ["POST", RULES, { Actions: { markAsRead: true }, actions: { forwardTo: [] } }],
+    ["POST", RULES, { actions: { nested: { FORWARDTO: [] } } }],
+    // Any write to an existing rule: enabling or widening a forwarding rule is as good as creating one.
+    ["PATCH", `${RULES}/r1`, { isEnabled: true }],
+    ["PATCH", `${RULES}/r1/actions`, { forwardTo: [] }],
+    ["PATCH", "/me/mailFolders/inbox/messageRules('r1')", { isEnabled: true }],
+    [undefined, `${RULES}/r1`, { isEnabled: true }],
+  ])("refuses %s %s", (method, url, body) => {
+    expect(isForwardingRuleWrite(method, url, body)).toBe(true)
+  })
+
+  it.each([
+    ["GET", RULES, undefined],
+    ["POST", RULES, { actions: { moveToFolder: "abc", markAsRead: true } }],
+    ["DELETE", `${RULES}/r1`, undefined],
+    ["POST", "/me/messages", forward],
+  ])("allows %s %s", (method, url, body) => {
+    expect(isForwardingRuleWrite(method, url, body)).toBe(false)
+  })
+
+  it.each([
+    [{ requests: [{ id: "0", method: "POST", url: "/me/messages", URL: RULES, body: forward }] }],
+    [{ requests: [{ id: "0", method: "POST", url: RULES, body: '{"actions":{"forwardTo":[]}}' }] }],
+    [{ requests: [{ id: "0", method: "PATCH", url: `${RULES}/r1`, body: { isEnabled: true } }] }],
+  ])("refuses a $batch whose rule request can't be shown safe: %j", (batch) => {
+    expect(isForwardingRuleWrite("POST", "/$batch", batch)).toBe(true)
+  })
+
+  it("refuses a $batch send hidden behind a duplicate url key", () => {
+    const batch = { requests: [{ id: "0", method: "POST", url: "/me/messages", URL: "/me/sendMail", body: {} }] }
+    expect(isDirectMailSend("POST", "/$batch", batch)).toBe(true)
+  })
+
+  it("refuses a forwarding rule inside a $batch", () => {
+    const batch = { requests: [{ id: "0", method: "POST", url: RULES, body: forward }] }
+    expect(isForwardingRuleWrite("POST", "/$batch", batch)).toBe(true)
+  })
+
+  it("refuses it through graphQuery when MS365_REQUIRE_DRAFT is on, and allows it when off", async () => {
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "true")
+    const refused = await graphQuery({ method: "POST", path: RULES, body: JSON.stringify(forward) })
+    expect(refused.isLeft()).toBe(true)
+    expect((refused.value as Error).message).toContain("forwards or redirects")
+    expect(mockClient.graphQuery).not.toHaveBeenCalled()
+
+    vi.stubEnv("MS365_REQUIRE_DRAFT", "false")
+    const allowed = await graphQuery({ method: "POST", path: RULES, body: JSON.stringify(forward) })
+    expect(allowed.isRight()).toBe(true)
   })
 })
