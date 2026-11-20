@@ -3,7 +3,7 @@ import { Left, Right } from "functype/either"
 
 import { graphErrorMessage } from "../graph-error-message"
 import { notSentError } from "../request-check"
-import { resilientFetch } from "../resilience"
+import { MAY_HAVE_LANDED, mayHaveLandedStatus, resilientFetch } from "../resilience"
 import type { GraphApiError, GraphDriveItem } from "../types"
 import { graphPathProblem } from "../utils/graph-path"
 import { conflictBehaviorProblem, contentTypeProblem, ifMatchProblem } from "../utils/header-values"
@@ -51,11 +51,14 @@ export const ifMatchConflictProblem = (conflictBehavior: string | undefined, ifM
     ? `if_match replaces the file whose eTag it names, so conflict behavior must be "replace" or left unset, not "${conflictBehavior}".`
     : undefined
 
+// Every upload call is a write. One that failed on a 503, 504 or network error wasn't retried,
+// because it may have run (a renamed file created, a chunk accepted), so its message says so.
 const toGraphApiError = async (response: Response, prefix: string): Promise<GraphApiError> => {
   const message = await parseGraphError(response)
+  const note = mayHaveLandedStatus(response.status) ? ` ${MAY_HAVE_LANDED}` : ""
   return {
     type: "api",
-    message: `${prefix}: ${message}`,
+    message: `${prefix}: ${message}${note}`,
     status: response.status,
   }
 }
@@ -75,20 +78,15 @@ export const simpleUpload = async (
   const url = `${apiBase}${path}${separator}@microsoft.graph.conflictBehavior=${conflictBehavior}`
 
   try {
-    // A lost response may already have created a renamed file. Only a 429 is safe to retry.
-    const response = await resilientFetch(
-      url,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": contentType,
-          "Content-Length": String(buffer.length),
-        },
-        body: new Uint8Array(buffer),
+    const response = await resilientFetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": contentType,
+        "Content-Length": String(buffer.length),
       },
-      { retryTransient: false },
-    )
+      body: new Uint8Array(buffer),
+    })
 
     if (!response.ok) {
       return Left(await toGraphApiError(response, "Upload failed"))
@@ -103,7 +101,7 @@ export const simpleUpload = async (
     console.error(`[Upload] simple PUT to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error during upload: ${message}`,
+      message: `Network error during upload: ${message} ${MAY_HAVE_LANDED}`,
     })
   }
 }
@@ -159,7 +157,7 @@ export const sessionUpload = async (
     console.error(`[Upload] createUploadSession to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error creating upload session: ${message}`,
+      message: `Network error creating upload session: ${message} ${MAY_HAVE_LANDED}`,
     })
   }
 }
@@ -181,19 +179,14 @@ const uploadChunks = async (
   const chunk = buffer.subarray(offset, end)
 
   try {
-    // An accepted chunk advances the session; replaying it after a lost response is unsafe.
-    const chunkResponse = await resilientFetch(
-      uploadUrl,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Length": String(chunk.length),
-          "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
-        },
-        body: new Uint8Array(chunk),
+    const chunkResponse = await resilientFetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(chunk.length),
+        "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
       },
-      { retryTransient: false },
-    )
+      body: new Uint8Array(chunk),
+    })
 
     if (!chunkResponse.ok) {
       await resilientFetch(uploadUrl, { method: "DELETE" }).catch(() => {})
@@ -216,7 +209,7 @@ const uploadChunks = async (
     console.error(`[Upload] chunk PUT at byte ${offset} threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error uploading chunk at byte ${offset}: ${message}`,
+      message: `Network error uploading chunk at byte ${offset}: ${message} ${MAY_HAVE_LANDED}`,
     })
   }
 }

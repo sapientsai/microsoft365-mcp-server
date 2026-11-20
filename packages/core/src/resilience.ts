@@ -18,11 +18,13 @@
  *         Safe to retry on every method including POST / PATCH because Graph
  *         throttles *before* executing the operation; the side effect has not
  *         landed server-side when a 429 comes back.
- *       - HTTP 503 / 504 / network errors — retried for **idempotent methods
- *         only** (GET / HEAD / PUT / DELETE / OPTIONS / TRACE, per RFC 7231).
- *         POST and PATCH cannot be retried on these failures: a client-side
- *         timeout or 5xx after the request was already executing server-side
- *         would silently duplicate the side effect.
+ *       - HTTP 503 / 504 / timeouts / network errors — retried for **reads
+ *         only** (GET, HEAD). A write (POST, PATCH, PUT, DELETE) may already
+ *         have run when one of these comes back, so a retry could repeat it
+ *         (a second message, a duplicate file) or report a finished change as
+ *         failed (a DELETE that landed answers 404 the second time). That holds
+ *         for PUT and DELETE too, idempotent or not: Graph's PUTs create files
+ *         and advance upload sessions. See AGENTS.md, "Graph write safety".
  *       - Everything else (auth, invalid input, 403 scope errors) — NOT retried.
  *         Those are deterministic.
  *     Default 3 retries, override with `MS365_GRAPH_MAX_RETRIES`.
@@ -170,17 +172,24 @@ export const backoffDelayMs = (
 const isRetriableStatus = (status: number): boolean => status === 429 || status === 503 || status === 504
 
 /**
- * Per RFC 7231 §4.2.2 (and RFC 5789 §1 for PATCH): GET, HEAD, PUT, DELETE,
- * OPTIONS, TRACE are idempotent — retrying them after a network failure or 5xx is
- * safe because applying the request N times has the same effect as applying it
- * once. POST and PATCH are explicitly NOT idempotent. 429 is still safe to retry
- * on any method because the throttling decision happens before Graph executes the
- * operation.
+ * GET and HEAD change nothing, so a read that failed on a 503, 504, timeout or network error is
+ * retried. Every other method is a write, retried only on 429: Graph throttles before it runs
+ * the operation, so nothing has landed.
  */
-export const isMethodIdempotent = (method: string): boolean => {
-  const m = method.toUpperCase()
-  return m === "GET" || m === "HEAD" || m === "PUT" || m === "DELETE" || m === "OPTIONS" || m === "TRACE"
+export const isReadMethod = (method: string): boolean => {
+  const m = method.trim().toUpperCase()
+  return m === "GET" || m === "HEAD"
 }
+
+/**
+ * Added to the message of a write that failed on a 503, 504, timeout or network error. Such a
+ * write isn't retried because it may already have run, so the caller must not read the error as
+ * "nothing happened" and repeat it blindly.
+ */
+export const MAY_HAVE_LANDED = "The change may have gone through: check before repeating it."
+
+/** True for a status after which a write may already have run on Graph's side. */
+export const mayHaveLandedStatus = (status: number | undefined): boolean => status === 503 || status === 504
 
 const isAbortError = (err: unknown): boolean =>
   typeof err === "object" && err !== null && "name" in err && (err as { name: string }).name === "AbortError"
@@ -199,11 +208,7 @@ export class CircuitOpenError extends Error {
 
 export const isCircuitOpenError = (err: unknown): err is CircuitOpenError => err instanceof CircuitOpenError
 
-/** Some Graph PUTs create new resources or advance an upload session rather than replacing state. */
-export type RetryPolicy = { readonly retryTransient?: boolean }
-
-// The policy is optional, so plain fetch still fits; the resilient fetch honours it.
-export type FetchLike = (url: string, init?: RequestInit, policy?: RetryPolicy) => Promise<Response>
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 /**
  * Wraps `fetch` with timeout + retry + circuit-breaker semantics.
@@ -226,7 +231,6 @@ export const fetchWithResilience = async (
   breaker: CircuitBreaker,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
   fetchImpl: FetchLike = fetch,
-  policy: RetryPolicy = {},
 ): Promise<Response> => {
   // A request fetch would refuse is the caller's mistake, not an outage: report it as that, even
   // while the breaker is open, and never let it count towards opening the breaker.
@@ -237,7 +241,7 @@ export const fetchWithResilience = async (
   if (remainingCooldown !== null) throw new CircuitOpenError(remainingCooldown)
 
   const method = (init?.method ?? "GET").toString().toUpperCase()
-  const methodIsIdempotent = isMethodIdempotent(method)
+  const isRead = isReadMethod(method)
 
   /* eslint-disable functype/no-let -- retry loop: the attempt counter advances per
      iteration, and the fetch outcome has to escape the try/catch that produced it. */
@@ -265,21 +269,18 @@ export const fetchWithResilience = async (
       return response
     }
 
-    // Non-idempotent methods (POST, PATCH) cannot be safely retried on
-    // 503/504/network errors — the request may have already executed server-side.
-    // 429 is the exception: Graph throttles before executing, so retrying a
-    // throttled POST is safe and follows Graph's documented contract.
+    // A write can't be retried on a 503, 504, timeout or network error: it may already have run.
+    // 429 is the exception: Graph throttles before executing, so retrying a throttled write is
+    // safe and follows Graph's documented contract.
     const is429 = response !== null && response.status === 429
-    const retryAllowedByMethod = (methodIsIdempotent && policy.retryTransient !== false) || is429
+    const retryAllowedByMethod = isRead || is429
     const canRetry = attempt < config.maxRetries && retryAllowedByMethod
 
     if (!canRetry) {
       if (!is429) breaker.recordFailure()
       if (!retryAllowedByMethod && attempt === 0) {
         const what = response !== null ? `${response.status}` : "network error"
-        console.error(
-          `[Resilience] Graph ${method} ${what}: not retried (non-idempotent method, side-effect may have landed)`,
-        )
+        console.error(`[Resilience] Graph ${method} ${what}: not retried (a write, which may already have landed)`)
       }
       if (response !== null) return response
       throw networkError ?? new Error("Graph fetch failed (unknown error)")
@@ -339,5 +340,5 @@ export const resetSharedBreakerForTests = (): void => {
  * breaker and env-driven config. Config is read once per call so an env change in
  * tests takes effect without a module reload.
  */
-export const resilientFetch = (url: string, init?: RequestInit, policy?: RetryPolicy): Promise<Response> =>
-  fetchWithResilience(url, init, loadResilienceConfig(), getSharedBreaker(), undefined, undefined, policy)
+export const resilientFetch = (url: string, init?: RequestInit): Promise<Response> =>
+  fetchWithResilience(url, init, loadResilienceConfig(), getSharedBreaker())

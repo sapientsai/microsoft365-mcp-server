@@ -6,7 +6,7 @@ import {
   CircuitOpenError,
   fetchWithResilience,
   isCircuitOpenError,
-  isMethodIdempotent,
+  isReadMethod,
   loadResilienceConfig,
   parseRetryAfterMs,
   type ResilienceConfig,
@@ -90,14 +90,88 @@ describe("backoffDelayMs", () => {
   })
 })
 
-describe("isMethodIdempotent", () => {
-  it("classifies per RFC 7231", () => {
-    for (const m of ["GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE", "get", "delete"]) {
-      expect(isMethodIdempotent(m)).toBe(true)
+describe("isReadMethod", () => {
+  it("counts only GET and HEAD as reads, in any case", () => {
+    for (const m of ["GET", "HEAD", "get", " head "]) expect(isReadMethod(m)).toBe(true)
+    for (const m of ["POST", "PATCH", "PUT", "DELETE", "put", "delete", "OPTIONS"]) expect(isReadMethod(m)).toBe(false)
+  })
+})
+
+// AGENTS.md: a write may already have run when a 503, 504, timeout or network error comes back,
+// so it is retried only on 429. PUT and DELETE are writes like any other.
+describe("write retries", () => {
+  const breaker = () => new CircuitBreaker(5, 30_000, true)
+  const lost = () => Promise.reject(new TypeError("fetch failed"))
+
+  it.each(["PUT", "DELETE", "POST", "PATCH"])("sends a %s once on a 503, a 504 or a network error", async (method) => {
+    for (const failure of [() => Promise.resolve(res(503)), () => Promise.resolve(res(504)), lost]) {
+      const fetchImpl = vi.fn(failure)
+      await fetchWithResilience("https://g/x", { method }, config(), breaker(), noSleep, fetchImpl).catch(
+        () => undefined,
+      )
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
     }
-    for (const m of ["POST", "PATCH", "post", "patch"]) {
-      expect(isMethodIdempotent(m)).toBe(false)
-    }
+  })
+
+  it.each(["PUT", "DELETE"])("sends a %s once when it times out", async (method) => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+        )
+      })
+    })
+    const call = fetchWithResilience(
+      "https://g/x",
+      { method },
+      config({ fetchTimeoutMs: 5 }),
+      breaker(),
+      noSleep,
+      fetchImpl,
+    )
+    await expect(call).rejects.toThrow()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["PUT", "DELETE"])("retries a %s on a 429, honouring Retry-After", async (method) => {
+    const sleep = vi.fn(() => Promise.resolve())
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(res(429, { "retry-after": "2" }))
+      .mockResolvedValueOnce(res(204))
+    const response = await fetchWithResilience("https://g/x", { method }, config(), breaker(), sleep, fetchImpl)
+    expect(response.status).toBe(204)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(sleep).toHaveBeenCalledWith(2_000)
+  })
+
+  // The case that made this rule: the delete landed, the answer was lost, and the retry's 404
+  // reported a finished delete as "not found".
+  it("returns the 504 of a DELETE that landed, not the 404 a retry would get", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(res(504)).mockResolvedValueOnce(res(404))
+    const response = await fetchWithResilience(
+      "https://g/x",
+      { method: "DELETE" },
+      config(),
+      breaker(),
+      noSleep,
+      fetchImpl,
+    )
+    expect(response.status).toBe(504)
+  })
+
+  it("still retries a GET on a 503", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(res(503)).mockResolvedValueOnce(res(200))
+    const response = await fetchWithResilience(
+      "https://g/x",
+      { method: "GET" },
+      config(),
+      breaker(),
+      noSleep,
+      fetchImpl,
+    )
+    expect(response.status).toBe(200)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -250,7 +324,7 @@ describe("fetchWithResilience", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
-  it("retries a 503 for an idempotent method", async () => {
+  it("retries a 503 for a read", async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(res(503)).mockResolvedValueOnce(res(200))
     const response = await fetchWithResilience(
       "https://g",

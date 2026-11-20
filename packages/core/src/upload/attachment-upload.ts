@@ -3,7 +3,7 @@ import { Left, Right } from "functype/either"
 
 import { graphErrorMessage } from "../graph-error-message"
 import { notSentError } from "../request-check"
-import { resilientFetch } from "../resilience"
+import { MAY_HAVE_LANDED, mayHaveLandedStatus, resilientFetch } from "../resilience"
 import type { GraphApiError } from "../types"
 import { describeFetchError } from "./upload"
 
@@ -20,12 +20,15 @@ const OUTLOOK_UPLOAD_HOSTS: ReadonlySet<string> = new Set(["outlook.office.com",
 
 export type MessageAttachment = { readonly id?: string; readonly name: string; readonly size: number }
 
-const graphError = async (response: Response, prefix: string): Promise<GraphApiError> => {
+// Every call here is a write but the draft check. A write that failed on a 503, 504 or network
+// error wasn't retried, because it may have run, so its message says so.
+const graphError = async (response: Response, prefix: string, write = true): Promise<GraphApiError> => {
   const body: unknown = await response.json().catch(() => undefined)
   const error = (body as { error?: { code?: string } } | undefined)?.error
+  const note = write && mayHaveLandedStatus(response.status) ? ` ${MAY_HAVE_LANDED}` : ""
   return {
     type: "api",
-    message: `${prefix}: ${graphErrorMessage(response.status, response.statusText, body)}`,
+    message: `${prefix}: ${graphErrorMessage(response.status, response.statusText, body)}${note}`,
     status: response.status,
     ...(error?.code ? { graphErrorCode: error.code } : {}),
   }
@@ -38,12 +41,12 @@ const SESSION_TOO_SMALL = "ErrorAttachmentSizeShouldNotBeLessThanMinimumSize"
 const inlineTooLarge = (error: GraphApiError): boolean => error.status === 413
 const sessionTooSmall = (error: GraphApiError): boolean => error.graphErrorCode === SESSION_TOO_SMALL
 
-const networkError = (what: string, error: unknown): GraphApiError => {
+const networkError = (what: string, error: unknown, write = true): GraphApiError => {
   const notSent = notSentError(error)
   if (notSent) return notSent
   const { message } = describeFetchError(error)
   console.error(`[AttachmentUpload] ${what} threw: ${message}`)
-  return { type: "network", message: `Network error ${what}: ${message}` }
+  return { type: "network", message: `Network error ${what}: ${message}${write ? ` ${MAY_HAVE_LANDED}` : ""}` }
 }
 
 // mailboxPrefix is "/me" or "/users/{encoded address}", already checked by the caller against
@@ -63,7 +66,7 @@ export const requireDraftMessage = async (
     const response = await resilientFetch(`${messagePath(apiBase, messageId, mailboxPrefix)}?$select=id,isDraft`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
-    if (!response.ok) return Left(await graphError(response, "Failed to read message"))
+    if (!response.ok) return Left(await graphError(response, "Failed to read message", false))
     const message = (await response.json()) as { isDraft?: boolean }
     if (message.isDraft !== true) {
       return Left({
@@ -74,7 +77,7 @@ export const requireDraftMessage = async (
     }
     return Right(undefined)
   } catch (error) {
-    return Left(networkError("reading the message", error))
+    return Left(networkError("reading the message", error, false))
   }
 }
 
@@ -138,20 +141,15 @@ const uploadRanges = async (
   const end = Math.min(offset + ATTACHMENT_CHUNK_SIZE, total)
 
   try {
-    // An accepted range advances the session; replaying it after a lost response is unsafe.
-    const response = await resilientFetch(
-      uploadUrl,
-      {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "Content-Length": String(end - offset),
-          "Content-Range": `bytes ${offset}-${end - 1}/${total}`,
-        },
-        body: new Uint8Array(buffer.subarray(offset, end)),
+    const response = await resilientFetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(end - offset),
+        "Content-Range": `bytes ${offset}-${end - 1}/${total}`,
       },
-      { retryTransient: false },
-    )
+      body: new Uint8Array(buffer.subarray(offset, end)),
+    })
 
     if (!response.ok) {
       await cancelSession(uploadUrl)
