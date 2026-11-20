@@ -29,7 +29,7 @@ import { relayAuthHeader, relayCurl, resolveUploadBaseUrl } from "./files-tools"
 // scan_messages hands back short refs instead of 152-character Graph IDs. Every tool
 // used in the scan-then-act loop resolves refs before calling Graph — against the mailbox
 // being addressed, since a ref minted in one mailbox means nothing in another.
-const resolveMessageId = (idOrRef: string, scope: MailboxScope): Either<UserError, string> => {
+export const resolveMessageId = (idOrRef: string, scope: MailboxScope): Either<UserError, string> => {
   const resolved = resolveMessageIdOrRef(idOrRef, scope.mailbox)
   return resolved.kind === "id" ? Right(resolved.id) : Left(new UserError(describeRefFailure(resolved, scope.mailbox)))
 }
@@ -42,10 +42,10 @@ const requireClient = () => {
 
 // Every mail tool starts the same way: resolve the mailbox, then get the client. Both
 // can fail with a UserError, and neither is worth repeating twenty times.
-type ScopedClient = { scope: MailboxScope; client: NonNullable<ReturnType<typeof requireClient>> }
+export type ScopedClient = { scope: MailboxScope; client: NonNullable<ReturnType<typeof requireClient>> }
 
 // Async because naming your own address is checked against your identity in Graph.
-const withScope = async (mailbox: string | undefined): Promise<Either<UserError, ScopedClient>> => {
+export const withScope = async (mailbox: string | undefined): Promise<Either<UserError, ScopedClient>> => {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
@@ -57,7 +57,7 @@ const withScope = async (mailbox: string | undefined): Promise<Either<UserError,
 
 // A failed scope carries a UserError and no Right value, so it cannot simply be cast
 // to the handler's return type — re-wrap the error instead.
-const scopeFailure = (resolved: Either<UserError, ScopedClient>): Either<UserError, string> =>
+export const scopeFailure = (resolved: Either<UserError, ScopedClient>): Either<UserError, string> =>
   Left(resolved.value as UserError)
 
 // list_messages always sorts by receivedDateTime, and Graph rejects a $filter that does not lead
@@ -157,7 +157,7 @@ export const listMailFolders = async (params?: {
 
 // Graph accepts these well-known names directly as a destinationId, so a caller can
 // say "archive" without first resolving an opaque folder ID.
-const WELL_KNOWN_FOLDERS: ReadonlyMap<string, string> = new Map([
+export const WELL_KNOWN_FOLDERS: ReadonlyMap<string, string> = new Map([
   ["archive", "archive"],
   ["deleteditems", "deleteditems"],
   ["deleted items", "deleteditems"],
@@ -183,7 +183,7 @@ const WELL_KNOWN_FOLDERS: ReadonlyMap<string, string> = new Map([
 // know which explanation to give.
 type ResolvedFolder = { readonly id: string; readonly label: string; readonly assumedId: boolean }
 
-const resolveDestination = async (
+export const resolveDestination = async (
   client: NonNullable<ReturnType<typeof requireClient>>,
   destination: string,
   scope: MailboxScope,
@@ -933,7 +933,7 @@ const MAX_SENDERS_PER_SWEEP = 20
 
 // Sender names, addresses and subjects come from whoever sent the mail. Kept to one
 // line, so none of them can forge a line of the preview the caller acts on.
-const oneLine = (value: string, max: number): string => value.replace(/[\r\n]+/g, " ").slice(0, max)
+export const oneLine = (value: string, max: number): string => value.replace(/[\r\n]+/g, " ").slice(0, max)
 
 const formatSweepPreview = (
   messages: ReadonlyArray<GraphMessage>,

@@ -92,6 +92,42 @@ export const isDirectMailSend = (method: unknown, url: string, body?: unknown): 
   })
 }
 
+// Inbox rule actions that send each matching message to someone else, with no draft step.
+const FORWARD_ACTIONS: ReadonlySet<string> = new Set(["forwardto", "forwardasattachmentto", "redirectto"])
+
+const setsForwardAction = (body: unknown): boolean => {
+  // A body graph_query can't read as an object can't be shown to be safe, so it is refused.
+  if (body === undefined) return false
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return true
+  const actions = property(body, "actions")
+  if (actions === undefined || actions === null) return false
+  if (typeof actions !== "object" || Array.isArray(actions)) return true
+  return Object.keys(actions).some((key) => FORWARD_ACTIONS.has(key.toLowerCase()))
+}
+
+/**
+ * True when a request would create or change an inbox rule so that it forwards or redirects mail,
+ * directly or inside a JSON $batch. Such a rule sends mail on every match with no draft, so
+ * MS365_REQUIRE_DRAFT refuses it like a direct send. Rules that file, flag or delete stay allowed.
+ */
+export const isForwardingRuleWrite = (method: unknown, url: string, body?: unknown): boolean => {
+  if (typeof method === "string" && READ_METHODS.has(method.trim().toUpperCase())) return false
+  const segments = pathSegments(url)
+  if (segments.at(-1) === "$batch") {
+    const requests = property(body, "requests")
+    if (!Array.isArray(requests)) return false
+    return requests.some((request) => {
+      const inner = property(request, "url")
+      return (
+        typeof inner === "string" &&
+        isForwardingRuleWrite(property(request, "method"), inner, property(request, "body"))
+      )
+    })
+  }
+  if (!segments.some((segment) => segment.startsWith("messagerules"))) return false
+  return setsForwardAction(body)
+}
+
 /**
  * Every mailbox address a request reaches: its own URL's, and for a JSON $batch, each
  * sub-request's. Relative batch URLs resolve against the version root, as Graph resolves them.
@@ -116,6 +152,11 @@ const DRAFT_REQUIRED_MESSAGE =
   "This server requires mail to go through a draft (MS365_REQUIRE_DRAFT), so graph_query can't send it " +
   "directly. Create a draft with create_draft, create_reply_draft, create_reply_all_draft or " +
   "create_forward_draft, then send it with send_draft."
+
+const FORWARDING_RULE_MESSAGE =
+  "This server requires mail to go through a draft (MS365_REQUIRE_DRAFT), so graph_query can't create or " +
+  "change an inbox rule that forwards or redirects mail. create_mail_rule makes rules that file, flag, " +
+  "categorize or delete mail."
 
 const parseBody = (raw: string | undefined): Either<UserError, Record<string, unknown> | undefined> => {
   if (!raw) return Right(undefined)
@@ -149,6 +190,9 @@ export const graphQuery = async (params: {
   const url = `${GRAPH_API_BASE}/${version ?? "v1.0"}${params.path}`
   if (requireDraftEnabled() && isDirectMailSend(params.method, url, body)) {
     return Left(new UserError(DRAFT_REQUIRED_MESSAGE))
+  }
+  if (requireDraftEnabled() && isForwardingRuleWrite(params.method, url, body)) {
+    return Left(new UserError(FORWARDING_RULE_MESSAGE))
   }
 
   const client = requireClient()

@@ -39,6 +39,10 @@ describe("scopes", () => {
       expect(DEFAULT_INTERACTIVE_SCOPES).toContain("Mail.Send")
     })
 
+    it("should include MailboxSettings.ReadWrite for automatic replies, categories and rules", () => {
+      expect(DEFAULT_INTERACTIVE_SCOPES).toContain("MailboxSettings.ReadWrite")
+    })
+
     it("should include calendar write scope", () => {
       expect(DEFAULT_INTERACTIVE_SCOPES).toContain("Calendars.ReadWrite")
     })

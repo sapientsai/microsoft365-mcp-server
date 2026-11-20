@@ -129,6 +129,7 @@ describe("tool-registry", () => {
         "create_draft",
         "create_folder",
         "create_forward_draft",
+        "create_mail_category",
         "create_onenote_notebook",
         "create_onenote_page",
         "create_onenote_section",
@@ -318,12 +319,17 @@ describe("tool-registry", () => {
   })
 
   describe("idempotentHint", () => {
-    it("marks set_todo_task_state destructive and idempotent, and no other tool idempotent", () => {
-      const state = TOOL_METADATA.find((m) => m.name === "set_todo_task_state")!
-      expect(toolAnnotations(state)).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: true })
-      expect(TOOL_METADATA.filter((m) => toolAnnotations(m).idempotentHint === true).map((m) => m.name)).toEqual([
+    // Each of these sets a state outright, so a repeat changes nothing more. Every one is still destructive.
+    it("marks only the set-a-state tools idempotent, and keeps them destructive", () => {
+      const idempotent = TOOL_METADATA.filter((m) => toolAnnotations(m).idempotentHint === true)
+      expect(idempotent.map((m) => m.name).sort()).toEqual([
+        "set_automatic_replies",
+        "set_message_categories",
         "set_todo_task_state",
       ])
+      idempotent.forEach((m) =>
+        expect(toolAnnotations(m)).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: true }),
+      )
     })
   })
 })

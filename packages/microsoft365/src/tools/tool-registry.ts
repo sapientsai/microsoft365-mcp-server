@@ -55,7 +55,7 @@ export type ToolMeta = {
  */
 export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   auth: "Authentication: Check auth status and manage tokens",
-  mail: "Mail: List, read, send, reply, search, and draft email messages; edit and delete drafts",
+  mail: "Mail: List, read, send, reply, search, and draft email messages; edit and delete drafts; set automatic replies, categories, and inbox rules",
   calendar: "Calendar: List, view, create, update, and delete events; accept or decline invitations",
   contacts: "Contacts: List, view, create, update, delete, search, and export contacts",
   files:
@@ -184,6 +184,45 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
     orgOnly: false,
     transportOnly: "httpStream",
   },
+  // Mailbox settings. Automatic replies, the category list and inbox rules need MailboxSettings.ReadWrite.
+  {
+    name: "get_automatic_replies",
+    title: "Get Automatic Replies",
+    domain: "mail",
+    readOnly: true,
+    orgOnly: false,
+  },
+  // Replies go out to other people on their own, so this is never additive. Allowed under
+  // MS365_REQUIRE_DRAFT by choice: an out-of-office reply is a setting, not a message someone writes.
+  {
+    name: "set_automatic_replies",
+    title: "Set Automatic Replies",
+    idempotent: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "list_mail_categories", title: "List Mail Categories", domain: "mail", readOnly: true, orgOnly: false },
+  {
+    name: "create_mail_category",
+    title: "Create Mail Category",
+    additive: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  {
+    name: "set_message_categories",
+    title: "Set Email Categories",
+    idempotent: true,
+    domain: "mail",
+    readOnly: false,
+    orgOnly: false,
+  },
+  { name: "list_mail_rules", title: "List Inbox Rules", domain: "mail", readOnly: true, orgOnly: false },
+  // Changes what happens to every future matching message, so not additive.
+  { name: "create_mail_rule", title: "Create Inbox Rule", domain: "mail", readOnly: false, orgOnly: false },
+  { name: "delete_mail_rule", title: "Delete Inbox Rule", domain: "mail", readOnly: false, orgOnly: false },
   // Calendar
   { name: "list_calendars", title: "List Calendars", domain: "calendar", readOnly: true, orgOnly: false },
   { name: "list_events", title: "List Calendar Events", domain: "calendar", readOnly: true, orgOnly: false },
