@@ -1,10 +1,13 @@
 import {
   type AuthStrategy,
+  conflictBehaviorProblem,
+  contentTypeProblem,
   decodeBase64Upload,
   describeFetchError,
   filenameFromPath,
   GRAPH_API_BASE,
   ifMatchConflictProblem,
+  ifMatchProblem,
   MAX_UPLOAD_SIZE,
   resolveUploadContentType,
   uploadDriveContent,
@@ -19,6 +22,8 @@ export type UploadRequestContext = {
   query: (name: string) => string | undefined
   arrayBuffer: () => Promise<ArrayBuffer>
 }
+
+const API_VERSIONS: ReadonlyArray<string> = ["v1.0", "beta"]
 
 const jsonResponse = (body: unknown, status: number): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -37,8 +42,18 @@ export const handleUpload = async (
   // A blank ifMatch is no condition at all, not a condition nothing can meet.
   const rawIfMatch = req.query("ifMatch")?.trim()
   const ifMatch = rawIfMatch === undefined || rawIfMatch === "" ? undefined : rawIfMatch
-  const conflictProblem = ifMatchConflictProblem(requestedConflict, ifMatch)
-  if (conflictProblem) return { status: 400, body: { error: conflictProblem } }
+  // A blank contentType means "work it out from the file name", as it always has.
+  const rawContentType = req.query("contentType")?.trim()
+  const explicitContentType = rawContentType === "" ? undefined : rawContentType
+  // The version is spliced into the Graph URL, so only a known one may pass.
+  const apiVersion = req.query("apiVersion") ?? "v1.0"
+  const problem =
+    (API_VERSIONS.includes(apiVersion) ? undefined : `apiVersion must be one of ${API_VERSIONS.join(", ")}.`) ??
+    conflictBehaviorProblem(requestedConflict) ??
+    ifMatchConflictProblem(requestedConflict, ifMatch) ??
+    ifMatchProblem(ifMatch, "ifMatch") ??
+    contentTypeProblem(explicitContentType, "contentType")
+  if (problem) return { status: 400, body: { error: problem } }
 
   const tokenResult = await auth.getAccessToken()
   if (tokenResult.isLeft()) {
@@ -62,10 +77,9 @@ export const handleUpload = async (
   if (buffer.length > MAX_UPLOAD_SIZE)
     return { status: 413, body: { error: `File too large (max ${MAX_UPLOAD_SIZE} bytes)` } }
 
-  const apiVersion = req.query("apiVersion") ?? "v1.0"
   const conflictBehavior = requestedConflict ?? (ifMatch !== undefined ? "replace" : "rename")
   const filename = filenameFromPath(path)
-  const contentType = resolveUploadContentType(req.query("contentType"), filename)
+  const contentType = resolveUploadContentType(explicitContentType, filename)
   const apiBase = `${GRAPH_API_BASE}/${apiVersion}`
 
   const result = await uploadDriveContent(apiBase, path, token, buffer, contentType, conflictBehavior, { ifMatch })

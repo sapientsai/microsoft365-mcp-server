@@ -3,6 +3,7 @@ import {
   createGraphRequest,
   GRAPH_API_BASE,
   mapHttpError,
+  notSentError,
   parseJsonResponse,
   resilientFetch,
   uploadDriveContent,
@@ -382,6 +383,8 @@ const createGraphClient = (auth: AuthStrategy) => {
       // decoded string has already replaced the evidence (NUL bytes, invalid UTF-8).
       return Right<GraphApiError, Uint8Array>(new Uint8Array(await response.arrayBuffer()))
     } catch (error) {
+      const notSent = notSentError(error)
+      if (notSent) return Left<GraphApiError, Uint8Array>(notSent)
       return Left<GraphApiError, Uint8Array>({
         type: "network",
         message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
@@ -833,6 +836,8 @@ const createGraphClient = (auth: AuthStrategy) => {
       const text = await response.text()
       return parseJsonResponse<GraphDriveItem>(text)
     } catch (error) {
+      const notSent = notSentError(error)
+      if (notSent) return Left<GraphApiError, GraphDriveItem>(notSent)
       return Left<GraphApiError, GraphDriveItem>({
         type: "network",
         message: `Network error: ${error instanceof Error ? error.message : String(error)}`,

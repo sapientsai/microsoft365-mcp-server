@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 
+import { isPrintableAscii } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -156,6 +157,15 @@ export const updatePlannerTask = async (params: {
   due_date?: string
   priority?: number
 }): Promise<Either<UserError, string>> => {
+  // The etag goes out as an If-Match header, which fetch can't send with a line break in it.
+  if (params.etag && (params.etag.trim() === "" || !isPrintableAscii(params.etag))) {
+    return Left(
+      new UserError(
+        "etag is blank or holds characters an eTag never has. Pass the eTag get_planner_task printed, " +
+          "or leave it out to have it looked up.",
+      ),
+    )
+  }
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 

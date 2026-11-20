@@ -2,11 +2,12 @@ import { readFile, stat } from "node:fs/promises"
 import { basename } from "node:path"
 
 import {
-  BLANK_IF_MATCH_MESSAGE,
+  contentTypeProblem,
   describeFetchError,
   filenameFromPath,
   formatBytes,
   ifMatchConflictProblem,
+  ifMatchProblem,
   isTextMimeType,
   isUnknownMimeType,
   looksLikeText,
@@ -190,8 +191,11 @@ export const uploadFile = async (params: {
   const client = requireClient()
   if (!client) return Left(new UserError("MS 365 client not initialized. Check authentication."))
 
-  const conflictProblem = ifMatchConflictProblem(params.conflict_behavior, params.if_match)
-  if (conflictProblem) return Left(new UserError(conflictProblem))
+  const problem =
+    ifMatchConflictProblem(params.conflict_behavior, params.if_match) ??
+    ifMatchProblem(params.if_match) ??
+    contentTypeProblem(params.content_type)
+  if (problem) return Left(new UserError(problem))
 
   const contentType = params.content_type ?? "text/plain"
   if (!isTextMimeType(contentType)) {
@@ -256,10 +260,15 @@ export const getUploadConfig = async (params: {
   if (!/:\/content$/i.test(params.path)) {
     return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
   }
-  const conflictProblem = ifMatchConflictProblem(params.conflictBehavior, params.ifMatch)
-  if (conflictProblem) return Left(new UserError(conflictProblem))
+  // As on the relay, a blank contentType means "work it out from the file name".
+  const rawContentType = params.contentType?.trim()
+  const explicitContentType = rawContentType === "" ? undefined : rawContentType
   // The relay reads a blank ifMatch as no condition, so a blank one here must not reach its URL.
-  if (params.ifMatch?.trim() === "") return Left(new UserError(BLANK_IF_MATCH_MESSAGE))
+  const problem =
+    ifMatchConflictProblem(params.conflictBehavior, params.ifMatch) ??
+    ifMatchProblem(params.ifMatch, "ifMatch") ??
+    contentTypeProblem(explicitContentType, "contentType")
+  if (problem) return Left(new UserError(problem))
 
   const baseUrl = resolveUploadBaseUrl()
   if (!baseUrl) {
@@ -271,7 +280,7 @@ export const getUploadConfig = async (params: {
   }
 
   const filename = filenameFromPath(params.path)
-  const contentType = resolveUploadContentType(params.contentType, filename)
+  const contentType = resolveUploadContentType(explicitContentType, filename)
   const conflictBehavior = params.conflictBehavior ?? (params.ifMatch !== undefined ? "replace" : "rename")
   const localFile = params.localFile ?? "{local_file_path}"
 
@@ -326,8 +335,11 @@ export const uploadFileFromPath = async (params: {
   if (!/:\/content$/i.test(params.path)) {
     return Left(new UserError('path must end with ":/content" (e.g., /me/drive/root:/Documents/file.docx:/content)'))
   }
-  const conflictProblem = ifMatchConflictProblem(params.conflict_behavior, params.if_match)
-  if (conflictProblem) return Left(new UserError(conflictProblem))
+  const problem =
+    ifMatchConflictProblem(params.conflict_behavior, params.if_match) ??
+    ifMatchProblem(params.if_match) ??
+    contentTypeProblem(params.content_type)
+  if (problem) return Left(new UserError(problem))
 
   const fileNotFoundMessage = `File not found: ${params.local_path}. If this file was generated in a cloud environment (e.g., claude.ai), use Desktop Commander's write_file to save it to the local filesystem first, then retry.`
 

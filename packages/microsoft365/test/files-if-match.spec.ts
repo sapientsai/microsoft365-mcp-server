@@ -169,7 +169,7 @@ describe("get_upload_config with ifMatch", () => {
 
   it("refuses a blank ifMatch, which the relay would read as no condition", async () => {
     const result = await getUploadConfig({ path: "/me/drive/root:/state.json:/content", ifMatch: " " })
-    expect((result.value as Error).message).toContain("if_match is blank")
+    expect((result.value as Error).message).toContain("ifMatch is blank")
   })
 
   it("refuses ifMatch with conflictBehavior fail", async () => {

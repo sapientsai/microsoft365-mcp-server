@@ -21,8 +21,14 @@ export const setAccessTokenTool = (params: {
   access_token: string
   expires_on?: string
 }): Either<UserError, string> => {
+  // The token goes out in every request's Authorization header. One holding a space, line break or
+  // other character a header can't carry would make every later call fail before it is sent.
+  const token = params.access_token.trim()
+  if (!/^[\x21-\x7e]+$/.test(token)) {
+    return Left(new UserError("access_token holds a space, line break or other character an access token never has."))
+  }
   const expiresOn = params.expires_on ? new Date(params.expires_on) : undefined
-  const result = setAccessToken(params.access_token, expiresOn)
+  const result = setAccessToken(token, expiresOn)
   if (result.isLeft())
     return Left(new UserError(`Failed to set token: ${(result.value as { message: string }).message}`))
   return Right("Access token updated successfully.")

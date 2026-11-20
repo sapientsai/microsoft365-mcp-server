@@ -35,8 +35,13 @@
  *     probe. Prevents flooding Graph when it is already on fire. Disable with
  *     `MS365_GRAPH_CIRCUIT_DISABLED=true`.
  *
+ * A request fetch would refuse to send (a malformed method or header) throws `RequestNotSentError`
+ * before any of this runs: it is not retried and never counts against the breaker.
+ *
  * All knobs are env-var-driven so a deployment can be tuned without a code change.
  */
+
+import { RequestNotSentError, requestProblem, wasRefusedBeforeSending } from "./request-check"
 
 export type ResilienceConfig = {
   readonly maxRetries: number
@@ -223,6 +228,11 @@ export const fetchWithResilience = async (
   fetchImpl: FetchLike = fetch,
   policy: RetryPolicy = {},
 ): Promise<Response> => {
+  // A request fetch would refuse is the caller's mistake, not an outage: report it as that, even
+  // while the breaker is open, and never let it count towards opening the breaker.
+  const problem = requestProblem(url, init)
+  if (problem !== undefined) throw new RequestNotSentError(problem)
+
   const remainingCooldown = breaker.checkBeforeRequest()
   if (remainingCooldown !== null) throw new CircuitOpenError(remainingCooldown)
 
@@ -244,6 +254,10 @@ export const fetchWithResilience = async (
       networkError = err
     } finally {
       clearTimeout(timer)
+    }
+
+    if (wasRefusedBeforeSending(networkError)) {
+      throw new RequestNotSentError("fetch refused to build the request, so nothing was sent.")
     }
 
     if (response !== null && !isRetriableStatus(response.status)) {
