@@ -1,3 +1,4 @@
+import { MAY_HAVE_LANDED } from "@sapientsai/ms-graph-core"
 import { Some } from "functype"
 import { Left, Right } from "functype/either"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -795,6 +796,28 @@ describe("set_todo_task_state", () => {
     expect(result.isRight()).toBe(true)
     expect(result.value).toBe("Set status and importance on task t1.")
     expect(mockClient.updateTodoTask).toHaveBeenCalledWith(LIST_ID, "t1", { status: "inProgress", importance: "high" })
+  })
+
+  // A PATCH that got a 503 may have run: the tool must not claim nothing changed, and repeating it is safe.
+  it.each([
+    ["a 503", { type: "api", status: 503, message: `Microsoft Graph API error (HTTP 503) ${MAY_HAVE_LANDED}` }],
+    ["a network error", { type: "network", message: `Network error: fetch failed ${MAY_HAVE_LANDED}` }],
+  ])("after %s, says the change may have gone through and that repeating is safe", async (_, error) => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "notStarted" }))
+    mockClient.updateTodoTask.mockResolvedValue(Left(error))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "completed" })
+    const text = (result.value as Error).message
+    expect(text).toContain("may have gone through")
+    expect(text).toContain("Repeating the call is safe")
+    expect(text).not.toContain("nothing was changed")
+    expect(text).not.toContain(MAY_HAVE_LANDED)
+  })
+
+  it("after a 404, still says nothing was changed", async () => {
+    mockClient.getTodoTask.mockResolvedValue(Right({ id: "t1", status: "notStarted" }))
+    mockClient.updateTodoTask.mockResolvedValue(Left({ type: "not_found", status: 404, message: "Not found" }))
+    const result = await setTodoTaskState({ list_id: LIST_ID, task_id: "t1", status: "completed" })
+    expect((result.value as Error).message).toBe("Failed to update the task, so nothing was changed: Not found")
   })
 
   it("says nothing changed on an identical repeat, and sends no PATCH", async () => {

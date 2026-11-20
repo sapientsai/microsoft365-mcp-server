@@ -3,7 +3,7 @@ import { Left, Right } from "functype/either"
 
 import { graphErrorMessage } from "../graph-error-message"
 import { notSentError } from "../request-check"
-import { MAY_HAVE_LANDED, mayHaveLandedStatus, resilientFetch } from "../resilience"
+import { MAY_HAVE_LANDED, mayHaveLandedStatus, resilientFetch, thrownWriteNote } from "../resilience"
 import type { GraphApiError, GraphDriveItem } from "../types"
 import { graphPathProblem } from "../utils/graph-path"
 import { conflictBehaviorProblem, contentTypeProblem, ifMatchProblem } from "../utils/header-values"
@@ -51,11 +51,12 @@ export const ifMatchConflictProblem = (conflictBehavior: string | undefined, ifM
     ? `if_match replaces the file whose eTag it names, so conflict behavior must be "replace" or left unset, not "${conflictBehavior}".`
     : undefined
 
-// Every upload call is a write. One that failed on a 503, 504 or network error wasn't retried,
-// because it may have run (a renamed file created, a chunk accepted), so its message says so.
-const toGraphApiError = async (response: Response, prefix: string): Promise<GraphApiError> => {
+// A simple PUT or the last chunk that failed on a 503, 504 or network error wasn't retried,
+// because the file may exist now, so its message says so. A session that wasn't created, or a
+// middle chunk, leaves no file: the file appears only when the last chunk is accepted.
+const toGraphApiError = async (response: Response, prefix: string, mayCreateFile = true): Promise<GraphApiError> => {
   const message = await parseGraphError(response)
-  const note = mayHaveLandedStatus(response.status) ? ` ${MAY_HAVE_LANDED}` : ""
+  const note = mayCreateFile && mayHaveLandedStatus(response.status) ? ` ${MAY_HAVE_LANDED}` : ""
   return {
     type: "api",
     message: `${prefix}: ${message}${note}`,
@@ -101,7 +102,7 @@ export const simpleUpload = async (
     console.error(`[Upload] simple PUT to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error during upload: ${message} ${MAY_HAVE_LANDED}`,
+      message: `Network error during upload: ${message}${thrownWriteNote(error)}`,
     })
   }
 }
@@ -145,7 +146,7 @@ export const sessionUpload = async (
 
     if (createResponse.status === 412) return Left(preconditionFailed())
     if (!createResponse.ok) {
-      return Left(await toGraphApiError(createResponse, "Failed to create upload session"))
+      return Left(await toGraphApiError(createResponse, "Failed to create upload session", false))
     }
 
     const session = (await createResponse.json()) as { uploadUrl: string }
@@ -157,7 +158,7 @@ export const sessionUpload = async (
     console.error(`[Upload] createUploadSession to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error creating upload session: ${message} ${MAY_HAVE_LANDED}`,
+      message: `Network error creating upload session: ${message}`,
     })
   }
 }
@@ -193,7 +194,7 @@ const uploadChunks = async (
       // Graph's docs don't say whether the condition is checked again when the last chunk
       // commits. If it is, a 412 here is the same lost race and gets the same answer.
       if (chunkResponse.status === 412) return Left(preconditionFailed())
-      return Left(await toGraphApiError(chunkResponse, `Upload chunk failed at byte ${offset}`))
+      return Left(await toGraphApiError(chunkResponse, `Upload chunk failed at byte ${offset}`, end >= totalSize))
     }
 
     if (chunkResponse.status === 200 || chunkResponse.status === 201) {
@@ -209,7 +210,7 @@ const uploadChunks = async (
     console.error(`[Upload] chunk PUT at byte ${offset} threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
       type: "network",
-      message: `Network error uploading chunk at byte ${offset}: ${message} ${MAY_HAVE_LANDED}`,
+      message: `Network error uploading chunk at byte ${offset}: ${message}${end >= totalSize ? thrownWriteNote(error) : ""}`,
     })
   }
 }

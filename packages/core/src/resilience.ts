@@ -208,6 +208,12 @@ export class CircuitOpenError extends Error {
 
 export const isCircuitOpenError = (err: unknown): err is CircuitOpenError => err instanceof CircuitOpenError
 
+/**
+ * The note for a write whose fetch threw: " " + MAY_HAVE_LANDED, or "" when the breaker was open,
+ * since then nothing was sent.
+ */
+export const thrownWriteNote = (err: unknown): string => (isCircuitOpenError(err) ? "" : ` ${MAY_HAVE_LANDED}`)
+
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 /**

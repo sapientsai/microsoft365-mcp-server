@@ -324,7 +324,7 @@ export const getUploadConfig = async (params: {
           ]
         : []),
       "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not your Graph token. It only authorizes this upload relay.",
-      "If a /upload call fails with a network error, check graphReachableFromServer: it reflects whether THIS server can reach Microsoft Graph. false ⇒ a server-side egress/DNS/TLS problem, not your client; true ⇒ retry, and report the returned error text (it now includes the underlying cause).",
+      "If a /upload call fails with a network error, check graphReachableFromServer: it reflects whether THIS server can reach Microsoft Graph. false ⇒ a server-side egress/DNS/TLS problem, not your client; true ⇒ report the returned error text (it includes the underlying cause). Before uploading again, check whether the file arrived: the upload may have gone through.",
     ],
   }
 

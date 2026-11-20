@@ -339,6 +339,7 @@ const createGraphClient = (auth: AuthStrategy) => {
   // UTC in the response so callers don't get mailbox-local times back unexpectedly.
   const findMeetingTimes = (body: Record<string, unknown>) =>
     request<GraphMeetingTimeSuggestionsResult>("POST", "/me/findMeetingTimes", {
+      readOnly: true,
       body,
       headers: { Prefer: 'outlook.timezone="UTC"' },
     })

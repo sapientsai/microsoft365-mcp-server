@@ -24,6 +24,11 @@ export type GraphRequestOptions = {
   readonly responseType?: "json" | "text"
   readonly odataParams?: ODataParams
   readonly headers?: Record<string, string>
+  /**
+   * A POST that only reads (findMeetingTimes, a search query, a $batch of GETs). Its failures
+   * aren't noted as a change that may have gone through. It still isn't retried on a 503.
+   */
+  readonly readOnly?: boolean
 }
 
 export type GraphRequestConfig = {
@@ -121,9 +126,16 @@ const requestHeaders = (
 
 const BODY_METHODS: ReadonlySet<string> = new Set(["POST", "PUT", "PATCH"])
 
-// A write that failed this way wasn't retried, because it may have run; the caller is told so.
-const noteWriteFailure = (verb: string, error: GraphApiError): GraphApiError =>
-  isReadMethod(verb) ? error : { ...error, message: `${error.message} ${MAY_HAVE_LANDED}` }
+const serialiseBody = (verb: string, body: GraphRequestOptions["body"]): Either<GraphApiError, string | undefined> => {
+  if (body === undefined || !BODY_METHODS.has(verb)) return Right(undefined)
+  if (typeof body === "string") return Right(body)
+  try {
+    return Right(JSON.stringify(body))
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return Left({ type: "api", status: 400, message: `Request not sent: the body can't be sent as JSON (${reason}).` })
+  }
+}
 
 export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfig = {}): GraphRequest => {
   const resolveVersion = config.defaultVersion ?? (() => "v1.0" as const)
@@ -150,22 +162,28 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
     // fetch upper-cases only some methods, and would send "patch" as written. Comparing the
     // upper-cased form also keeps a lower-case "post" from silently dropping its body.
     const verb = method.toUpperCase()
+    const changes = !isReadMethod(verb) && options?.readOnly !== true
+    const note = (error: GraphApiError): GraphApiError =>
+      changes ? { ...error, message: `${error.message} ${MAY_HAVE_LANDED}` } : error
+
+    // Serialised before the request, so a body that can't be turned into JSON is reported as
+    // that, not as a network failure of a request that never left.
+    const serialised = serialiseBody(verb, options?.body)
+    if (serialised.isLeft()) return Left<GraphApiError, T>(serialised.value as GraphApiError)
+    const body = serialised.orThrow()
 
     try {
       const fetchOptions: RequestInit = {
         method: verb,
         headers: requestHeaders(token, options?.contentType ?? "application/json", options?.headers),
-      }
-
-      if (options?.body !== undefined && BODY_METHODS.has(verb)) {
-        fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
+        ...(body !== undefined ? { body } : {}),
       }
 
       const response = await doFetch(url, fetchOptions)
 
       if (!response.ok) {
         const mapped = await mapHttpError<T>(response)
-        return mayHaveLandedStatus(response.status) ? mapped.mapLeft((error) => noteWriteFailure(verb, error)) : mapped
+        return mayHaveLandedStatus(response.status) ? mapped.mapLeft(note) : mapped
       }
       if (response.status === 204) return Right<GraphApiError, T>({} as T)
 
@@ -179,7 +197,7 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
       const notSent = notSentError(error)
       if (notSent) return Left<GraphApiError, T>(notSent)
       return Left<GraphApiError, T>(
-        noteWriteFailure(verb, {
+        note({
           type: "network",
           message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
         }),

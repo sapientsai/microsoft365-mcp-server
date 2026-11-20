@@ -892,15 +892,15 @@ All list tools support `fetch_all_pages: true` to automatically follow `@odata.n
 Every Graph call goes through a retry / timeout / circuit-breaker layer. The defaults suit
 normal use; these knobs exist for tuning a deployment without a code change.
 
-| Variable                          | Description                                                           | Default  |
-| --------------------------------- | --------------------------------------------------------------------- | -------- |
-| `MS365_GRAPH_MAX_RETRIES`         | Retries for a 429, or for a read that got a 503, 504 or network error | `3`      |
-| `MS365_GRAPH_TIMEOUT_MS`          | Per-attempt fetch timeout. Sized for slow large uploads               | `100000` |
-| `MS365_GRAPH_BASE_BACKOFF_MS`     | Base for exponential backoff with full jitter                         | `200`    |
-| `MS365_GRAPH_MAX_BACKOFF_MS`      | Backoff ceiling. A 429's `Retry-After` overrides it (capped at 60 s)  | `5000`   |
-| `MS365_GRAPH_CIRCUIT_THRESHOLD`   | Consecutive failures before the breaker opens                         | `5`      |
-| `MS365_GRAPH_CIRCUIT_COOLDOWN_MS` | How long the breaker stays open before allowing a probe               | `30000`  |
-| `MS365_GRAPH_CIRCUIT_DISABLED`    | Disable the breaker entirely                                          | `false`  |
+| Variable                          | Description                                                                    | Default  |
+| --------------------------------- | ------------------------------------------------------------------------------ | -------- |
+| `MS365_GRAPH_MAX_RETRIES`         | Retries for a 429, or for a read that got a 503, 504, timeout or network error | `3`      |
+| `MS365_GRAPH_TIMEOUT_MS`          | Per-attempt fetch timeout. Sized for slow large uploads                        | `100000` |
+| `MS365_GRAPH_BASE_BACKOFF_MS`     | Base for exponential backoff with full jitter                                  | `200`    |
+| `MS365_GRAPH_MAX_BACKOFF_MS`      | Backoff ceiling. A 429's `Retry-After` overrides it (capped at 60 s)           | `5000`   |
+| `MS365_GRAPH_CIRCUIT_THRESHOLD`   | Consecutive failures before the breaker opens                                  | `5`      |
+| `MS365_GRAPH_CIRCUIT_COOLDOWN_MS` | How long the breaker stays open before allowing a probe                        | `30000`  |
+| `MS365_GRAPH_CIRCUIT_DISABLED`    | Disable the breaker entirely                                                   | `false`  |
 
 Throttling (429) never counts toward the process-wide circuit breaker. Only
 503/504 responses, timeouts and network errors count as breaker failures.
