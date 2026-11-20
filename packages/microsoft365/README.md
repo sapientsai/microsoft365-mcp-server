@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server for Microsoft 365 — manage email, calend
 
 ## Features
 
-- **99 Tools** across 15 domains, including a generic Graph API escape hatch (27 need `MS365_ORG_MODE=true`)
+- **103 Tools** across 15 domains, including a generic Graph API escape hatch (27 need `MS365_ORG_MODE=true`)
 - **5 Auth Modes**: Interactive, certificate, client secret, client-provided token, OAuth proxy
 - **Draft Workflow**: Create drafts for user review in Outlook, then send when approved
 - **Tool Filtering**: Presets, regex patterns, read-only mode, and org-mode gating
@@ -530,7 +530,7 @@ mailbox setting the API cannot read), and `update_event` leaves the reminder as 
 | `delete_contact`  | Delete a contact, returning its details                       |
 | `export_contacts` | Export every contact folder to a local JSON file (stdio only) |
 
-### Files / OneDrive (8 tools)
+### Files / OneDrive (12 tools)
 
 | Tool                    | Description                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------- |
@@ -542,6 +542,21 @@ mailbox setting the API cannot read), and `update_event` leaves the reminder as 
 | `upload_file`           | Upload text content (plain text, Markdown, CSV, JSON, HTML, XML) to OneDrive, max ~4MB |
 | `get_upload_config`     | Get a short-lived link for uploading a file, binary included (HTTP transport only)     |
 | `upload_file_from_path` | Upload a file from the server's own disk to OneDrive (stdio transport only)            |
+| `move_drive_item`       | Move a file or folder within its drive, optionally renaming it                         |
+| `rename_drive_item`     | Rename a file or folder in place                                                       |
+| `copy_drive_item`       | Copy a file or folder to any folder, in OneDrive or another SharePoint library         |
+| `delete_drive_item`     | Delete a file or folder to the recycle bin                                             |
+
+**Moving, copying and deleting.** All four work in your OneDrive, and in a SharePoint
+document library when you pass its `drive_id` (from `list_site_drives`).
+
+- `move_drive_item` can't cross drives; Graph refuses that. Copy, confirm the copy is in the
+  destination, and only then delete the original.
+- `copy_drive_item` runs in the background on Graph's side, so a large copy appears after
+  a delay. It never overwrites: a name clash fails unless `conflict_behavior` is `rename`.
+- `delete_drive_item` sends the item, and a folder's contents, to the recycle bin, where it
+  can be restored.
+- Move, rename and delete take `if_match` (an eTag), as uploads do below.
 
 **Concurrent writers.** File uploads replace the file whenever `conflict_behavior` is
 `replace`, so two clients that read the same file and write it back overwrite each
@@ -552,6 +567,8 @@ other without an error. To prevent that:
 - Pass it back as `if_match` on `upload_file` or `upload_file_from_path`, or as
   `ifMatch` on `get_upload_config` (the `/upload` relay takes the same query
   parameter). The upload then replaces the file only if it still has that eTag.
+  `move_drive_item`, `rename_drive_item` and `delete_drive_item` take `if_match` too,
+  and change the item only if it still has that eTag.
 - If someone changed the file in between, nothing is written. The call fails with
   `precondition-failed` (HTTP 412 from the relay). Read the file again, re-apply your
   change, and retry with the new eTag. The server never retries this for you, because

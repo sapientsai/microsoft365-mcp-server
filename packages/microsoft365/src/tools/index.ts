@@ -21,6 +21,7 @@ export {
   searchContacts,
   updateContact,
 } from "./contacts-tools"
+export { copyDriveItem, deleteDriveItem, moveDriveItem, renameDriveItem } from "./drive-item-tools"
 export {
   createFolder,
   downloadFile,

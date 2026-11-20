@@ -59,7 +59,7 @@ export const DOMAIN_DESCRIPTIONS: Record<ToolDomain, string> = {
   calendar: "Calendar: List, view, create, update, and delete events; accept or decline invitations",
   contacts: "Contacts: List, view, create, update, delete, search, and export contacts",
   files:
-    "Files: List, view, search, download OneDrive files; create folders; upload files (see Upload workflows below)",
+    "Files: List, view, search, download OneDrive and SharePoint files; create folders; upload files (see Upload workflows below); move, rename, copy, and delete files and folders",
   chats: "Chats: List Teams chats and messages; send chat messages, starting a chat by email if needed",
   teams: "Teams: List teams, channels, and messages; send channel messages and thread replies",
   meetings: "Meetings: List Teams meeting transcripts and read their text",
@@ -249,6 +249,13 @@ export const TOOL_METADATA: ReadonlyArray<ToolMeta> = [
     orgOnly: false,
   },
   { name: "upload_file", title: "Upload Text File to OneDrive", domain: "files", readOnly: false, orgOnly: false },
+  // Work in OneDrive and, with a drive_id, in SharePoint libraries, so they aren't orgOnly.
+  { name: "move_drive_item", title: "Move File or Folder", domain: "files", readOnly: false, orgOnly: false },
+  { name: "rename_drive_item", title: "Rename File or Folder", domain: "files", readOnly: false, orgOnly: false },
+  // Not additive: a copy into a SharePoint library is visible to everyone who can see the library.
+  { name: "copy_drive_item", title: "Copy File or Folder", domain: "files", readOnly: false, orgOnly: false },
+  // Goes to the recycle bin, but still removes the item from where people look for it.
+  { name: "delete_drive_item", title: "Delete File or Folder", domain: "files", readOnly: false, orgOnly: false },
   {
     name: "get_upload_config",
     title: "Get File Upload Link",

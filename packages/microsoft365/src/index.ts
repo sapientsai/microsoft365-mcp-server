@@ -28,6 +28,7 @@ import { defaultVersion } from "./client/graph-version"
 import { resolveMailbox } from "./mail/mailbox"
 import {
   batchMoveMessages,
+  copyDriveItem,
   copyOnenotePage,
   createContact,
   createDraft,
@@ -45,6 +46,7 @@ import {
   createTodoTask,
   deleteContact,
   deleteDraft,
+  deleteDriveItem,
   deleteEvent,
   deleteOnenotePage,
   deleteTodoList,
@@ -96,9 +98,11 @@ import {
   listTodoLists,
   listTodoTasks,
   listUsers,
+  moveDriveItem,
   moveMessage,
   moveMessagesMatching,
   readDocument,
+  renameDriveItem,
   respondToEvent,
   saveAttachment,
   scanMessages,
@@ -255,6 +259,15 @@ const MAILBOX_PARAM = z
     "Email address of another mailbox to act on (delegated or shared), e.g. 'someone@example.com'. " +
       "Omit for your own mailbox; required when this server signs in as an application. " +
       "Only addresses this server is configured to allow will be accepted.",
+  )
+
+const DRIVE_ITEM_IF_MATCH = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    "eTag from get_drive_item or list_drive_items. The change happens only if the item hasn't changed since; " +
+      "otherwise it fails with precondition-failed and nothing changes",
   )
 
 // All-day events need a time zone to land on the right day: Graph stores them midnight to
@@ -1263,6 +1276,95 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       name: z.string().describe("Folder name"),
     }),
     execute: async (params) => unwrapResult(await createFolder(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "move_drive_item",
+    description:
+      "Move a file or folder to another folder in the same OneDrive or SharePoint document library, optionally renaming it. " +
+      "Graph can't move between drives. To put an item in another library: copy_drive_item, confirm the copy is in " +
+      "the destination with list_drive_items or list_site_items, and only then delete_drive_item the original.",
+    parameters: z.object({
+      item_id: z.string().describe("ID of the file or folder to move"),
+      destination_folder_id: z
+        .string()
+        .describe('ID of the folder to move it into, or "root" for the top of the drive'),
+      drive_id: z
+        .string()
+        .optional()
+        .describe("SharePoint document library ID from list_site_drives. Omit for your own OneDrive"),
+      new_name: z.string().optional().describe("New name for the item, including its extension. Omit to keep the name"),
+      if_match: DRIVE_ITEM_IF_MATCH,
+    }),
+    execute: async (params) => unwrapResult(await moveDriveItem(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "rename_drive_item",
+    description: "Rename a file or folder in OneDrive or a SharePoint document library, leaving it where it is.",
+    parameters: z.object({
+      item_id: z.string().describe("ID of the file or folder to rename"),
+      new_name: z.string().describe("New name, including the file's extension"),
+      drive_id: z
+        .string()
+        .optional()
+        .describe("SharePoint document library ID from list_site_drives. Omit for your own OneDrive"),
+      if_match: DRIVE_ITEM_IF_MATCH,
+    }),
+    execute: async (params) => unwrapResult(await renameDriveItem(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "copy_drive_item",
+    description:
+      "Copy a file or folder, with a folder's contents, to a folder in OneDrive or any SharePoint document library. " +
+      "Graph copies in the background, so the copy may take a while to appear. Never overwrites: a name clash fails " +
+      "unless conflict_behavior is rename.",
+    parameters: z.object({
+      item_id: z.string().describe("ID of the file or folder to copy"),
+      destination_folder_id: z
+        .string()
+        .describe('ID of the folder to copy it into, or "root" for the top of the drive'),
+      drive_id: z
+        .string()
+        .optional()
+        .describe("SharePoint document library ID the item is in, from list_site_drives. Omit for your own OneDrive"),
+      destination_drive_id: z
+        .string()
+        .optional()
+        .describe(
+          "Drive ID to copy into, when it differs from the item's own drive. To copy from SharePoint into your own " +
+            "OneDrive, pass your OneDrive's drive ID (the Drive ID get_drive_item shows for one of your files)",
+        ),
+      new_name: z.string().optional().describe("Name for the copy, including its extension. Omit to keep the name"),
+      conflict_behavior: z
+        .enum(["fail", "rename"])
+        .optional()
+        .describe(
+          'On a name clash: "fail" (default) or "rename", which adds a number to the copy\'s name. Not supported on personal OneDrive',
+        ),
+    }),
+    execute: async (params) => unwrapResult(await copyDriveItem(params)),
+    domain: "files",
+    readOnly: false,
+  },
+  {
+    name: "delete_drive_item",
+    description:
+      "Delete a file or folder in OneDrive or a SharePoint document library. It goes to the recycle bin, with a " +
+      "folder's contents, and can be restored from there.",
+    parameters: z.object({
+      item_id: z.string().describe("ID of the file or folder to delete"),
+      drive_id: z
+        .string()
+        .optional()
+        .describe("SharePoint document library ID from list_site_drives. Omit for your own OneDrive"),
+      if_match: DRIVE_ITEM_IF_MATCH,
+    }),
+    execute: async (params) => unwrapResult(await deleteDriveItem(params)),
     domain: "files",
     readOnly: false,
   },

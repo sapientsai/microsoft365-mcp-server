@@ -15,6 +15,11 @@ export type GraphRequestOptions = {
   readonly responseType?: "json" | "text"
   readonly odataParams?: ODataParams
   readonly headers?: Record<string, string>
+  /**
+   * false stops retries on 503, 504, timeouts and network errors (429 is still retried). For a
+   * DELETE whose retry would turn a delete that landed into a "not found" failure.
+   */
+  readonly retryTransient?: boolean
 }
 
 export type GraphRequestConfig = {
@@ -124,7 +129,11 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
         fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
       }
 
-      const response = await doFetch(url, fetchOptions)
+      const response = await doFetch(
+        url,
+        fetchOptions,
+        options?.retryTransient === undefined ? undefined : { retryTransient: options.retryTransient },
+      )
 
       if (!response.ok) return mapHttpError<T>(response)
       if (response.status === 204) return Right<GraphApiError, T>({} as T)
