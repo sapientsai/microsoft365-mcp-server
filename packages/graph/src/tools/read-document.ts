@@ -5,6 +5,7 @@ import {
   formatBytes,
   GRAPH_API_BASE,
   graphErrorMessage,
+  graphPathProblem,
 } from "@sapientsai/ms-graph-core"
 import { z } from "zod"
 
@@ -42,6 +43,10 @@ export const buildReadDocumentTool = (auth: AuthStrategy, fetchImpl: typeof fetc
     const token = tokenResult.value as string
 
     const query = args.format ? `?format=${args.format}` : ""
+    // This tool takes any GET path, so no path rule applies; but fetch would still resolve a dot
+    // segment or cut at "#", and the request would not be the one written.
+    const pathIssue = graphPathProblem(args.path)
+    if (pathIssue !== undefined) throw new Error(pathIssue)
     const url = `${GRAPH_API_BASE}/${args.api_version}${args.path}${query}`
     const response = await fetchImpl(url, { method: "GET", headers: { Authorization: `Bearer ${token}` } })
 

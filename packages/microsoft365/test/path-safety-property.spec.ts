@@ -60,7 +60,22 @@ const SKIPPED_TOOLS = new Set(["save_attachment", "upload_file_from_path", "set_
 // out exactly as written, which the normalisation check below covers.
 const PATH_PARAMS = new Set(["path", "folder_path"])
 
-const HOSTILE = ["MARK/forward#", "../../users/v@x.com/MARK", "MARK?x=1#y", ".\t.", "MARK\\..\\x"]
+// The first three are what core's second check lets through: only graphPath stops them. Without
+// them this test couldn't tell graphPath from a plain template string. The rest are what the
+// second check refuses, so a tool that skipped both would still be caught.
+const HOSTILE = [
+  "MARK/forward?",
+  "MARK/extra",
+  "MARK?x=1",
+  "MARK/forward#",
+  "../../users/v@x.com/MARK",
+  ".\t.",
+  "MARK\\..\\x",
+]
+
+// Where a parameter legitimately changes which request is made, not just its value.
+// send_chat_message.to: a non-address is looked up with a mail filter instead of /users/{key}.
+const SHAPE_EXEMPT = new Set(["send_chat_message.to"])
 
 // Values that pass each tool's own checks, chosen from the parameter's name, word by word.
 const benignString = (tool: string, name: string): string => {
@@ -170,6 +185,10 @@ describe("caller strings never change the Graph resource a tool reaches", () => 
     vi.stubEnv("TOKEN_STORAGE_PATH", storeDirectory)
     vi.stubEnv("MS365_GRAPH_MAX_RETRIES", "0")
     vi.stubEnv("MS365_GRAPH_CIRCUIT_DISABLED", "true")
+    // Org mode lists the SharePoint, Teams, chat, user, group, meeting and Planner tools.
+    vi.stubEnv("MS365_ORG_MODE", "true")
+    // So a benign mailbox reaches /users/{mailbox} and gives the hostile ones a baseline.
+    vi.stubEnv("MS365_ALLOWED_MAILBOXES", "benign@example.com")
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -191,8 +210,11 @@ describe("caller strings never change the Graph resource a tool reaches", () => 
     rmSync(storeDirectory, { recursive: true, force: true })
   })
 
-  it("covers the tool list", () => {
-    expect(tools.length).toBeGreaterThan(70)
+  it("covers every tool the server lists over HTTP, but the ones it skips on purpose", async () => {
+    const { TOOL_METADATA } = await import("../src/tools/tool-registry")
+    // Over HTTP the server lists every tool but the stdio-only ones (they work on local files).
+    const served = TOOL_METADATA.filter((meta) => meta.transportOnly !== "stdio" && !SKIPPED_TOOLS.has(meta.name))
+    expect(tools.map((tool) => tool.name).sort()).toEqual(served.map((meta) => meta.name).sort())
   })
 
   it("keeps every request where the benign call sent it", { timeout: 120_000 }, async () => {
@@ -200,40 +222,43 @@ describe("caller strings never change the Graph resource a tool reaches", () => 
     // eslint-disable-next-line functype/no-let -- counts what the run actually exercised
     let compared = 0
     const exercised = new Set<string>()
-    for (const tool of tools) {
-      const base = requiredArgs(tool)
-      const params = Object.entries(tool.inputSchema.properties ?? {}).filter(
-        ([, schema]) => isFreeString(schema) || (typeOf(schema) === "array" && isFreeString(schema.items ?? {})),
-      )
-      for (const [param, schema] of params) {
-        const wrap = (text: string) => (typeOf(schema) === "array" ? [text] : text)
-        // The baseline sends the same parameter with a benign value, so the only difference is the value.
-        const expected = await run(server, tool.name, { ...base, [param]: wrap(benignString(tool.name, param)) })
-        if (expected.length > 0) exercised.add(tool.name)
-        expected.flatMap(problemsIn).forEach((problem) => failures.push(`${tool.name}.${param} (benign): ${problem}`))
-        for (const hostile of HOSTILE) {
-          const actual = await run(server, tool.name, { ...base, [param]: wrap(hostile) })
-          const where = `${tool.name}.${param}=${JSON.stringify(hostile)}`
-          actual.forEach((request, index) => {
-            problemsIn(request).forEach((problem) => failures.push(`${where}: ${problem} (${request.url})`))
-            const before = expected[index]
-            if (before === undefined) return
-            compared += 1
-            if (request.method !== before.method)
-              failures.push(`${where}: method ${request.method}, not ${before.method}`)
-            if (PATH_PARAMS.has(param)) return
-            if (segments(request.url) !== segments(before.url)) {
-              failures.push(
-                `${where}: reached ${new URL(request.url).pathname}, not the shape of ${new URL(before.url).pathname}`,
-              )
-            }
-            if (queryKeys(request.url) !== queryKeys(before.url)) {
-              failures.push(`${where}: query became ${new URL(request.url).search}`)
-            }
-          })
+    const variants = (tool: Tool): Array<Record<string, unknown>> =>
+      tool.inputSchema.properties?.fetch_all_pages ? [{}, { fetch_all_pages: true }] : [{}]
+    for (const tool of tools)
+      for (const variant of variants(tool)) {
+        const base = { ...requiredArgs(tool), ...variant }
+        const params = Object.entries(tool.inputSchema.properties ?? {}).filter(
+          ([, schema]) => isFreeString(schema) || (typeOf(schema) === "array" && isFreeString(schema.items ?? {})),
+        )
+        for (const [param, schema] of params) {
+          const wrap = (text: string) => (typeOf(schema) === "array" ? [text] : text)
+          // The baseline sends the same parameter with a benign value, so the only difference is the value.
+          const expected = await run(server, tool.name, { ...base, [param]: wrap(benignString(tool.name, param)) })
+          if (expected.length > 0) exercised.add(tool.name)
+          expected.flatMap(problemsIn).forEach((problem) => failures.push(`${tool.name}.${param} (benign): ${problem}`))
+          for (const hostile of HOSTILE) {
+            const actual = await run(server, tool.name, { ...base, [param]: wrap(hostile) })
+            const where = `${tool.name}.${param}=${JSON.stringify(hostile)}`
+            actual.forEach((request, index) => {
+              problemsIn(request).forEach((problem) => failures.push(`${where}: ${problem} (${request.url})`))
+              const before = expected[index]
+              if (before === undefined) return
+              compared += 1
+              if (request.method !== before.method)
+                failures.push(`${where}: method ${request.method}, not ${before.method}`)
+              if (PATH_PARAMS.has(param) || SHAPE_EXEMPT.has(`${tool.name}.${param}`)) return
+              if (segments(request.url) !== segments(before.url)) {
+                failures.push(
+                  `${where}: reached ${new URL(request.url).pathname}, not the shape of ${new URL(before.url).pathname}`,
+                )
+              }
+              if (queryKeys(request.url) !== queryKeys(before.url)) {
+                failures.push(`${where}: query became ${new URL(request.url).search}`)
+              }
+            })
+          }
         }
       }
-    }
     if (process.env.PROBE)
       console.log(
         "UNEXERCISED",
@@ -244,7 +269,7 @@ describe("caller strings never change the Graph resource a tool reaches", () => 
       )
     expect(failures).toEqual([])
     // A run that compared nothing would pass without testing anything.
-    expect(compared).toBeGreaterThan(200)
-    expect(exercised.size).toBeGreaterThan(60)
+    expect(compared).toBeGreaterThan(600)
+    expect(exercised.size).toBeGreaterThan(85)
   })
 })

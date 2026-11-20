@@ -95,7 +95,7 @@ export const requestProblem = (url: string, init: RequestInit | undefined): stri
   if (parsed.username !== "" || parsed.password !== "") return "the request URL holds a user name or password."
   // fetch would resolve a dot segment, cut at "#" or drop a tab before sending, so the request
   // would reach another resource than the one written. Read from the raw text, before parsing.
-  const pathProblem = graphPathProblem(url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, ""))
+  const pathProblem = graphPathProblem(url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/\\?#]*/i, ""))
   if (pathProblem !== undefined) return pathProblem
   const method = init?.method ?? "GET"
   if (!TOKEN.test(method)) return `the HTTP method ${quoteForMessage(method, 20)} is not valid.`

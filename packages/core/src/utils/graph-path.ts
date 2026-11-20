@@ -149,14 +149,15 @@ const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i
 
 /**
  * Why fetch would send this path somewhere other than where it reads, or undefined. Refuses a
- * control character, a backslash or a "#" anywhere, and a dot segment before the query string.
+ * control character or a "#" anywhere, and a backslash or dot segment before the query string.
+ * fetch leaves a backslash in the query alone, and an OData filter may hold one (DOMAIN\\user).
  */
 export const graphPathProblem = (path: string): string | undefined => {
   // eslint-disable-next-line no-control-regex -- refusing control characters is the point
   if (/[\u0000-\u001f\u007f]/.test(path)) return "The request path holds a control character, such as a line break."
-  if (path.includes("\\")) return "The request path holds a backslash, which fetch would read as a slash."
   if (path.includes("#")) return 'The request path holds a "#", which would cut off the rest of it.'
   const beforeQuery = path.split("?")[0] ?? ""
+  if (beforeQuery.includes("\\")) return "The request path holds a backslash, which fetch would read as a slash."
   if (beforeQuery.split("/").some((segment) => DOT_SEGMENT.test(segment))) {
     return 'The request path holds a "." or ".." segment, which would move the request up the path.'
   }

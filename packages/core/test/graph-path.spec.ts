@@ -108,12 +108,17 @@ describe("graphPathProblem", () => {
     '/me/messages?$search="a b"',
     "/me/drive/root:/notes..txt:/content",
     "/users/a@b.com/messages?$filter=x eq '..'",
+    "/users?$filter=onPremisesSamAccountName eq 'DOMAIN\\ada'",
   ])("allows %s", (path) => {
     expect(graphPathProblem(path)).toBeUndefined()
   })
 })
 
 describe("the path check on every resilient fetch", () => {
+  it("refuses a backslash in the authority, which fetch would read as the end of the host", () => {
+    expect(requestProblem("https://graph.microsoft.com\\@evil.example/x", undefined)).toBeDefined()
+  })
+
   it("refuses a full URL that fetch would resolve elsewhere", () => {
     expect(requestProblem("https://graph.microsoft.com/v1.0/me/../../beta/users/x", undefined)).toMatch(/"\.\."/)
     expect(requestProblem("https://graph.microsoft.com/v1.0/me/messages/A#x", undefined)).toMatch(/"#"/)
