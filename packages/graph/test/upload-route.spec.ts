@@ -50,6 +50,51 @@ describe("handleUpload mechanics", () => {
     expect((res.body as { error: string }).error).toContain("bad secret")
   })
 
+  it.each([
+    ["an unknown apiVersion", { apiVersion: "v1.0/me/sendMail#" }, "apiVersion must be one of v1.0, beta"],
+    ["an unknown conflictBehavior", { conflictBehavior: "rename&x=1" }, "conflictBehavior must be one of"],
+    ["an ifMatch with a line break", { ifMatch: '"{A},1"\nX: y' }, "ifMatch holds characters"],
+    ["a contentType with a line break", { contentType: "text/plain\nX: y" }, "contentType must be a MIME type"],
+  ])("refuses %s with a 400, before taking a token or calling Graph", async (_, query, expected) => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const getAccessToken = vi.fn(() => Promise.resolve(Right("APP_ONLY_TOKEN")))
+    const res = await handleUpload(req({ query: { path: contentPath, ...query }, body: Buffer.from("x") }), {
+      getAccessToken,
+    })
+    expect(res.status).toBe(400)
+    expect((res.body as { error: string }).error).toContain(expected)
+    expect(getAccessToken).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("works out the content type from the file name when contentType is blank", async () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ id: "drive-item-1" }) } as Response),
+    )
+    vi.stubGlobal("fetch", fetchSpy)
+    const res = await handleUpload(
+      req({ query: { path: contentPath, contentType: "" }, body: Buffer.from("x") }),
+      auth(),
+    )
+    expect(res.status).toBe(200)
+    const [, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit]
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("text/plain")
+  })
+
+  it("uploads with an explicit beta apiVersion", async () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ id: "drive-item-1" }) } as Response),
+    )
+    vi.stubGlobal("fetch", fetchSpy)
+    const res = await handleUpload(
+      req({ query: { path: contentPath, apiVersion: "beta" }, body: Buffer.from("x") }),
+      auth(),
+    )
+    expect(res.status).toBe(200)
+    expect((fetchSpy.mock.calls[0] as unknown as [string])[0]).toContain("/beta/me/drive")
+  })
+
   it("rejects an empty body with 400", async () => {
     const res = await handleUpload(req({ query: { path: contentPath }, body: Buffer.from("") }), auth())
     expect(res.status).toBe(400)

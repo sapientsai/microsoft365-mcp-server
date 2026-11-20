@@ -32,7 +32,7 @@ export {
   uploadFile,
   uploadFileFromPath,
 } from "./files-tools"
-export { graphQuery } from "./graph-query-tools"
+export { GRAPH_QUERY_HEADERS, graphQuery } from "./graph-query-tools"
 export { getGroup, listGroupMembers, listGroups } from "./groups-tools"
 export {
   CATEGORY_COLORS,

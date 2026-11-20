@@ -251,6 +251,31 @@ describe("conditional upload over the /upload relay", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  // In oauth-proxy mode any bearer gets past relayAuth, so these must be refused with nothing sent:
+  // fetch would throw on them, and the shared breaker used to count each throw as an outage.
+  it.each([
+    ["an ifMatch with a line break", { ifMatch: '"{A},1"\nX: y' }, "ifMatch holds characters"],
+    ["an ifMatch with a DEL", { ifMatch: '"{A},1"\u007f' }, "ifMatch holds characters"],
+    ["a contentType with a line break", { contentType: "text/plain\nX: y" }, "contentType must be a MIME type"],
+    ["an unknown conflictBehavior", { conflictBehavior: "rename&x=1" }, "conflictBehavior must be one of"],
+  ])("refuses %s with a 400 before any Graph call, whatever the bearer", async (_, query, expected) => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    const server = await startServer("oauth-proxy")
+    const response = await server.fetch(
+      new Request(uploadUrl(query), {
+        method: "PUT",
+        headers: { Authorization: "Bearer not-a-real-token" },
+        body: "x",
+      }),
+    )
+    expect(response.status).toBe(400)
+    expect(((await response.json()) as { error: string }).error).toContain(expected)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    const { getSharedBreaker } = await import("@sapientsai/ms-graph-core")
+    expect(getSharedBreaker().getState().failures).toBe(0)
+  })
+
   it("sends If-Match on the upload session and answers 412 precondition-failed on a stale eTag", async () => {
     const fetchSpy = vi.fn(() =>
       Promise.resolve(new Response(JSON.stringify({ error: { code: "notAllowed", message: "" } }), { status: 412 })),

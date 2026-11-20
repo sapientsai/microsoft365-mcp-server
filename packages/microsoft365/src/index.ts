@@ -2,10 +2,13 @@
 type OAuthSessionContext = { accessToken?: string }
 import {
   attachFile,
+  conflictBehaviorProblem,
+  contentTypeProblem,
   decodeBase64Upload,
   describeFetchError,
   filenameFromPath,
   ifMatchConflictProblem,
+  ifMatchProblem,
   loadEnvFileIfPresent,
   MAX_ATTACHMENT_SIZE,
   MAX_UPLOAD_SIZE,
@@ -73,6 +76,7 @@ import {
   getSite,
   getUploadConfig,
   getUser,
+  GRAPH_QUERY_HEADERS,
   graphQuery,
   listAccountsTool,
   listAttachments,
@@ -2363,7 +2367,11 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       headers: z
         .record(z.string(), z.string())
         .optional()
-        .describe('Extra request headers, e.g. { "If-Match": "<etag>" } for concurrency-controlled writes'),
+        .describe(
+          `Extra request headers, e.g. { "If-Match": "<etag>" } for concurrency-controlled writes. Allowed: ${GRAPH_QUERY_HEADERS.join(
+            ", ",
+          )}`,
+        ),
     }),
     execute: async (params) => unwrapResult(await graphQuery(params)),
     domain: "query",
@@ -2586,10 +2594,18 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
   // A blank ifMatch is no condition at all, not a condition nothing can meet.
   const rawIfMatch = req.query("ifMatch")?.trim()
   const ifMatch = rawIfMatch === undefined || rawIfMatch === "" ? undefined : rawIfMatch
-  const conflictProblem = ifMatchConflictProblem(requestedConflict, ifMatch)
-  if (conflictProblem) return { status: 400, body: { error: conflictProblem } }
+  // A blank contentType means "work it out from the file name", as it always has.
+  const rawContentType = req.query("contentType")?.trim()
+  const explicitContentType = rawContentType === "" ? undefined : rawContentType
+  // Checked before the credential and the body: in oauth-proxy mode any bearer gets past
+  // relayAuth, so these header and query values are refused before anything else runs.
+  const problem =
+    conflictBehaviorProblem(requestedConflict) ??
+    ifMatchConflictProblem(requestedConflict, ifMatch) ??
+    ifMatchProblem(ifMatch, "ifMatch") ??
+    contentTypeProblem(explicitContentType, "contentType")
+  if (problem) return { status: 400, body: { error: problem } }
   const conflictBehavior = requestedConflict ?? (ifMatch !== undefined ? "replace" : "rename")
-  const explicitContentType = req.query("contentType")
   const encoding = req.query("encoding")
 
   const auth = await relayAuth(req, oauthMode)

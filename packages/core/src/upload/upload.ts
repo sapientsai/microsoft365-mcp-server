@@ -2,8 +2,10 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
 import { graphErrorMessage } from "../graph-error-message"
+import { notSentError } from "../request-check"
 import { resilientFetch } from "../resilience"
 import type { GraphApiError, GraphDriveItem } from "../types"
+import { conflictBehaviorProblem, contentTypeProblem, ifMatchProblem } from "../utils/header-values"
 
 export const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024 // 4 MB
 export const MAX_UPLOAD_SIZE = 250 * 1024 * 1024 // 250 MB
@@ -36,9 +38,6 @@ const parseGraphError = async (response: Response): Promise<string> =>
 // gets a distinct error that says what to do.
 export const PRECONDITION_FAILED_MESSAGE =
   "precondition-failed: the file changed since it was read, so its eTag no longer matches. Read it again, re-apply your change, and upload with the new eTag."
-
-export const BLANK_IF_MATCH_MESSAGE =
-  "if_match is blank. Pass the eTag from download_file, get_drive_item or list_drive_items, or leave it out."
 
 const preconditionFailed = (): GraphApiError => ({ type: "api", status: 412, message: PRECONDITION_FAILED_MESSAGE })
 
@@ -97,6 +96,8 @@ export const simpleUpload = async (
     const item = (await response.json()) as GraphDriveItem
     return Right(item)
   } catch (error) {
+    const notSent = notSentError(error)
+    if (notSent) return Left(notSent)
     const { message } = describeFetchError(error)
     console.error(`[Upload] simple PUT to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
@@ -151,6 +152,8 @@ export const sessionUpload = async (
     const session = (await createResponse.json()) as { uploadUrl: string }
     return uploadChunks(session.uploadUrl, buffer, 0)
   } catch (error) {
+    const notSent = notSentError(error)
+    if (notSent) return Left(notSent)
     const { message } = describeFetchError(error)
     console.error(`[Upload] createUploadSession to Graph threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
@@ -206,6 +209,8 @@ const uploadChunks = async (
 
     return uploadChunks(uploadUrl, buffer, offset + CHUNK_SIZE)
   } catch (error) {
+    const notSent = notSentError(error)
+    if (notSent) return Left(notSent)
     const { message } = describeFetchError(error)
     console.error(`[Upload] chunk PUT at byte ${offset} threw: ${message}`)
     return Left<GraphApiError, GraphDriveItem>({
@@ -236,11 +241,12 @@ export const uploadDriveContent = async (
   options: DriveUploadOptions = {},
 ): Promise<Either<GraphApiError, GraphDriveItem>> => {
   const { ifMatch } = options
+  // Checked here because every upload entry point (three tools and both relays) comes through.
   // A blank eTag would go out as an empty If-Match header, which Graph may simply ignore, so the
   // write would run unconditionally while the caller believes it is guarded.
-  if (ifMatch?.trim() === "") {
-    return Left({ type: "api", status: 400, message: BLANK_IF_MATCH_MESSAGE })
-  }
+  const problem =
+    ifMatchProblem(ifMatch) ?? contentTypeProblem(contentType) ?? conflictBehaviorProblem(conflictBehavior)
+  if (problem !== undefined) return Left({ type: "api", status: 400, message: problem })
   if (ifMatch === undefined) {
     return buffer.length <= SIMPLE_UPLOAD_LIMIT
       ? simpleUpload(apiBase, path, accessToken, buffer, contentType, conflictBehavior)

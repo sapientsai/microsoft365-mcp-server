@@ -1,4 +1,4 @@
-import { BLANK_IF_MATCH_MESSAGE } from "@sapientsai/ms-graph-core"
+import { ifMatchProblem } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -38,17 +38,6 @@ const itemIdProblem = (value: string): string | undefined =>
 
 const firstProblem = (...problems: ReadonlyArray<string | undefined>): string | undefined =>
   problems.find((problem) => problem !== undefined)
-
-// An eTag is printable ASCII. A newline or other character fetch can't put in a header would make
-// fetch throw before sending, which the resilience layer counts as a network failure.
-const ifMatchProblem = (ifMatch: string | undefined): string | undefined => {
-  if (ifMatch === undefined) return undefined
-  if (ifMatch.trim() === "") return BLANK_IF_MATCH_MESSAGE
-  if (!/^[\x20-\x7e]+$/.test(ifMatch)) {
-    return "if_match holds characters an eTag never has. Pass the eTag exactly as get_drive_item or list_drive_items printed it."
-  }
-  return undefined
-}
 
 // OneDrive and SharePoint refuse these characters in a name, and a slash would read as a path.
 const INVALID_NAME_CHARS = /["*:<>?/\\|]/

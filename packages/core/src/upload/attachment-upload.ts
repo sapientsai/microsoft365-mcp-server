@@ -2,6 +2,7 @@ import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 
 import { graphErrorMessage } from "../graph-error-message"
+import { notSentError } from "../request-check"
 import { resilientFetch } from "../resilience"
 import type { GraphApiError } from "../types"
 import { describeFetchError } from "./upload"
@@ -38,6 +39,8 @@ const inlineTooLarge = (error: GraphApiError): boolean => error.status === 413
 const sessionTooSmall = (error: GraphApiError): boolean => error.graphErrorCode === SESSION_TOO_SMALL
 
 const networkError = (what: string, error: unknown): GraphApiError => {
+  const notSent = notSentError(error)
+  if (notSent) return notSent
   const { message } = describeFetchError(error)
   console.error(`[AttachmentUpload] ${what} threw: ${message}`)
   return { type: "network", message: `Network error ${what}: ${message}` }

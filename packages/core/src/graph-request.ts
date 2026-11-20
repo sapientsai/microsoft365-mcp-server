@@ -3,6 +3,7 @@ import { type Either, Left, Right } from "functype/either"
 import type { AuthStrategy } from "./auth-strategy"
 import { GRAPH_API_BASE } from "./constants"
 import { graphErrorMessage } from "./graph-error-message"
+import { notSentError } from "./request-check"
 import { type FetchLike, isCircuitOpenError, resilientFetch } from "./resilience"
 import type { GraphApiError, GraphApiVersion, ODataParams, ODataResponse } from "./types"
 import { appendODataQuery, buildODataQuery } from "./utils/odata-helpers"
@@ -96,6 +97,27 @@ const circuitOpenError = (error: { message: string; cooldownMs: number }): Graph
   retryAfter: Math.ceil(error.cooldownMs / 1000),
 })
 
+/**
+ * The headers a request goes out with. A caller's Content-Type replaces the default, whatever its
+ * case, instead of being joined to it. Authorization is always this layer's own: a caller's is
+ * dropped, so a caller can't swap the token or have fetch join two into one header.
+ */
+const requestHeaders = (
+  token: string,
+  defaultContentType: string,
+  caller: Record<string, string> | undefined,
+): Record<string, string> => {
+  const own = Object.entries(caller ?? {}).filter(([name]) => name.toLowerCase() !== "authorization")
+  const setsContentType = own.some(([name]) => name.toLowerCase() === "content-type")
+  return {
+    ...(setsContentType ? {} : { "Content-Type": defaultContentType }),
+    ...Object.fromEntries(own),
+    Authorization: `Bearer ${token}`,
+  }
+}
+
+const BODY_METHODS: ReadonlySet<string> = new Set(["POST", "PUT", "PATCH"])
+
 export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfig = {}): GraphRequest => {
   const resolveVersion = config.defaultVersion ?? (() => "v1.0" as const)
   const doFetch = config.fetchImpl ?? resilientFetch
@@ -115,17 +137,17 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
     const queryString = buildODataQuery(options?.odataParams)
     const url = `${GRAPH_API_BASE}/${version}${appendODataQuery(path, queryString)}`
 
+    // fetch upper-cases only some methods, and would send "patch" as written. Comparing the
+    // upper-cased form also keeps a lower-case "post" from silently dropping its body.
+    const verb = method.toUpperCase()
+
     try {
       const fetchOptions: RequestInit = {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": options?.contentType ?? "application/json",
-          ...(options?.headers ?? {}),
-        },
+        method: verb,
+        headers: requestHeaders(token, options?.contentType ?? "application/json", options?.headers),
       }
 
-      if (options?.body !== undefined && (method === "POST" || method === "PUT" || method === "PATCH")) {
+      if (options?.body !== undefined && BODY_METHODS.has(verb)) {
         fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body)
       }
 
@@ -145,6 +167,8 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
       return parseJsonResponse<T>(text)
     } catch (error) {
       if (isCircuitOpenError(error)) return Left<GraphApiError, T>(circuitOpenError(error))
+      const notSent = notSentError(error)
+      if (notSent) return Left<GraphApiError, T>(notSent)
       return Left<GraphApiError, T>({
         type: "network",
         message: `Network error: ${error instanceof Error ? error.message : String(error)}`,
@@ -171,18 +195,14 @@ export const createGraphRequest = (auth: AuthStrategy, config: GraphRequestConfi
 
       const token = tokenResult.value as string
       try {
-        const response = await doFetch(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            ...(options?.headers ?? {}),
-          },
-        })
+        const response = await doFetch(url, { headers: requestHeaders(token, "application/json", options?.headers) })
         if (!response.ok) return mapHttpError<ODataResponse<T>>(response)
         const text = await response.text()
         return parseJsonResponse<ODataResponse<T>>(text)
       } catch (error) {
         if (isCircuitOpenError(error)) return Left<GraphApiError, ODataResponse<T>>(circuitOpenError(error))
+        const notSent = notSentError(error)
+        if (notSent) return Left<GraphApiError, ODataResponse<T>>(notSent)
         return Left<GraphApiError, ODataResponse<T>>({
           type: "network",
           message: `Network error: ${error instanceof Error ? error.message : String(error)}`,

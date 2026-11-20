@@ -829,6 +829,12 @@ the usual case of wanting the task to stop repeating without losing it.
 | `switch_account`   | Switch default account                 |
 | `graph_query`      | Execute arbitrary Graph API queries    |
 
+`graph_query` takes the methods GET, POST, PUT, PATCH and DELETE, in any case. It
+passes on only these request headers: `Accept`, `Accept-Language`, `client-request-id`,
+`ConsistencyLevel`, `Content-Type`, `If-Match`, `If-None-Match` and `Prefer`. Any other
+header is refused, so a call can't replace the server's `Authorization` header or set
+a method override.
+
 ### Auto-Pagination
 
 All list tools support `fetch_all_pages: true` to automatically follow `@odata.nextLink` pagination (max 50 pages):
@@ -886,6 +892,9 @@ normal use; these knobs exist for tuning a deployment without a code change.
 
 Throttling (429) never counts toward the process-wide circuit breaker. Only
 503/504 responses, timeouts and network errors count as breaker failures.
+A request that can't be sent at all, such as one with a line break in a header
+value, fails as a 400 before anything goes out. It is never retried and never
+counts, so bad input can't open the breaker for other users.
 
 A 429 is retried on every method — Graph decides to throttle before it executes the
 operation, so nothing has landed server-side. A 503/504/network failure is retried only

@@ -1,4 +1,4 @@
-import { GRAPH_API_BASE } from "@sapientsai/ms-graph-core"
+import { GRAPH_API_BASE, isPrintableAscii, quoteForMessage } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
 import { UserError } from "somamcp"
@@ -182,6 +182,45 @@ const FORWARDING_RULE_MESSAGE =
   "inbox rule that forwards or redirects mail, or change an existing rule. Use create_mail_rule for rules " +
   "that file, flag, categorize or delete mail, and delete_mail_rule to remove one."
 
+export const GRAPH_QUERY_METHODS: ReadonlyArray<string> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+
+// The headers a Graph call can need. Anything else is refused rather than passed on: a caller
+// must not replace the Authorization header, set a method override, or send one fetch can't.
+export const GRAPH_QUERY_HEADERS: ReadonlyArray<string> = [
+  "Accept",
+  "Accept-Language",
+  "client-request-id",
+  "ConsistencyLevel",
+  "Content-Type",
+  "If-Match",
+  "If-None-Match",
+  "Prefer",
+]
+const ALLOWED_HEADERS: ReadonlySet<string> = new Set(GRAPH_QUERY_HEADERS.map((name) => name.toLowerCase()))
+
+const headerProblem = (name: string, value: string, seen: ReadonlySet<string>): string | undefined => {
+  const lower = name.toLowerCase()
+  if (!ALLOWED_HEADERS.has(lower)) {
+    return `header ${quoteForMessage(name)} isn't allowed. graph_query accepts ${GRAPH_QUERY_HEADERS.join(", ")}.`
+  }
+  // fetch would join the two into one header, so neither value would reach Graph as written.
+  if (seen.has(lower)) return `header ${name} is given twice.`
+  if (value.trim() === "" || !isPrintableAscii(value)) {
+    return `header ${name} is blank or holds a character a header can't carry, such as a line break.`
+  }
+  return undefined
+}
+
+/** Why these headers can't be sent, or undefined when they can (or there are none). */
+export const graphQueryHeadersProblem = (headers: Record<string, string> | undefined): string | undefined =>
+  Object.entries(headers ?? {}).reduce<{ problem?: string; seen: ReadonlySet<string> }>(
+    (state, [name, value]) =>
+      state.problem !== undefined
+        ? state
+        : { problem: headerProblem(name, value, state.seen), seen: new Set([...state.seen, name.toLowerCase()]) },
+    { seen: new Set() },
+  ).problem
+
 const parseBody = (raw: string | undefined): Either<UserError, Record<string, unknown> | undefined> => {
   if (!raw) return Right(undefined)
   try {
@@ -205,6 +244,15 @@ export const graphQuery = async (params: {
   }
   const { version } = params
 
+  // One normalised method for every check below and for the request itself, so a check can't
+  // judge "post" while core sends something else.
+  const method = params.method.trim().toUpperCase()
+  if (!GRAPH_QUERY_METHODS.includes(method)) {
+    return Left(new UserError(`method must be one of ${GRAPH_QUERY_METHODS.join(", ")}`))
+  }
+  const headerIssue = graphQueryHeadersProblem(params.headers)
+  if (headerIssue) return Left(new UserError(headerIssue))
+
   const parsed = parseBody(params.body)
   if (parsed.isLeft()) return Left(parsed.value as UserError)
   const body = parsed.value as Record<string, unknown> | undefined
@@ -212,10 +260,10 @@ export const graphQuery = async (params: {
   // Checked on every call, before any client work, against the URL as core builds it. Core may
   // substitute MS365_GRAPH_VERSION for a missing version, which only changes a leading segment.
   const url = `${GRAPH_API_BASE}/${version ?? "v1.0"}${params.path}`
-  if (requireDraftEnabled() && isDirectMailSend(params.method, url, body)) {
+  if (requireDraftEnabled() && isDirectMailSend(method, url, body)) {
     return Left(new UserError(DRAFT_REQUIRED_MESSAGE))
   }
-  if (requireDraftEnabled() && isForwardingRuleWrite(params.method, url, body)) {
+  if (requireDraftEnabled() && isForwardingRuleWrite(method, url, body)) {
     return Left(new UserError(FORWARDING_RULE_MESSAGE))
   }
 
@@ -232,7 +280,7 @@ export const graphQuery = async (params: {
   const refused = refusals.find((scope) => scope.isLeft())
   if (refused) return Left(refused.value as UserError)
 
-  const result = await client.graphQuery(params.method, params.path, body, version, params.headers)
+  const result = await client.graphQuery(method, params.path, body, version, params.headers)
   return result
     .mapLeft((error) => new UserError(`Graph query failed: ${error.message}`))
     .map((data) => JSON.stringify(data, null, 2))
