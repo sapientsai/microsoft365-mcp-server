@@ -88,6 +88,9 @@ describe.each(["client-token", "oauth-proxy"])("%s over HTTP", (mode) => {
     // The root Dockerfile builds this image; its HEALTHCHECK must probe the path tested here.
     const dockerfile = readFileSync(join(__dirname, "..", "..", "..", "Dockerfile"), "utf-8")
     expect(/HEALTHCHECK[\s\S]*?127\.0\.0\.1:\$\{PORT\}(\/[^\s|"']*)/.exec(dockerfile)?.[1]).toBe("/ping")
+    // The root compose file's healthcheck replaces the image's, so it must probe the same path.
+    const compose = readFileSync(join(__dirname, "..", "..", "..", "docker-compose.yml"), "utf-8")
+    expect(/healthcheck:[\s\S]*?"(https?:\/\/[^"]+)"/.exec(compose)?.[1]).toBe("http://127.0.0.1:8080/ping")
     const server = await startServer(mode)
     const response = await server.fetch(new Request(`${BASE}/ping`))
     expect(response.status).toBe(200)
