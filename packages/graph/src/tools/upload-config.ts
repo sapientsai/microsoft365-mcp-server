@@ -39,7 +39,7 @@ export const buildGetUploadConfigTool = (publicBaseUrl: string, apiKey: string |
 
     // Mint an opaque ticket that resolves (server-side) to the api key; the raw key never
     // travels in the curl / tool output.
-    const ticket = apiKey ? mintUploadTicket(apiKey) : undefined
+    const ticket = apiKey ? mintUploadTicket(apiKey, { relay: "drive", path: args.path }) : undefined
     const authHeader = ticket ? `Authorization: Bearer ${ticket}` : undefined
 
     const curl = [
@@ -65,7 +65,7 @@ export const buildGetUploadConfigTool = (publicBaseUrl: string, apiKey: string |
         curl,
         notes: [
           "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
-          "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not a secret.",
+          "The Authorization value is an opaque upload ticket, not the server's API key. It is good once, for this upload's path only, within about 10 minutes, and only on the /upload relay. After a failed or interrupted curl, call get_upload_config again for a new one.",
           ...(authHeader ? [] : ["No MCP_API_KEY configured: the /upload endpoint will refuse requests (503)."]),
         ],
       },

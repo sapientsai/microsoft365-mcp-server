@@ -700,7 +700,11 @@ export const getAttachmentUploadConfig = async (params: {
     ...(scope.mailbox ? { mailbox: scope.mailbox } : {}),
   })
   const uploadUrl = `${baseUrl}/upload/attachment?${query.toString()}`
-  const authHeader = await relayAuthHeader()
+  const authHeader = await relayAuthHeader({
+    relay: "attachment",
+    messageId: id,
+    ...(scope.mailbox ? { mailbox: scope.mailbox } : {}),
+  })
   if (authHeader === undefined) return Left(new UserError(NO_UPLOAD_TICKET_MESSAGE))
 
   return Right(
@@ -716,7 +720,7 @@ export const getAttachmentUploadConfig = async (params: {
         notes: [
           "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
           "The server attaches the file to the draft itself: inline under 3 MB, through an Outlook upload session up to 150 MB. Only this server's host needs to be reachable.",
-          "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not your Graph token.",
+          "The Authorization value is an opaque upload ticket, not your Graph token. It is good once, for this draft only, within about 10 minutes. After a failed or interrupted curl, call this tool again for a new one.",
           "Each POST adds one attachment. If the curl fails or times out, run list_attachments on the draft before retrying: a large upload can finish after the client gives up, and a retry would attach the file twice.",
           "Send the draft with send_draft once the attachment is on it.",
         ],

@@ -1,21 +1,43 @@
-import { resolveUploadTicket } from "@sapientsai/ms-graph-core"
+import { isUploadTicket, redeemUploadTicket, type UploadTarget } from "@sapientsai/ms-graph-core"
 import { getRequestHeader } from "somamcp"
-
-// The shared `authenticate` gate for the httpStream transport AND the protected /upload
-// route. A presented bearer authorizes if it equals the configured MCP_API_KEY, or is an
-// opaque upload ticket (minted by get_upload_config) that resolves to it. Resolving tickets
-// here — rather than in a per-route check — is what lets /upload inherit somamcp's built-in
-// `protected` gate. A ticket is functionally equivalent to the key (it resolves to it) and
-// short-lived, so accepting it on the transport too is not a widening of trust.
-export const authorizesWithApiKey = (bearer: string | undefined, apiKey: string): boolean => {
-  if (!bearer) return false
-  const resolved = resolveUploadTicket(bearer) ?? bearer
-  return resolved === apiKey
-}
 
 // A web Request carries an absolute URL; a dummy base also parses a path-relative one
 // ("/mcp?api_key=…"). Never used for anything but reading the query.
 const QUERY_BASE = "http://request.invalid"
+
+// The shared `authenticate` gate for the httpStream transport AND the protected /upload
+// route. A presented bearer authorizes if it equals the configured MCP_API_KEY, or is an
+// opaque upload ticket (minted by get_upload_config) redeemed for the upload it was issued for.
+// Resolving tickets here — rather than in a per-route check — is what lets /upload inherit
+// somamcp's built-in `protected` gate.
+//
+// A ticket lands in the model's context and any transcript of it, so it is not the key: it is
+// good once, on /upload only, for the one path it names. On /mcp and every other route a ticket
+// is refused, so a leaked one can't open the MCP endpoint.
+export const authorizesWithApiKey = (
+  bearer: string | undefined,
+  apiKey: string,
+  uploadTarget?: UploadTarget,
+): boolean => {
+  if (!bearer) return false
+  if (isUploadTicket(bearer)) {
+    return uploadTarget !== undefined && redeemUploadTicket(bearer, uploadTarget) === apiKey
+  }
+  return bearer === apiKey
+}
+
+/** The upload a request to the /upload relay is for, or undefined for any other route. */
+export const uploadTargetOf = (request: unknown): UploadTarget | undefined => {
+  const url = (request as { url?: unknown } | null | undefined)?.url
+  if (typeof url !== "string") return undefined
+  try {
+    const parsed = new URL(url, QUERY_BASE)
+    const path = parsed.searchParams.get("path")
+    return parsed.pathname === "/upload" && path !== null ? { relay: "drive", path } : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const queryParam = (request: unknown, name: string): string | undefined => {
   const url = (request as { url?: unknown } | null | undefined)?.url

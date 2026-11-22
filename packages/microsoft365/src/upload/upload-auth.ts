@@ -1,4 +1,4 @@
-import { resolveUploadTicket } from "@sapientsai/ms-graph-core"
+import { isUploadTicket, redeemUploadTicket, type UploadTarget } from "@sapientsai/ms-graph-core"
 
 import { getAccessToken } from "../auth"
 
@@ -8,7 +8,7 @@ export type UploadAuthResult = { token?: string; error?: string; status?: number
 //
 // Auth ordering:
 //   1. Opaque upload ticket → the Graph token held server-side (raw JWT never travels
-//      in the tool transcript).
+//      in the tool transcript). Good once, and only for the upload it was issued for.
 //   2. OAuth-proxy mode → the per-request delegated bearer (required).
 //   3. Shared-secret mode → caller must present MS365_UPLOAD_TOKEN; the server then
 //      uses its own credential to talk to Graph. Only callers that hold the secret out of band
@@ -21,10 +21,16 @@ export type UploadAuthResult = { token?: string; error?: string; status?: number
 export const resolveUploadAccessToken = async (
   oauthMode: boolean,
   bearer: string | undefined,
+  target: UploadTarget,
 ): Promise<UploadAuthResult> => {
-  if (bearer) {
-    const ticketed = resolveUploadTicket(bearer)
+  // A ticket is good once, for the upload it was issued for. Presenting one spends it.
+  if (bearer && isUploadTicket(bearer)) {
+    const ticketed = redeemUploadTicket(bearer, target)
     if (ticketed) return { token: ticketed }
+    return {
+      error: "Upload ticket expired, already used, or issued for another upload. Get a new upload config.",
+      status: 401,
+    }
   }
 
   if (oauthMode) {

@@ -1,27 +1,56 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { describeFetchError, sessionUpload, simpleUpload } from "../src/upload/upload"
-import { isUploadTicket, mintUploadTicket, resolveUploadTicket } from "../src/upload/upload-ticket"
+import { isUploadTicket, mintUploadTicket, redeemUploadTicket } from "../src/upload/upload-ticket"
 
 describe("upload-ticket", () => {
-  it("mints an opaque prefixed ticket that resolves back to the token", () => {
-    const ticket = mintUploadTicket("DELEGATED.JWT.VALUE")
+  const drive = { relay: "drive", path: "/me/drive/root:/a.txt:/content" } as const
+  const draft = { relay: "attachment", messageId: "AAMkDraft", mailbox: "shared@example.com" } as const
+
+  it("mints an opaque prefixed ticket that redeems to the token for its upload", () => {
+    const ticket = mintUploadTicket("DELEGATED.JWT.VALUE", drive)
     expect(isUploadTicket(ticket)).toBe(true)
     expect(ticket).not.toContain("DELEGATED.JWT.VALUE")
-    expect(resolveUploadTicket(ticket)).toBe("DELEGATED.JWT.VALUE")
+    expect(redeemUploadTicket(ticket, { relay: "drive", path: "/me/drive/root:/a.txt:/content" })).toBe(
+      "DELEGATED.JWT.VALUE",
+    )
+  })
+
+  it("is good once: a second use is refused", () => {
+    const ticket = mintUploadTicket("tok", drive)
+    expect(redeemUploadTicket(ticket, drive)).toBe("tok")
+    expect(redeemUploadTicket(ticket, drive)).toBeUndefined()
+  })
+
+  it.each([
+    ["another path", { relay: "drive", path: "/me/drive/root:/other.txt:/content" } as const],
+    ["the attachment relay", { relay: "attachment", messageId: "AAMkDraft" } as const],
+  ])("refuses a drive ticket presented for %s, and spends it", (_, other) => {
+    const ticket = mintUploadTicket("tok", drive)
+    expect(redeemUploadTicket(ticket, other)).toBeUndefined()
+    expect(redeemUploadTicket(ticket, drive)).toBeUndefined()
+  })
+
+  it.each([
+    ["another draft", { relay: "attachment", messageId: "AAMkOther", mailbox: "shared@example.com" } as const],
+    ["another mailbox", { relay: "attachment", messageId: "AAMkDraft", mailbox: "other@example.com" } as const],
+    ["no mailbox", { relay: "attachment", messageId: "AAMkDraft" } as const],
+    ["the drive relay", drive],
+  ])("refuses an attachment ticket presented for %s", (_, other) => {
+    expect(redeemUploadTicket(mintUploadTicket("tok", draft), other)).toBeUndefined()
   })
 
   it("returns undefined for an unknown ticket", () => {
-    expect(resolveUploadTicket("upl_does-not-exist")).toBeUndefined()
+    expect(redeemUploadTicket("upl_does-not-exist", drive)).toBeUndefined()
   })
 
   it("expires tickets past their TTL", () => {
     const t0 = 1_000_000
-    const ticket = mintUploadTicket("tok", 1000, t0)
-    expect(resolveUploadTicket(ticket, t0 + 500)).toBe("tok")
-    expect(resolveUploadTicket(ticket, t0 + 1001)).toBeUndefined()
-    // once expired it is purged, so even an earlier clock can't see it again
-    expect(resolveUploadTicket(ticket, t0 + 500)).toBeUndefined()
+    expect(redeemUploadTicket(mintUploadTicket("tok", drive, 1000, t0), drive, t0 + 500)).toBe("tok")
+    const late = mintUploadTicket("tok", drive, 1000, t0)
+    expect(redeemUploadTicket(late, drive, t0 + 1001)).toBeUndefined()
+    // once presented it is gone, so even an earlier clock can't redeem it
+    expect(redeemUploadTicket(late, drive, t0 + 500)).toBeUndefined()
   })
 
   it("recognizes non-tickets", () => {

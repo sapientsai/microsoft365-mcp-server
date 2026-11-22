@@ -18,6 +18,7 @@ import {
   resolveUploadContentType,
   SIMPLE_UPLOAD_LIMIT,
   uploadDriveContent,
+  type UploadTarget,
 } from "@sapientsai/ms-graph-core"
 import type { Either } from "functype/either"
 import { Left, Right } from "functype/either"
@@ -234,14 +235,14 @@ export const uploadFile = async (params: {
 // ticket instead — the raw delegated JWT must never land in the tool transcript.
 // Nor does the shared MS365_UPLOAD_TOKEN: it never expires. When no Graph token resolves there is
 // no header, because the relay could not upload with that secret either: it needs the same token.
-export const relayAuthHeader = async (): Promise<string | undefined> => {
+export const relayAuthHeader = async (target: UploadTarget): Promise<string | undefined> => {
   const graphToken =
     getContextToken() ??
     (await getAccessToken()).fold<string | undefined>(
       () => undefined,
       (value) => value as string,
     )
-  return graphToken ? `Authorization: Bearer ${mintUploadTicket(graphToken)}` : undefined
+  return graphToken ? `Authorization: Bearer ${mintUploadTicket(graphToken, target)}` : undefined
 }
 
 // Both upload config tools need a ticket: a curl without one can only be refused by the relay.
@@ -304,7 +305,7 @@ export const getUploadConfig = async (params: {
     ...(params.ifMatch !== undefined ? { ifMatch: params.ifMatch } : {}),
   })
   const uploadUrl = `${baseUrl}/upload?${query.toString()}`
-  const authHeader = await relayAuthHeader()
+  const authHeader = await relayAuthHeader({ relay: "drive", path: params.path })
   if (authHeader === undefined) return Left(new UserError(NO_UPLOAD_TICKET_MESSAGE))
   const reachability = await probeGraphReachability()
   const curlParts = relayCurl(localFile, uploadUrl, authHeader)
@@ -330,7 +331,7 @@ export const getUploadConfig = async (params: {
             "The upload is conditional: it replaces the file only if its eTag still matches. If it changed, the relay answers 412 precondition-failed; read the file again, re-apply the change, and get a new upload config with the new eTag.",
           ]
         : []),
-      "The Authorization value is an opaque, short-lived upload ticket (~10 min TTL) — not your Graph token. It only authorizes this upload relay.",
+      "The Authorization value is an opaque upload ticket, not your Graph token. It is good once, for this upload's path only, within about 10 minutes. After a failed or interrupted curl, call get_upload_config again for a new one.",
       "If a /upload call fails with a network error, check graphReachableFromServer: it reflects whether THIS server can reach Microsoft Graph. false ⇒ a server-side egress/DNS/TLS problem, not your client; true ⇒ report the returned error text (it includes the underlying cause). Before uploading again, check whether the file arrived: the upload may have gone through.",
     ],
   }

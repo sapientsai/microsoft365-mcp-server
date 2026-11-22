@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import type { AuthStrategy } from "@sapientsai/ms-graph-core"
+import { type AuthStrategy, mintUploadTicket } from "@sapientsai/ms-graph-core"
 import { Right } from "functype/either"
 import { describe, expect, it } from "vitest"
 
@@ -43,6 +43,28 @@ const composeProbe = (): string | undefined =>
 describe("the compose healthcheck", () => {
   it("probes the same path as the image, on 127.0.0.1", () => {
     expect(composeProbe()).toBe(`http://127.0.0.1:8080${probedPath()}`)
+  })
+})
+
+// The ticket get_upload_config hands out is printed into the transcript, so it must not open /mcp.
+describe("an upload ticket on the MCP endpoint", () => {
+  it("is refused, while the API key itself is accepted", async () => {
+    const server = buildServer(config("made-up-key"), auth)
+    const ticket = mintUploadTicket("made-up-key", { relay: "drive", path: "/me/drive/root:/a.txt:/content" })
+    const post = (bearer: string) =>
+      server.fetch(
+        new Request("http://127.0.0.1:3000/mcp", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+        }),
+      )
+    expect((await post(ticket)).status).toBe(401)
+    expect((await post("made-up-key")).status).not.toBe(401)
   })
 })
 

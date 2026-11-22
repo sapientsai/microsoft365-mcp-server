@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("../src/auth/token-context", () => ({ getContextToken: vi.fn() }))
 vi.mock("../src/auth", () => ({ getAccessToken: vi.fn() }))
 
-import { isUploadTicket, resolveUploadTicket } from "@sapientsai/ms-graph-core"
+import { isUploadTicket, redeemUploadTicket } from "@sapientsai/ms-graph-core"
 
 import { getAccessToken } from "../src/auth"
 import { getContextToken } from "../src/auth/token-context"
@@ -44,7 +44,9 @@ describe("getUploadConfig token hardening", () => {
     }
     const ticket = payload.authHeader.replace(/^Authorization: Bearer\s+/, "")
     expect(isUploadTicket(ticket)).toBe(true)
-    expect(resolveUploadTicket(ticket)).toBe(RAW_JWT)
+    expect(
+      redeemUploadTicket(ticket, { relay: "drive", path: "/me/drive/root:/_upload-test/probe.bin:/content" }),
+    ).toBe(RAW_JWT)
     expect(payload.graphReachableFromServer).toBe(true)
     expect(getAccessToken).not.toHaveBeenCalled()
   })

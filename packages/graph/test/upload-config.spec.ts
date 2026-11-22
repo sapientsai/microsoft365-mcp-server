@@ -1,4 +1,4 @@
-import { isUploadTicket, resolveUploadTicket } from "@sapientsai/ms-graph-core"
+import { isUploadTicket, redeemUploadTicket } from "@sapientsai/ms-graph-core"
 import { describe, expect, it } from "vitest"
 
 import { buildGetUploadConfigTool } from "../src/tools/upload-config"
@@ -6,7 +6,7 @@ import { buildGetUploadConfigTool } from "../src/tools/upload-config"
 const PATH = "/me/drive/root:/Documents/report.docx:/content"
 
 describe("get_upload_config tool", () => {
-  it("never echoes the raw api key — hands back an opaque ticket that resolves to it", async () => {
+  it("never echoes the raw api key — hands back a ticket good only for this path", async () => {
     const tool = buildGetUploadConfigTool("https://graph.example.com", "RAW_SECRET_KEY")
     const out = await tool.execute({ path: PATH, conflict_behavior: "rename" })
 
@@ -14,7 +14,11 @@ describe("get_upload_config tool", () => {
     const payload = JSON.parse(out) as { authHeader: string; uploadUrl: string; contentType: string }
     const ticket = payload.authHeader.replace(/^Authorization: Bearer\s+/, "")
     expect(isUploadTicket(ticket)).toBe(true)
-    expect(resolveUploadTicket(ticket)).toBe("RAW_SECRET_KEY")
+    expect(redeemUploadTicket(ticket, { relay: "drive", path: "/me/drive/root:/other.docx:/content" })).toBeUndefined()
+    const again = (
+      JSON.parse(await tool.execute({ path: PATH, conflict_behavior: "rename" })) as { authHeader: string }
+    ).authHeader.replace(/^Authorization: Bearer\s+/, "")
+    expect(redeemUploadTicket(again, { relay: "drive", path: PATH })).toBe("RAW_SECRET_KEY")
     expect(payload.uploadUrl).toContain("https://graph.example.com/upload?")
     expect(payload.contentType).toContain("wordprocessingml") // .docx inferred
   })
