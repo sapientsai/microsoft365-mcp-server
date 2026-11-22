@@ -877,7 +877,9 @@ const toolDefinitions: ReadonlyArray<ToolDefinition> = [
       time_zone: z
         .string()
         .optional()
-        .describe('Time zone for start and end, e.g. "Eastern Standard Time" or "UTC" (default UTC)'),
+        .describe(
+          'Time zone for start and end, e.g. "Eastern Standard Time" or "UTC" (default: the mailbox\'s own time zone)',
+        ),
       mailbox: MAILBOX_PARAM,
     }),
     execute: async (params) => unwrapResult(await setAutomaticReplies(params)),

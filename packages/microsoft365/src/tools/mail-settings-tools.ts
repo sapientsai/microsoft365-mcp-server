@@ -98,7 +98,16 @@ export const setAutomaticReplies = async (params: {
   if (resolved.isLeft()) return scopeFailure(resolved)
   const { scope, client } = resolved.orThrow()
 
-  const timeZone = params.time_zone ?? "UTC"
+  // Left out, the schedule is in the mailbox's own time zone, as Outlook shows it to its owner. A
+  // window read as UTC would start hours early or late for anyone outside UTC.
+  const timeZone =
+    params.time_zone ??
+    (params.start === undefined && params.end === undefined
+      ? "UTC"
+      : (await client.getMailboxTimeZone(scope.prefix)).fold(
+          () => "UTC",
+          (setting) => (setting.value === undefined || setting.value.trim() === "" ? "UTC" : setting.value),
+        ))
   // Only what the caller passed is sent, so leaving out a message keeps the one already set.
   const setting = {
     status: params.status,
@@ -285,13 +294,57 @@ const partLines = (label: string, part: Record<string, unknown> | undefined): st
   return `\n  ${label}: ${entries.map(([k, v]) => `${k}=${Array.isArray(v) ? valueText(v) : oneLine(valueText(v), MAX_TEXT)}`).join("; ")}`
 }
 
-const formatRule = (rule: GraphMessageRule): string =>
+// A rule names its target folder by ID. Shown with its name, looked up once per folder; an ID that
+// can't be resolved (a deleted folder, a lookup that failed) is shown as is.
+type FolderNames = ReadonlyMap<string, string>
+const FOLDER_ACTIONS = ["moveToFolder", "copyToFolder"] as const
+
+const folderIdsOf = (rules: ReadonlyArray<GraphMessageRule>): ReadonlyArray<string> => [
+  ...new Set(
+    rules.flatMap((rule) =>
+      FOLDER_ACTIONS.map((key) => (rule.actions as Record<string, unknown> | undefined)?.[key]).filter(
+        (id): id is string => typeof id === "string" && id !== "",
+      ),
+    ),
+  ),
+]
+
+const resolveFolderNames = async (
+  client: ScopedClient["client"],
+  ids: ReadonlyArray<string>,
+  prefix: string,
+): Promise<FolderNames> =>
+  new Map(
+    (
+      await Promise.all(
+        ids.map(async (id) =>
+          (await client.getMailFolder(id, prefix)).fold<ReadonlyArray<readonly [string, string]>>(
+            () => [],
+            (folder) => (folder.displayName ? [[id, folder.displayName] as const] : []),
+          ),
+        ),
+      )
+    ).flat(),
+  )
+
+const withFolderNames = (actions: Record<string, unknown> | undefined, names: FolderNames) =>
+  actions === undefined
+    ? undefined
+    : Object.fromEntries(
+        Object.entries(actions).map(([key, value]) =>
+          (FOLDER_ACTIONS as ReadonlyArray<string>).includes(key) && typeof value === "string" && names.has(value)
+            ? [key, names.get(value)]
+            : [key, value],
+        ),
+      )
+
+const formatRule = (rule: GraphMessageRule, names: FolderNames = new Map()): string =>
   `- ${oneLine(rule.displayName ?? "(unnamed)", MAX_TEXT)}` +
   ` [${rule.isEnabled === false ? "disabled" : "enabled"}${rule.hasError ? ", has error" : ""}, order ${rule.sequence ?? "?"}]` +
   `\n  ID: ${rule.id}${partLines("When", rule.conditions)}${partLines(
     "Except",
     rule.exceptions,
-  )}${partLines("Do", rule.actions)}`
+  )}${partLines("Do", withFolderNames(rule.actions as Record<string, unknown> | undefined, names))}`
 
 export const listMailRules = async (params: { mailbox?: string }): Promise<Either<UserError, string>> => {
   const resolved = await withScope(params.mailbox)
@@ -299,13 +352,13 @@ export const listMailRules = async (params: { mailbox?: string }): Promise<Eithe
   const { scope, client } = resolved.orThrow()
 
   const result = await client.listMessageRules(scope.prefix)
-  return result
-    .mapLeft((error) => settingsFailure("list inbox rules", error, scope.prefix))
-    .map((response) => {
-      const rules = [...response].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
-      if (rules.length === 0) return "No inbox rules."
-      return `# Inbox rules (${rules.length})\n\n${rules.map(formatRule).join("\n")}`
-    })
+  if (result.isLeft()) return Left(settingsFailure("list inbox rules", result.value as GraphApiError, scope.prefix))
+  const rules = [...(result.value as ReadonlyArray<GraphMessageRule>)].sort(
+    (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0),
+  )
+  if (rules.length === 0) return Right("No inbox rules.")
+  const names = await resolveFolderNames(client, folderIdsOf(rules), scope.prefix)
+  return Right(`# Inbox rules (${rules.length})\n\n${rules.map((rule) => formatRule(rule, names)).join("\n")}`)
 }
 
 export type CreateMailRuleParams = {
@@ -423,9 +476,12 @@ export const createMailRule = async (params: CreateMailRuleParams): Promise<Eith
     actions: { ...actions, ...(params.stop_processing_rules === true ? { stopProcessingRules: true } : {}) },
   }
   const result = await scoped.client.createMessageRule(rule, scoped.scope.prefix)
-  return result
-    .mapLeft((error) => settingsFailure("create inbox rule", error, scoped.scope.prefix))
-    .map((created) => `Inbox rule created.\n\n${formatRule(created)}`)
+  if (result.isLeft()) {
+    return Left(settingsFailure("create inbox rule", result.value as GraphApiError, scoped.scope.prefix))
+  }
+  const created = result.value as GraphMessageRule
+  const names = await resolveFolderNames(scoped.client, folderIdsOf([created]), scoped.scope.prefix)
+  return Right(`Inbox rule created.\n\n${formatRule(created, names)}`)
 }
 
 export const deleteMailRule = async (params: {

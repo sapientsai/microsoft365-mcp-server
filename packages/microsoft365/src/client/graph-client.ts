@@ -194,6 +194,10 @@ const createGraphClient = (auth: AuthStrategy) => {
   const getAutomaticReplies = (prefix: string = "/me") =>
     request<GraphAutomaticRepliesSetting>("GET", graphPath`${raw(prefix)}/mailboxSettings/automaticRepliesSetting`)
 
+  // The mailbox's own time zone, Windows or IANA name: the default for an automatic-reply schedule.
+  const getMailboxTimeZone = (prefix: string = "/me") =>
+    request<{ value?: string }>("GET", graphPath`${raw(prefix)}/mailboxSettings/timeZone`)
+
   const setAutomaticReplies = (setting: Record<string, unknown>, prefix: string = "/me") =>
     request<{ automaticRepliesSetting?: GraphAutomaticRepliesSetting }>(
       "PATCH",
@@ -898,6 +902,7 @@ const createGraphClient = (auth: AuthStrategy) => {
     getDraftState,
     updateMessage,
     deleteMessage,
+    getMailboxTimeZone,
     getAutomaticReplies,
     setAutomaticReplies,
     listMasterCategories,

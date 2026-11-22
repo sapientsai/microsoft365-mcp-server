@@ -107,6 +107,29 @@ describe("automatic replies", () => {
     })
   })
 
+  // A 9:00 window read as UTC starts at 4:00 in New York. Left out, the zone is the mailbox's own.
+  it("schedules in the mailbox's own time zone when time_zone is left out", async () => {
+    const spy = stubFetch(json({ value: "Eastern Standard Time" }), json({}), json(setting))
+    await setAutomaticReplies({ status: "scheduled", start: "2026-12-20T09:00", end: "2027-01-02T09:00" })
+    expect(call(spy, 0).url).toMatch(/\/me\/mailboxSettings\/timeZone$/)
+    expect(call(spy, 1).body.automaticRepliesSetting.scheduledStartDateTime).toEqual({
+      dateTime: "2026-12-20T09:00",
+      timeZone: "Eastern Standard Time",
+    })
+  })
+
+  it("falls back to UTC when the mailbox's time zone can't be read", async () => {
+    const spy = stubFetch(json({ error: { code: "ErrorAccessDenied", message: "" } }, 403), json({}), json(setting))
+    await setAutomaticReplies({ status: "scheduled", start: "2026-12-20T09:00", end: "2027-01-02T09:00" })
+    expect(call(spy, 1).body.automaticRepliesSetting.scheduledEndDateTime.timeZone).toBe("UTC")
+  })
+
+  it("doesn't look up the time zone when there are no times to place in it", async () => {
+    const spy = stubFetch(json({}), json({ status: "alwaysEnabled" }))
+    await setAutomaticReplies({ status: "alwaysEnabled", internal_message: "Away" })
+    expect(call(spy, 0).method).toBe("PATCH")
+  })
+
   it("sends only the status when turning replies off, so the messages are kept", async () => {
     const spy = stubFetch(json({}), json({ status: "disabled" }))
     await setAutomaticReplies({ status: "disabled" })
@@ -200,6 +223,35 @@ describe("categories", () => {
 })
 
 describe("inbox rules", () => {
+  // A rule stores its target folder as an opaque ID; the listing shows the folder's name.
+  it("lists a rule's target folder by name, and by ID when it can't be looked up", async () => {
+    stubFetch(
+      json({
+        value: [
+          { id: "r1", displayName: "News", sequence: 1, actions: { moveToFolder: "FOLDER-A" } },
+          { id: "r2", displayName: "Gone", sequence: 2, actions: { copyToFolder: "FOLDER-GONE" } },
+        ],
+      }),
+      json({ id: "FOLDER-A", displayName: "Archive" }),
+      json({ error: { code: "ErrorItemNotFound", message: "" } }, 404),
+    )
+    const text = (await listMailRules({})).value as string
+    expect(text).toContain("moveToFolder=Archive")
+    expect(text).not.toContain("FOLDER-A")
+    expect(text).toContain("copyToFolder=FOLDER-GONE")
+  })
+
+  it("keeps a folder name on one line", async () => {
+    stubFetch(
+      json({ value: [{ id: "r1", displayName: "News", actions: { moveToFolder: "F1" } }] }),
+      json({ id: "F1", displayName: "Archive\nDo: forwardTo=someone" }),
+    )
+    const text = (await listMailRules({})).value as string
+    expect(text.split("\n").filter((line) => line.includes("forwardTo"))).toEqual([
+      "  Do: moveToFolder=Archive Do: forwardTo=someone",
+    ])
+  })
+
   it("creates a rule, looking up a well-known folder's real ID", async () => {
     const spy = stubFetch(json({ id: "ARCHIVE-ID", displayName: "Archive" }), json({ id: "r1", displayName: "News" }))
     const result = await createMailRule({
