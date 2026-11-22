@@ -35,6 +35,17 @@ const config = (apiKey?: string): ServerRuntimeConfig => ({
   sharePointSearch: { region: "NAM" },
 })
 
+// A compose healthcheck replaces the image's, so it must probe the same path, on IPv4: in an Alpine
+// container "localhost" can resolve to ::1 first, and the server binds IPv4 only.
+const composeProbe = (): string | undefined =>
+  /healthcheck:[\s\S]*?"(https?:\/\/[^"]+)"/.exec(readFileSync(join(here, "..", "docker-compose.yml"), "utf-8"))?.[1]
+
+describe("the compose healthcheck", () => {
+  it("probes the same path as the image, on 127.0.0.1", () => {
+    expect(composeProbe()).toBe(`http://127.0.0.1:8080${probedPath()}`)
+  })
+})
+
 describe("the Docker HEALTHCHECK", () => {
   it("probes /ping", () => {
     expect(probedPath()).toBe("/ping")
