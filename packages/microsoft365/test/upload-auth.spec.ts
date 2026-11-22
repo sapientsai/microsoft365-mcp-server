@@ -28,6 +28,13 @@ describe("resolveUploadAccessToken", () => {
     expect(again.error).toContain("already used")
   })
 
+  it("still accepts a shared secret that happens to start like a ticket, every time", async () => {
+    process.env.MS365_UPLOAD_TOKEN = "upl_made-up-secret"
+    vi.mocked(getAccessToken).mockResolvedValue(Right("SERVER.TOKEN"))
+    expect(await resolveUploadAccessToken(false, "upl_made-up-secret", TARGET)).toEqual({ token: "SERVER.TOKEN" })
+    expect(await resolveUploadAccessToken(false, "upl_made-up-secret", TARGET)).toEqual({ token: "SERVER.TOKEN" })
+  })
+
   // In oauth-proxy mode a non-ticket bearer goes to Graph as the token; a spent or misdirected
   // ticket must not, so it is refused rather than passed through.
   it("refuses a ticket issued for another upload, in either mode", async () => {

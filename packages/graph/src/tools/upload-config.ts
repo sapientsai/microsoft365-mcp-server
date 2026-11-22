@@ -2,14 +2,15 @@ import { filenameFromPath, mintUploadTicket, resolveUploadContentType } from "@s
 import { z } from "zod"
 
 // get_upload_config: returns a ready-to-run curl for the /upload relay. The Authorization
-// value is an opaque, short-lived UPLOAD TICKET — never the raw MCP_API_KEY. (The gateway
-// inlined the raw key into tool output, leaking it into the transcript; this closes that.)
+// value is an opaque UPLOAD TICKET, good once for this path on /upload only — never the raw
+// MCP_API_KEY. (The gateway inlined the raw key into tool output, leaking it into the transcript;
+// this closes that.)
 export const buildGetUploadConfigTool = (publicBaseUrl: string, apiKey: string | undefined) => ({
   name: "get_upload_config",
   description:
     "Get an authenticated upload URL + curl command for uploading a binary file to OneDrive/SharePoint. Pipe " +
     "base64 file bytes to the returned URL via POST; the server decodes and streams to Microsoft Graph (chunked " +
-    "session upload for >4 MB, up to 250 MB). The Authorization value is a short-lived opaque ticket, not a secret.",
+    "session upload for >4 MB, up to 250 MB). The Authorization value is a single-use ticket for this path, not the API key.",
   parameters: z.object({
     path: z
       .string()

@@ -20,10 +20,16 @@ export const authorizesWithApiKey = (
   uploadTarget?: UploadTarget,
 ): boolean => {
   if (!bearer) return false
-  if (isUploadTicket(bearer)) {
-    return uploadTarget !== undefined && redeemUploadTicket(bearer, uploadTarget) === apiKey
+  // The key itself first, so a key that happens to start like a ticket still works as the key.
+  if (bearer === apiKey) return true
+  if (!isUploadTicket(bearer)) return false
+  // No upload target: a ticket on /mcp or any other route. It is spent anyway, so a ticket tried
+  // where it doesn't belong can't be used afterwards either.
+  if (uploadTarget === undefined) {
+    redeemUploadTicket(bearer, { relay: "drive", path: "" })
+    return false
   }
-  return bearer === apiKey
+  return redeemUploadTicket(bearer, uploadTarget) === apiKey
 }
 
 /** The upload a request to the /upload relay is for, or undefined for any other route. */

@@ -24,7 +24,8 @@ export const resolveUploadAccessToken = async (
   target: UploadTarget,
 ): Promise<UploadAuthResult> => {
   // A ticket is good once, for the upload it was issued for. Presenting one spends it.
-  if (bearer && isUploadTicket(bearer)) {
+  // A shared secret that happens to start like a ticket is still the secret.
+  if (bearer && isUploadTicket(bearer) && bearer !== process.env.MS365_UPLOAD_TOKEN) {
     const ticketed = redeemUploadTicket(bearer, target)
     if (ticketed) return { token: ticketed }
     return {
