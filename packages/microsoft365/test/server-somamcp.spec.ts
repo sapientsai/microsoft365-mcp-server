@@ -300,12 +300,86 @@ describe("conditional upload over the /upload relay", () => {
     const response = await server.fetch(
       new Request(uploadUrl({}), {
         method: "PUT",
-        headers: { Authorization: `Bearer ${mintUploadTicket("GRAPH.TOKEN")}` },
+        headers: {
+          Authorization: `Bearer ${mintUploadTicket("GRAPH.TOKEN", { relay: "drive", path: "/me/drive/root:/state.json:/content" })}`,
+        },
         body: "new state",
       }),
     )
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ id: "drive-item-1", name: "state.json" })
+  })
+
+  // A ticket lands in the transcript, so it is good once, for its own path.
+  it("accepts a ticket once, and only for the path it was issued for", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify({ id: "drive-item-1" }), { status: 200 }))),
+    )
+    const server = await startServer("client-token")
+    const { mintUploadTicket } = await import("@sapientsai/ms-graph-core")
+    const path = "/me/drive/root:/state.json:/content"
+    const put = (ticket: string, query: Record<string, string>) =>
+      server.fetch(
+        new Request(uploadUrl(query), { method: "PUT", headers: { Authorization: `Bearer ${ticket}` }, body: "x" }),
+      )
+
+    const ticket = mintUploadTicket("GRAPH.TOKEN", { relay: "drive", path })
+    expect((await put(ticket, {})).status).toBe(200)
+    const reused = await put(ticket, {})
+    expect(reused.status).toBe(401)
+    expect(((await reused.json()) as { error: string }).error).toContain("already used")
+
+    const elsewhere = mintUploadTicket("GRAPH.TOKEN", { relay: "drive", path })
+    expect((await put(elsewhere, { path: "/me/drive/root:/other.json:/content" })).status).toBe(401)
+  })
+
+  // The attachment relay redeems against the draft and mailbox in its own URL: a shared-mailbox
+  // upload works once, and the same ticket can't be pointed at another mailbox.
+  it("accepts an attachment ticket once, for its draft and mailbox", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "AAMkDraft",
+              isDraft: true,
+              name: "a.txt",
+              size: 5,
+              mail: "me@example.com",
+              value: [],
+            }),
+            { status: 200 },
+          ),
+        ),
+      ),
+    )
+    vi.stubEnv("MS365_ALLOWED_MAILBOXES", "shared@example.com")
+    const server = await startServer("client-token")
+    const { mintUploadTicket } = await import("@sapientsai/ms-graph-core")
+    const target = { relay: "attachment", messageId: "AAMkDraft", mailbox: "shared@example.com" } as const
+    // A delegated token, so the relay applies the mailbox rules as the signed-in user.
+    const token = ["{}", JSON.stringify({ scp: "Mail.ReadWrite" }), ""]
+      .map((part) => Buffer.from(part).toString("base64url"))
+      .join(".")
+    const attach = (ticket: string, mailbox?: string) =>
+      server.fetch(
+        new Request(
+          `${BASE}/upload/attachment?${new URLSearchParams({
+            messageId: "AAMkDraft",
+            name: "a.txt",
+            contentType: "text/plain",
+            ...(mailbox ? { mailbox } : {}),
+          }).toString()}`,
+          { method: "POST", headers: { Authorization: `Bearer ${ticket}` }, body: "hello" },
+        ),
+      )
+
+    const ticket = mintUploadTicket(token, target)
+    expect((await attach(ticket, "shared@example.com")).status).toBe(200)
+    expect((await attach(ticket, "shared@example.com")).status).toBe(401)
+    expect((await attach(mintUploadTicket(token, target))).status).toBe(401)
   })
 
   it("sends If-Match on the upload session and answers 412 precondition-failed on a stale eTag", async () => {
@@ -319,7 +393,9 @@ describe("conditional upload over the /upload relay", () => {
     const response = await server.fetch(
       new Request(uploadUrl({ ifMatch: '"{A},1"' }), {
         method: "PUT",
-        headers: { Authorization: `Bearer ${mintUploadTicket("GRAPH.TOKEN")}` },
+        headers: {
+          Authorization: `Bearer ${mintUploadTicket("GRAPH.TOKEN", { relay: "drive", path: "/me/drive/root:/state.json:/content" })}`,
+        },
         body: "new state",
       }),
     )

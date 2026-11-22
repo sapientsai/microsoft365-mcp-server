@@ -35,7 +35,7 @@ Pick **this** one when there's **no user to consent** (a service/tenant credenti
 | `read_document`         | Download + extract text (DOCX/PDF/XLSX/text), truncated to `max_chars`.                                                                          |
 | `sharepoint_search`     | KQL document-library search via the Graph Search API (region-scoped).                                                                            |
 | `azure_ai_search`       | _Optional_ — only when `AZURE_AI_SEARCH_*` is configured.                                                                                        |
-| `get_upload_config`     | Returns a curl for `/upload`; Authorization is an opaque ticket, **not** the raw key.                                                            |
+| `get_upload_config`     | Returns a curl for `/upload`; Authorization is a single-use ticket for that path, **not** the raw key, and `/mcp` refuses it.                    |
 | `/upload` (HTTP)        | Binary upload relay (POST/PUT) — a somamcp `protected` route behind the shared `MCP_API_KEY` gate, uploads with the server's own app-only token. |
 
 ## Configuration

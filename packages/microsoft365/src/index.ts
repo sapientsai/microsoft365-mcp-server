@@ -17,6 +17,7 @@ import {
   SIMPLE_UPLOAD_LIMIT,
   uploadDriveContent,
   uploadPathProblem,
+  type UploadTarget,
   withoutDownloadUrl,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
@@ -2484,10 +2485,14 @@ type UploadRequestContext = {
 
 type RelayResponse = { status: number; body: unknown }
 
-const relayAuth = async (req: UploadRequestContext, oauthMode: boolean): Promise<Either<RelayResponse, string>> => {
+const relayAuth = async (
+  req: UploadRequestContext,
+  oauthMode: boolean,
+  target: UploadTarget,
+): Promise<Either<RelayResponse, string>> => {
   const authHeader = req.header("authorization") ?? req.header("Authorization")
   const bearer = authHeader?.replace(/^Bearer\s+/i, "")
-  const auth = await resolveUploadAccessToken(oauthMode, bearer)
+  const auth = await resolveUploadAccessToken(oauthMode, bearer, target)
   if (auth.error || !auth.token) {
     return Left({ status: auth.status ?? 401, body: { error: auth.error ?? "Unauthorized" } })
   }
@@ -2554,7 +2559,12 @@ const handleAttachmentUpload = async (req: UploadRequestContext, oauthMode: bool
   const apiBase = relayApiBase(req)
   if (apiBase.isLeft()) return apiBase.value as RelayResponse
 
-  const auth = await relayAuth(req, oauthMode)
+  const mailboxParam = req.query("mailbox")
+  const auth = await relayAuth(req, oauthMode, {
+    relay: "attachment",
+    messageId,
+    ...(mailboxParam ? { mailbox: mailboxParam } : {}),
+  })
   if (auth.isLeft()) return auth.value as RelayResponse
   const token = auth.value as string
 
@@ -2614,7 +2624,7 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
   const conflictBehavior = requestedConflict ?? (ifMatch !== undefined ? "replace" : "rename")
   const encoding = req.query("encoding")
 
-  const auth = await relayAuth(req, oauthMode)
+  const auth = await relayAuth(req, oauthMode, { relay: "drive", path })
   if (auth.isLeft()) return auth.value as RelayResponse
   const token = auth.value as string
 

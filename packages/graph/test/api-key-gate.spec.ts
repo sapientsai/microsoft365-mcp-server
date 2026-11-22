@@ -1,16 +1,30 @@
 import { mintUploadTicket } from "@sapientsai/ms-graph-core"
 import { describe, expect, it } from "vitest"
 
-import { authorizesWithApiKey, presentedApiKey } from "../src/auth/api-key-gate"
+import { authorizesWithApiKey, presentedApiKey, uploadTargetOf } from "../src/auth/api-key-gate"
 
 describe("authorizesWithApiKey", () => {
   it("accepts the raw api key", () => {
     expect(authorizesWithApiKey("SECRET", "SECRET")).toBe(true)
   })
 
-  it("accepts an opaque upload ticket that resolves to the api key", () => {
-    const ticket = mintUploadTicket("SECRET")
-    expect(authorizesWithApiKey(ticket, "SECRET")).toBe(true)
+  const target = { relay: "drive", path: "/me/drive/root:/a.txt:/content" } as const
+
+  it("accepts an upload ticket once, for the upload it was issued for", () => {
+    const ticket = mintUploadTicket("SECRET", target)
+    expect(authorizesWithApiKey(ticket, "SECRET", target)).toBe(true)
+    expect(authorizesWithApiKey(ticket, "SECRET", target)).toBe(false)
+  })
+
+  // A ticket is printed into the transcript; it must not open the MCP endpoint.
+  it("refuses an upload ticket anywhere but its upload (no target: /mcp and other routes)", () => {
+    expect(authorizesWithApiKey(mintUploadTicket("SECRET", target), "SECRET")).toBe(false)
+    expect(
+      authorizesWithApiKey(mintUploadTicket("SECRET", target), "SECRET", {
+        relay: "drive",
+        path: "/me/drive/root:/b.txt:/content",
+      }),
+    ).toBe(false)
   })
 
   it("rejects a wrong key", () => {
@@ -60,10 +74,18 @@ describe("presentedApiKey", () => {
     expect(authorizesWithApiKey(presentedApiKey(nodeRequest({}, "/mcp?api_key=SECRET")), "SECRET")).toBe(true)
   })
 
-  it("accepts an upload ticket presented as a query parameter", () => {
-    const ticket = mintUploadTicket("SECRET")
-    const url = `/upload?api_key=${encodeURIComponent(ticket)}`
-    expect(authorizesWithApiKey(presentedApiKey(nodeRequest({}, url)), "SECRET")).toBe(true)
+  it("accepts an upload ticket presented as a query parameter, on /upload for its path", () => {
+    const path = "/me/drive/root:/a.txt:/content"
+    const ticket = mintUploadTicket("SECRET", { relay: "drive", path })
+    const request = nodeRequest({}, `/upload?path=${encodeURIComponent(path)}&api_key=${encodeURIComponent(ticket)}`)
+    expect(authorizesWithApiKey(presentedApiKey(request), "SECRET", uploadTargetOf(request))).toBe(true)
+  })
+
+  it("refuses an upload ticket presented on /mcp", () => {
+    const ticket = mintUploadTicket("SECRET", { relay: "drive", path: "/me/drive/root:/a.txt:/content" })
+    const request = nodeRequest({}, `/mcp?api_key=${encodeURIComponent(ticket)}`)
+    expect(uploadTargetOf(request)).toBeUndefined()
+    expect(authorizesWithApiKey(presentedApiKey(request), "SECRET", uploadTargetOf(request))).toBe(false)
   })
 
   it("prefers the header when both are present", () => {

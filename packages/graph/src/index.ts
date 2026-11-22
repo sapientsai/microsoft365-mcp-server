@@ -2,7 +2,7 @@ import { type AuthStrategy, createGraphRequest, loadEnvFileIfPresent } from "@sa
 import { createServer, type SomaServerInstance } from "somamcp/node"
 import { z } from "zod"
 
-import { authorizesWithApiKey, presentedApiKey } from "./auth/api-key-gate"
+import { authorizesWithApiKey, presentedApiKey, uploadTargetOf } from "./auth/api-key-gate"
 import { createAppOnlyAuthStrategy } from "./auth/app-only-strategy"
 import { resolveServerRuntimeConfig, type ServerRuntimeConfig } from "./config"
 import { buildAiSearchTool } from "./tools/ai-search"
@@ -52,7 +52,7 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
           // Response as-is, so a bad or missing key is a 401. Non-async (returns a Promise)
           // to satisfy the no-floating-await rule.
           authenticate: (request: unknown): Promise<{ apiKey: string }> => {
-            if (!authorizesWithApiKey(presentedApiKey(request), apiKey)) {
+            if (!authorizesWithApiKey(presentedApiKey(request), apiKey, uploadTargetOf(request))) {
               return Promise.reject(new Response("Unauthorized", { status: 401 }))
             }
             return Promise.resolve({ apiKey })

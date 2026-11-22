@@ -412,10 +412,11 @@ filters. Read-only mode, a preset without files, or a tool pattern that excludes
 endpoint follows `get_attachment_upload_config` the same way: read-only mode, a
 preset without mail, or a pattern that excludes the tool disables it.
 
-Both endpoints accept the same upload ticket: an opaque stand-in for the caller's own
-Graph token that expires after about 10 minutes. It is not tied to one file or draft,
-so it carries the caller's own access for that window, no more. The attachment
-endpoint re-checks on every request that the target is a draft.
+Both endpoints take an upload ticket: an opaque stand-in for the caller's own Graph
+token. A ticket is good once, for the one upload it was issued for (the drive path, or
+the draft and mailbox), within about 10 minutes. A second use, or a use for another
+file or draft, is refused with 401; after a failed upload, ask for a new config. The
+attachment endpoint also re-checks on every request that the target is a draft.
 
 Org mode is required for Teams, Chats, Meetings, Groups, Planner, and user listing. Without it, these tools are hidden to prevent 403 errors on personal accounts.
 

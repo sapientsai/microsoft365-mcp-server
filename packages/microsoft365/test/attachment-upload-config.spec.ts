@@ -1,4 +1,4 @@
-import { resolveUploadTicket } from "@sapientsai/ms-graph-core"
+import { redeemUploadTicket } from "@sapientsai/ms-graph-core"
 import { Some } from "functype"
 import { Left, Right } from "functype/either"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -46,7 +46,12 @@ describe("getAttachmentUploadConfig", () => {
       encoding: "base64",
     })
     expect(config.authHeader).not.toContain("DELEGATED.JWT")
-    expect(resolveUploadTicket(config.authHeader.replace("Authorization: Bearer ", ""))).toBe("DELEGATED.JWT")
+    expect(
+      redeemUploadTicket(config.authHeader.replace("Authorization: Bearer ", ""), {
+        relay: "attachment",
+        messageId: "AAMkDraftMessage",
+      }),
+    ).toBe("DELEGATED.JWT")
     expect(config.curl).toContain('base64 "/tmp/e.pdf"')
   })
 
