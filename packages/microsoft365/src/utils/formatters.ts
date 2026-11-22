@@ -541,13 +541,19 @@ export const formatDriveItemList = (
     ? "No files found."
     : `# Files\n\n${items.map((item) => formatDriveItemSummary(item, options)).join("\n")}`
 
-export const formatDriveItemDetail = (item: GraphDriveItem): string => {
+/**
+ * The pre-authenticated download URL carries its own token: anyone holding it can fetch the file
+ * without signing in until it expires. Only download_file, whose job is to hand it over, asks for
+ * it. Every other tool (reads and writes alike) leaves it out of its output and so out of the
+ * transcript.
+ */
+export type DriveItemDetailOptions = { readonly includeDownloadUrl?: boolean }
+
+export const formatDriveItemDetail = (item: GraphDriveItem, options: DriveItemDetailOptions = {}): string => {
   const downloadUrl = Option(item["@microsoft.graph.downloadUrl"])
+    .filter(() => options.includeDownloadUrl === true)
     .map((url) => `\n- Download URL: ${url}`)
-    .fold(
-      () => "",
-      (v) => v,
-    )
+    .orElse("")
   const parentLines = [
     Option(item.parentReference?.path).map((path) => `\n- Parent Path: ${decodeDrivePath(path)}`),
     Option(item.parentReference?.id).map((id) => `\n- Parent ID: ${id}`),

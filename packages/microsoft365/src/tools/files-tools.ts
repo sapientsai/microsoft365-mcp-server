@@ -150,7 +150,8 @@ export const downloadFile = async (params: {
   }
 
   const item = metaResult.value as GraphDriveItem
-  const detail = formatDriveItemDetail(item)
+  // The one tool that hands over the download URL: fetching the file is what it was asked for.
+  const detail = formatDriveItemDetail(item, { includeDownloadUrl: true })
 
   if (!item.file) return Right(detail) // a folder: no content to show
 
