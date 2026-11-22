@@ -11,7 +11,7 @@ vi.mock("../src/auth", () => ({ getAccessToken: vi.fn() }))
 import { withoutDownloadUrl } from "@sapientsai/ms-graph-core"
 
 import { getAccessToken } from "../src/auth"
-import { relayAuthHeader } from "../src/tools/files-tools"
+import { getUploadConfig, NO_UPLOAD_TICKET_MESSAGE, relayAuthHeader } from "../src/tools/files-tools"
 
 const SHARED_SECRET = "made-up-shared-upload-secret"
 const DOWNLOAD_URL = "https://example.sharepoint.com/download.aspx?tempauth=made-up-tempauth"
@@ -34,6 +34,16 @@ describe("relayAuthHeader", () => {
   it("hands out nothing, not the shared secret, when no Graph token resolves", async () => {
     vi.mocked(getAccessToken).mockResolvedValue(Left({ type: "auth", message: "not signed in" }))
     expect(await relayAuthHeader()).toBeUndefined()
+  })
+})
+
+describe("get_upload_config", () => {
+  it("refuses with a clear error, not a curl that can only fail, when no Graph token resolves", async () => {
+    vi.stubEnv("MS365_PUBLIC_BASE_URL", "https://ms365.example.com")
+    vi.mocked(getAccessToken).mockResolvedValue(Left({ type: "auth", message: "not signed in" }))
+    const result = await getUploadConfig({ path: "/me/drive/root:/a.txt:/content" })
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toBe(NO_UPLOAD_TICKET_MESSAGE)
   })
 })
 

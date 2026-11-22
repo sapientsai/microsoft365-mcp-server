@@ -244,6 +244,11 @@ export const relayAuthHeader = async (): Promise<string | undefined> => {
   return graphToken ? `Authorization: Bearer ${mintUploadTicket(graphToken)}` : undefined
 }
 
+// Both upload config tools need a ticket: a curl without one can only be refused by the relay.
+export const NO_UPLOAD_TICKET_MESSAGE =
+  "No Microsoft Graph token is available to mint an upload ticket, so the relay would refuse the upload. " +
+  "Sign in (or call set_access_token in client-token mode), then call this tool again."
+
 export const relayCurl = (localFile: string, relayUrl: string, authHeader: string | undefined): string =>
   [
     `base64 "${localFile}" | tr -d '\\n'`,
@@ -300,6 +305,7 @@ export const getUploadConfig = async (params: {
   })
   const uploadUrl = `${baseUrl}/upload?${query.toString()}`
   const authHeader = await relayAuthHeader()
+  if (authHeader === undefined) return Left(new UserError(NO_UPLOAD_TICKET_MESSAGE))
   const reachability = await probeGraphReachability()
   const curlParts = relayCurl(localFile, uploadUrl, authHeader)
 
@@ -311,7 +317,7 @@ export const getUploadConfig = async (params: {
     ...(params.ifMatch !== undefined ? { ifMatch: params.ifMatch } : {}),
     maxSize: "250 MB",
     encoding: "base64",
-    ...(authHeader ? { authHeader } : {}),
+    authHeader,
     curl: curlParts,
     graphReachableFromServer: reachability.ok,
     graphReachabilityDetail: reachability.detail,

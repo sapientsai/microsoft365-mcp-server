@@ -11,7 +11,8 @@ export type UploadAuthResult = { token?: string; error?: string; status?: number
 //      in the tool transcript).
 //   2. OAuth-proxy mode → the per-request delegated bearer (required).
 //   3. Shared-secret mode → caller must present MS365_UPLOAD_TOKEN; the server then
-//      uses its own credential to talk to Graph.
+//      uses its own credential to talk to Graph. Only callers that hold the secret out of band
+//      use this: the upload config tools hand out tickets and never print the secret.
 //
 // SECURITY: in non-OAuth mode the endpoint is write-capable using the server's own
 // credentials, so it MUST NOT serve a request that presented no valid caller auth.

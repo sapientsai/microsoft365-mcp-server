@@ -24,7 +24,7 @@ import {
   MESSAGE_SUMMARY_FIELDS,
 } from "../utils/formatters"
 import { describeRefFailure, rememberMessageId, resolveMessageIdOrRef } from "../utils/message-refs"
-import { relayAuthHeader, relayCurl, resolveUploadBaseUrl } from "./files-tools"
+import { NO_UPLOAD_TICKET_MESSAGE, relayAuthHeader, relayCurl, resolveUploadBaseUrl } from "./files-tools"
 
 // scan_messages hands back short refs instead of 152-character Graph IDs. Every tool
 // used in the scan-then-act loop resolves refs before calling Graph — against the mailbox
@@ -701,6 +701,7 @@ export const getAttachmentUploadConfig = async (params: {
   })
   const uploadUrl = `${baseUrl}/upload/attachment?${query.toString()}`
   const authHeader = await relayAuthHeader()
+  if (authHeader === undefined) return Left(new UserError(NO_UPLOAD_TICKET_MESSAGE))
 
   return Right(
     JSON.stringify(
@@ -710,7 +711,7 @@ export const getAttachmentUploadConfig = async (params: {
         contentType,
         maxSize: formatBytes(MAX_ATTACHMENT_SIZE),
         encoding: "base64",
-        ...(authHeader ? { authHeader } : {}),
+        authHeader,
         curl: relayCurl(params.localFile ?? "{local_file_path}", uploadUrl, authHeader),
         notes: [
           "Pipe base64-encoded file bytes to uploadUrl via POST with --data-binary @-.",
