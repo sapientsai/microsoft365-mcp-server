@@ -98,16 +98,9 @@ export const setAutomaticReplies = async (params: {
   if (resolved.isLeft()) return scopeFailure(resolved)
   const { scope, client } = resolved.orThrow()
 
-  // Left out, the schedule is in the mailbox's own time zone, as Outlook shows it to its owner. A
-  // window read as UTC would start hours early or late for anyone outside UTC.
-  const timeZone =
-    params.time_zone ??
-    (params.start === undefined && params.end === undefined
-      ? "UTC"
-      : (await client.getMailboxTimeZone(scope.prefix)).fold(
-          () => "UTC",
-          (setting) => (setting.value === undefined || setting.value.trim() === "" ? "UTC" : setting.value),
-        ))
+  const hasTimes = params.start !== undefined || params.end !== undefined
+  const zone = await scheduleZone(params.time_zone, hasTimes, client, scope.prefix)
+  const timeZone = zone.name
   // Only what the caller passed is sent, so leaving out a message keeps the one already set.
   const setting = {
     status: params.status,
@@ -119,14 +112,59 @@ export const setAutomaticReplies = async (params: {
   }
 
   const result = await client.setAutomaticReplies(setting, scope.prefix)
-  if (result.isLeft())
-    return Left(settingsFailure("set automatic replies", result.value as GraphApiError, scope.prefix))
+  if (result.isLeft()) {
+    const error = result.value as GraphApiError
+    // A zone the caller didn't choose may be one Graph won't take for a schedule (a custom zone, or
+    // an IANA name outside its list). Say so, rather than leave the caller with a bare 400.
+    if (zone.source === "mailbox" && error.status === 400) {
+      return Left(
+        new UserError(
+          `Graph refused the mailbox's time zone ${JSON.stringify(oneLine(timeZone, 80))} for the schedule. ` +
+            'Pass time_zone, such as "Eastern Standard Time" or "UTC".',
+        ),
+      )
+    }
+    return Left(settingsFailure("set automatic replies", error, scope.prefix))
+  }
+  // Graph reports the schedule back in UTC whatever zone it was set in, so the caller is told which
+  // zone start and end were read in.
+  const zoneNote = hasTimes ? `\n\n${zoneLine(zone)}` : ""
   return getAutomaticReplies({ mailbox: params.mailbox }).then((read) =>
     read.fold(
-      () => Right(`Automatic replies set to ${params.status}.`),
-      (text) => Right(`Automatic replies updated.\n\n${text}`),
+      () => Right(`Automatic replies set to ${params.status}.${zoneNote}`),
+      (text) => Right(`Automatic replies updated.\n\n${text}${zoneNote}`),
     ),
   )
+}
+
+type ScheduleZone = { readonly name: string; readonly source: "given" | "mailbox" | "fallback" }
+
+// Left out, the schedule is in the mailbox's own time zone, as Outlook shows it to its owner. A
+// window read as UTC would start hours early or late for anyone outside UTC.
+const scheduleZone = async (
+  given: string | undefined,
+  hasTimes: boolean,
+  client: ScopedClient["client"],
+  prefix: string,
+): Promise<ScheduleZone> => {
+  if (given !== undefined) return { name: given, source: "given" }
+  if (!hasTimes) return { name: "UTC", source: "fallback" }
+  return (await client.getMailboxTimeZone(prefix)).fold<ScheduleZone>(
+    () => ({ name: "UTC", source: "fallback" }),
+    (setting) =>
+      setting.value === undefined || setting.value.trim() === ""
+        ? { name: "UTC", source: "fallback" }
+        : { name: setting.value, source: "mailbox" },
+  )
+}
+
+const zoneLine = (zone: ScheduleZone): string => {
+  const name = JSON.stringify(oneLine(zone.name, 80))
+  if (zone.source === "mailbox") return `Start and end were read in the mailbox's time zone, ${name}.`
+  if (zone.source === "fallback") {
+    return "Start and end were read as UTC: the mailbox's time zone couldn't be read. Pass time_zone to choose one."
+  }
+  return `Start and end were read in ${name}.`
 }
 
 // ---------- Categories ----------
@@ -309,23 +347,26 @@ const folderIdsOf = (rules: ReadonlyArray<GraphMessageRule>): ReadonlyArray<stri
   ),
 ]
 
+// The names are a convenience, so the lookups are kept cheap and harmless: one at a time (Outlook
+// allows four concurrent requests per mailbox), at most ten, and none after the first failure other
+// than "not found", since a 503 or timeout counts against the circuit breaker every tool shares.
+const MAX_FOLDER_LOOKUPS = 10
+
 const resolveFolderNames = async (
   client: ScopedClient["client"],
   ids: ReadonlyArray<string>,
   prefix: string,
-): Promise<FolderNames> =>
-  new Map(
-    (
-      await Promise.all(
-        ids.map(async (id) =>
-          (await client.getMailFolder(id, prefix)).fold<ReadonlyArray<readonly [string, string]>>(
-            () => [],
-            (folder) => (folder.displayName ? [[id, folder.displayName] as const] : []),
-          ),
-        ),
-      )
-    ).flat(),
-  )
+): Promise<FolderNames> => {
+  const step = async (remaining: ReadonlyArray<string>, names: FolderNames): Promise<FolderNames> => {
+    if (remaining.length === 0) return names
+    const [id, ...rest] = remaining
+    const result = await client.getMailFolder(id, prefix)
+    if (result.isLeft()) return (result.value as GraphApiError).type === "not_found" ? step(rest, names) : names
+    const { displayName } = result.value as { displayName?: string }
+    return step(rest, displayName ? new Map([...names, [id, displayName]]) : names)
+  }
+  return step(ids.slice(0, MAX_FOLDER_LOOKUPS), new Map())
+}
 
 const withFolderNames = (actions: Record<string, unknown> | undefined, names: FolderNames) =>
   actions === undefined
@@ -333,7 +374,9 @@ const withFolderNames = (actions: Record<string, unknown> | undefined, names: Fo
     : Object.fromEntries(
         Object.entries(actions).map(([key, value]) =>
           (FOLDER_ACTIONS as ReadonlyArray<string>).includes(key) && typeof value === "string" && names.has(value)
-            ? [key, names.get(value)]
+            ? // Quoted: a folder name is anyone's choice in a shared mailbox, and "; forwardTo=..." in
+              // one must not read as another action on the rule.
+              [key, JSON.stringify(names.get(value))]
             : [key, value],
         ),
       )
