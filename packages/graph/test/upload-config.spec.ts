@@ -1,7 +1,7 @@
 import { isUploadTicket, redeemUploadTicket } from "@sapientsai/ms-graph-core"
 import { describe, expect, it } from "vitest"
 
-import { buildGetUploadConfigTool } from "../src/tools/upload-config"
+import { buildGetUploadConfigTool, NO_PUBLIC_BASE_URL_MESSAGE } from "../src/tools/upload-config"
 
 const PATH = "/me/drive/root:/Documents/report.docx:/content"
 
@@ -21,6 +21,11 @@ describe("get_upload_config tool", () => {
     expect(redeemUploadTicket(again, { relay: "drive", path: PATH })).toBe("RAW_SECRET_KEY")
     expect(payload.uploadUrl).toContain("https://graph.example.com/upload?")
     expect(payload.contentType).toContain("wordprocessingml") // .docx inferred
+  })
+
+  it("refuses, before minting a ticket, when it has no public URL to give", async () => {
+    const tool = buildGetUploadConfigTool(undefined, "RAW_SECRET_KEY")
+    await expect(tool.execute({ path: PATH, conflict_behavior: "rename" })).rejects.toThrow(NO_PUBLIC_BASE_URL_MESSAGE)
   })
 
   it("omits the auth header and warns when no api key is configured", async () => {
