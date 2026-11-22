@@ -183,11 +183,18 @@ export const formatMessageDetail = (msg: GraphMessage): string => {
 - Date: ${msg.receivedDateTime ?? ""}
 - Read: ${msg.isRead ? "Yes" : "No"}
 - Importance: ${msg.importance ?? "normal"}
-- Has Attachments: ${msg.hasAttachments ? "Yes" : "No"}
+- Has Attachments: ${msg.hasAttachments ? "Yes" : "No"}${categoriesLine(msg.categories)}
 
 ## Body
 ${body}`
 }
+
+// Category names are the mailbox owner's own, but a shared category list can carry anyone's, so
+// each is kept to one line. A message with none gets no line.
+const categoriesLine = (categories: ReadonlyArray<string> | undefined): string =>
+  categories === undefined || categories.length === 0
+    ? ""
+    : `\n- Categories: ${categories.map((name) => name.replace(/[\r\n]+/g, " ").slice(0, 120)).join(", ")}`
 
 // Calendar
 // Another user picks the name of a calendar they share with you, and their own display address,

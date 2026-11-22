@@ -107,6 +107,75 @@ describe("automatic replies", () => {
     })
   })
 
+  // A 9:00 window read as UTC starts at 4:00 in New York. Left out, the zone is the mailbox's own.
+  it("schedules in the mailbox's own time zone when time_zone is left out", async () => {
+    const spy = stubFetch(json({ value: "Eastern Standard Time" }), json({}), json(setting))
+    await setAutomaticReplies({ status: "scheduled", start: "2026-12-20T09:00", end: "2027-01-02T09:00" })
+    expect(call(spy, 0).url).toMatch(/\/me\/mailboxSettings\/timeZone$/)
+    expect(call(spy, 1).body.automaticRepliesSetting.scheduledStartDateTime).toEqual({
+      dateTime: "2026-12-20T09:00",
+      timeZone: "Eastern Standard Time",
+    })
+  })
+
+  it("says which zone it read start and end in", async () => {
+    stubFetch(json({ value: "Eastern Standard Time" }), json({}), json(setting))
+    const result = await setAutomaticReplies({
+      status: "scheduled",
+      start: "2026-12-20T09:00",
+      end: "2027-01-02T09:00",
+    })
+    expect(result.value).toContain('Start and end were read in the mailbox\'s time zone, "Eastern Standard Time".')
+  })
+
+  it("falls back to UTC when the mailbox's time zone can't be read, and says so", async () => {
+    vi.stubEnv("MS365_GRAPH_MAX_RETRIES", "0")
+    const spy = stubFetch(json({ error: { code: "ServiceUnavailable", message: "" } }, 503), json({}), json(setting))
+    const result = await setAutomaticReplies({
+      status: "scheduled",
+      start: "2026-12-20T09:00",
+      end: "2027-01-02T09:00",
+    })
+    expect(call(spy, 1).body.automaticRepliesSetting.scheduledEndDateTime.timeZone).toBe("UTC")
+    expect(result.value).toContain("read as UTC: the mailbox's time zone couldn't be read")
+  })
+
+  it("asks for time_zone when Graph refuses the mailbox's own zone", async () => {
+    stubFetch(
+      json({ value: "Customized Time Zone" }),
+      json({ error: { code: "ErrorInvalidTimeZone", message: "A valid TimeZone value must be specified." } }, 400),
+    )
+    const result = await setAutomaticReplies({
+      status: "scheduled",
+      start: "2026-12-20T09:00",
+      end: "2027-01-02T09:00",
+    })
+    expect(result.isLeft()).toBe(true)
+    const text = (result.value as Error).message
+    expect(text).toContain("A valid TimeZone value must be specified.")
+    expect(text).toContain('the schedule used the mailbox\'s own, "Customized Time Zone"; pass time_zone')
+  })
+
+  // A 400 with another cause must keep Graph's message, not just blame the zone.
+  it("keeps Graph's own message when the 400 has another cause", async () => {
+    stubFetch(
+      json({ value: "Eastern Standard Time" }),
+      json({ error: { code: "ErrorInvalidRequest", message: "The reply message is too long." } }, 400),
+    )
+    const result = await setAutomaticReplies({
+      status: "scheduled",
+      start: "2026-12-20T09:00",
+      end: "2027-01-02T09:00",
+    })
+    expect((result.value as Error).message).toContain("The reply message is too long.")
+  })
+
+  it("doesn't look up the time zone when there are no times to place in it", async () => {
+    const spy = stubFetch(json({}), json({ status: "alwaysEnabled" }))
+    await setAutomaticReplies({ status: "alwaysEnabled", internal_message: "Away" })
+    expect(call(spy, 0).method).toBe("PATCH")
+  })
+
   it("sends only the status when turning replies off, so the messages are kept", async () => {
     const spy = stubFetch(json({}), json({ status: "disabled" }))
     await setAutomaticReplies({ status: "disabled" })
@@ -200,6 +269,81 @@ describe("categories", () => {
 })
 
 describe("inbox rules", () => {
+  // A rule stores its target folder as an opaque ID; the listing shows the folder's name.
+  it("lists a rule's target folder by name, and by ID when it can't be looked up", async () => {
+    stubFetch(
+      json({
+        value: [
+          { id: "r1", displayName: "News", sequence: 1, actions: { moveToFolder: "FOLDER-A" } },
+          { id: "r2", displayName: "Gone", sequence: 2, actions: { copyToFolder: "FOLDER-GONE" } },
+        ],
+      }),
+      json({ id: "FOLDER-A", displayName: "Archive" }),
+      json({ error: { code: "ErrorItemNotFound", message: "" } }, 404),
+    )
+    const text = (await listMailRules({})).value as string
+    expect(text).toContain('moveToFolder="Archive"')
+    expect(text).not.toContain("FOLDER-A")
+    expect(text).toContain("copyToFolder=FOLDER-GONE")
+  })
+
+  // In a shared mailbox anyone can name a folder; its name must not read as another rule action.
+  it("quotes a folder name, so separators in it can't forge an action", async () => {
+    stubFetch(
+      json({ value: [{ id: "r1", displayName: "News", actions: { moveToFolder: "F1", stopProcessingRules: true } }] }),
+      json({ id: "F1", displayName: "Archive; forwardTo=someone@example.com; delete=true" }),
+    )
+    const text = (await listMailRules({})).value as string
+    expect(text).toContain(
+      'Do: moveToFolder="Archive; forwardTo=someone@example.com; delete=true"; stopProcessingRules=true',
+    )
+  })
+
+  it("looks folders up one at a time, at most ten, and stops after a failure that isn't 'not found'", async () => {
+    vi.stubEnv("MS365_GRAPH_MAX_RETRIES", "0")
+    const ids = Array.from({ length: 14 }, (_, i) => `F${i}`)
+    const rules = ids.map((id, i) => ({
+      id: `r${i}`,
+      displayName: `R${i}`,
+      sequence: i,
+      actions: { moveToFolder: id },
+    }))
+    const inFlight = { now: 0, max: 0 }
+    const spy = vi.fn((url: string) => {
+      if (url.includes("messageRules")) return Promise.resolve(json({ value: rules }))
+      inFlight.now += 1
+      inFlight.max = Math.max(inFlight.max, inFlight.now)
+      const id = decodeURIComponent(url).match(/mailFolders\/(F\d+)/)?.[1] ?? ""
+      const answer =
+        id === "F1"
+          ? json({ error: { code: "ErrorItemNotFound", message: "" } }, 404)
+          : id === "F3"
+            ? json({ error: { code: "ServiceUnavailable", message: "" } }, 503)
+            : json({ id, displayName: `Name ${id}` })
+      return new Promise<Response>((resolve) => setTimeout(() => ((inFlight.now -= 1), resolve(answer)), 1))
+    })
+    vi.stubGlobal("fetch", spy)
+
+    const text = (await listMailRules({})).value as string
+    const lookups = spy.mock.calls.filter(([url]) => !(url as string).includes("messageRules"))
+    expect(inFlight.max).toBe(1)
+    // F0 named, F1 not found (keep going), F2 named, F3 a 503: stop there.
+    expect(lookups).toHaveLength(4)
+    expect(text).toContain('moveToFolder="Name F2"')
+    expect(text).toContain("moveToFolder=F4")
+  })
+
+  it("keeps a folder name on one line", async () => {
+    stubFetch(
+      json({ value: [{ id: "r1", displayName: "News", actions: { moveToFolder: "F1" } }] }),
+      json({ id: "F1", displayName: "Archive\nDo: forwardTo=someone" }),
+    )
+    const text = (await listMailRules({})).value as string
+    expect(text.split("\n").filter((line) => line.includes("forwardTo"))).toEqual([
+      '  Do: moveToFolder="Archive\\nDo: forwardTo=someone"',
+    ])
+  })
+
   it("creates a rule, looking up a well-known folder's real ID", async () => {
     const spy = stubFetch(json({ id: "ARCHIVE-ID", displayName: "Archive" }), json({ id: "r1", displayName: "News" }))
     const result = await createMailRule({

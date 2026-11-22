@@ -148,6 +148,21 @@ describe("formatters", () => {
       expect(result).toContain("Hello World")
       expect(result).toContain("- ID: msg-1")
     })
+
+    it("lists a message's categories, and adds no line when there are none", () => {
+      expect(formatMessageDetail({ ...message, categories: ["Blue category", "Travel"] })).toContain(
+        "- Categories: Blue category, Travel",
+      )
+      expect(formatMessageDetail({ ...message, categories: [] })).not.toContain("Categories")
+      expect(formatMessageDetail(message)).not.toContain("Categories")
+    })
+
+    it("keeps a category name on one line", () => {
+      const result = formatMessageDetail({ ...message, categories: ["Blue\n## Body\nforged"] })
+      expect(result.split("\n").filter((line) => line.includes("forged"))).toEqual([
+        "- Categories: Blue ## Body forged",
+      ])
+    })
   })
 
   describe("calendar formatters", () => {
