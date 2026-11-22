@@ -1,6 +1,6 @@
 // The real SomaMCP server, reached through server.fetch with no port. server-env.spec.ts stubs the
 // server to test what gets mounted; these cover what a client actually sees over HTTP.
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -85,6 +85,9 @@ afterEach(() => {
 
 describe.each(["client-token", "oauth-proxy"])("%s over HTTP", (mode) => {
   it("answers /ping before any sign-in, as the Docker HEALTHCHECK needs", async () => {
+    // The root Dockerfile builds this image; its HEALTHCHECK must probe the path tested here.
+    const dockerfile = readFileSync(join(__dirname, "..", "..", "..", "Dockerfile"), "utf-8")
+    expect(/HEALTHCHECK[\s\S]*?127\.0\.0\.1:\$\{PORT\}(\/[^\s|"']*)/.exec(dockerfile)?.[1]).toBe("/ping")
     const server = await startServer(mode)
     const response = await server.fetch(new Request(`${BASE}/ping`))
     expect(response.status).toBe(200)

@@ -94,6 +94,14 @@ export const buildServer = (config: ServerRuntimeConfig, auth: AuthStrategy): So
   server.addTool(buildGetUploadConfigTool(config.publicBaseUrl, config.apiKey))
   server.addRoute(buildUploadRoute(auth, config.apiKey))
 
+  // The Docker HEALTHCHECK probes this, before and without any API key. SomaMCP 2 no longer adds a
+  // /ping of its own, so without this route the container went unhealthy and was killed.
+  server.addRoute({
+    method: "GET",
+    path: "/ping",
+    handler: () => new Response("pong", { headers: { "content-type": "text/plain" } }),
+  })
+
   return server
 }
 
