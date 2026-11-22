@@ -12,6 +12,7 @@ import {
   resolveUploadContentType,
   uploadDriveContent,
   uploadPathProblem,
+  withoutDownloadUrl,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import type { RouteConfig } from "somamcp"
@@ -89,7 +90,7 @@ export const handleUpload = async (
 
   return result.fold<{ status: number; body: unknown }>(
     (error) => ({ status: (error as { status?: number }).status ?? 500, body: { error: error.message } }),
-    (item) => ({ status: 200, body: item }),
+    (item) => ({ status: 200, body: withoutDownloadUrl(item) }),
   )
 }
 

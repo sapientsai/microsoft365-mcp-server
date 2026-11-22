@@ -232,7 +232,8 @@ export const uploadFile = async (params: {
 
 // Resolve the real Graph token server-side and hand back an opaque, short-lived
 // ticket instead — the raw delegated JWT must never land in the tool transcript.
-// Falls back to the shared upload secret for non-OAuth deployments.
+// Nor does the shared MS365_UPLOAD_TOKEN: it never expires. When no Graph token resolves there is
+// no header, because the relay could not upload with that secret either: it needs the same token.
 export const relayAuthHeader = async (): Promise<string | undefined> => {
   const graphToken =
     getContextToken() ??
@@ -240,8 +241,7 @@ export const relayAuthHeader = async (): Promise<string | undefined> => {
       () => undefined,
       (value) => value as string,
     )
-  const uploadCredential = graphToken ? mintUploadTicket(graphToken) : process.env.MS365_UPLOAD_TOKEN
-  return uploadCredential ? `Authorization: Bearer ${uploadCredential}` : undefined
+  return graphToken ? `Authorization: Bearer ${mintUploadTicket(graphToken)}` : undefined
 }
 
 export const relayCurl = (localFile: string, relayUrl: string, authHeader: string | undefined): string =>
