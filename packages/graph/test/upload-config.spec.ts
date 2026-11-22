@@ -1,5 +1,11 @@
-import { isUploadTicket, redeemUploadTicket } from "@sapientsai/ms-graph-core"
-import { describe, expect, it } from "vitest"
+import { isUploadTicket, mintUploadTicket, redeemUploadTicket } from "@sapientsai/ms-graph-core"
+import { describe, expect, it, vi } from "vitest"
+
+// The real minting, wrapped so a test can see whether a ticket was minted at all.
+vi.mock("@sapientsai/ms-graph-core", async (original) => {
+  const real = await original<typeof import("@sapientsai/ms-graph-core")>()
+  return { ...real, mintUploadTicket: vi.fn(real.mintUploadTicket) }
+})
 
 import { buildGetUploadConfigTool, NO_PUBLIC_BASE_URL_MESSAGE } from "../src/tools/upload-config"
 
@@ -24,8 +30,10 @@ describe("get_upload_config tool", () => {
   })
 
   it("refuses, before minting a ticket, when it has no public URL to give", async () => {
+    vi.mocked(mintUploadTicket).mockClear()
     const tool = buildGetUploadConfigTool(undefined, "RAW_SECRET_KEY")
     await expect(tool.execute({ path: PATH, conflict_behavior: "rename" })).rejects.toThrow(NO_PUBLIC_BASE_URL_MESSAGE)
+    expect(mintUploadTicket).not.toHaveBeenCalled()
   })
 
   it("omits the auth header and warns when no api key is configured", async () => {

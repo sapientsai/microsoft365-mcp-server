@@ -1,4 +1,5 @@
 import { filenameFromPath, mintUploadTicket, resolveUploadContentType } from "@sapientsai/ms-graph-core"
+import { UserError } from "somamcp"
 import { z } from "zod"
 
 // get_upload_config: returns a ready-to-run curl for the /upload relay. The Authorization
@@ -6,7 +7,7 @@ import { z } from "zod"
 // MCP_API_KEY. (The gateway inlined the raw key into tool output, leaking it into the transcript;
 // this closes that.)
 export const NO_PUBLIC_BASE_URL_MESSAGE =
-  "Uploads need MCP_PUBLIC_BASE_URL: this server listens on every interface (0.0.0.0) and can't tell " +
+  "Uploads need MCP_PUBLIC_BASE_URL: this server's HOST is a wildcard address, such as 0.0.0.0, so it can't tell " +
   "which address callers reach it on. Set MCP_PUBLIC_BASE_URL to its public URL, such as https://graph.example.com."
 
 export const buildGetUploadConfigTool = (publicBaseUrl: string | undefined, apiKey: string | undefined) => ({
@@ -33,7 +34,8 @@ export const buildGetUploadConfigTool = (publicBaseUrl: string | undefined, apiK
     }
     // Before minting a ticket: a curl to an address nobody can reach would only put an unused
     // ticket in the transcript.
-    if (publicBaseUrl === undefined) throw new Error(NO_PUBLIC_BASE_URL_MESSAGE)
+    // A configuration gap the operator fixes, not a server fault, so it is reported as a user error.
+    if (publicBaseUrl === undefined) throw new UserError(NO_PUBLIC_BASE_URL_MESSAGE)
 
     const filename = filenameFromPath(args.path)
     const contentType = resolveUploadContentType(args.content_type, filename)

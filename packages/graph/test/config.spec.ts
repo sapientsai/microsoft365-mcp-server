@@ -84,9 +84,23 @@ describe("resolvePublicBaseUrl", () => {
     expect(resolvePublicBaseUrl({}, "127.0.0.1", 8080)).toBe("http://127.0.0.1:8080")
   })
 
-  it.each(["0.0.0.0", "::", "[::]"])("has no default for the wildcard bind %s", (host) => {
-    expect(resolvePublicBaseUrl({}, host, 8080)).toBeUndefined()
-    expect(resolvePublicBaseUrl({ MCP_PUBLIC_BASE_URL: "  " }, host, 8080)).toBeUndefined()
+  it.each(["0.0.0.0", "::", "[::]", "", " ", "0", "::0", "0:0:0:0:0:0:0:0", " 0.0.0.0 "])(
+    "has no default for the wildcard bind %j",
+    (host) => {
+      expect(resolvePublicBaseUrl({}, host, 8080)).toBeUndefined()
+      expect(resolvePublicBaseUrl({ MCP_PUBLIC_BASE_URL: "  " }, host, 8080)).toBeUndefined()
+    },
+  )
+
+  it.each([
+    ["::1", "http://[::1]:8080"],
+    ["[::1]", "http://[::1]:8080"],
+    ["localhost", "http://localhost:8080"],
+    ["graph.internal", "http://graph.internal:8080"],
+    ["10.0.0.5", "http://10.0.0.5:8080"],
+  ])("builds a valid URL for the bind address %s", (host, url) => {
+    expect(resolvePublicBaseUrl({}, host, 8080)).toBe(url)
+    expect(URL.canParse(url)).toBe(true)
   })
 
   it("reaches the runtime config", () => {

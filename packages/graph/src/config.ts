@@ -83,19 +83,26 @@ export const resolveAppOnlyConfig = (env: NodeJS.ProcessEnv = process.env): Eith
   return Right({ tenantId, clientId, clientSecret, appScopes })
 }
 
-// A wildcard bind ("listen on every interface") names no address a caller can reach.
-const WILDCARD_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "::", "[::]"])
+// A wildcard bind ("listen on every interface") names no address a caller can reach. An empty HOST
+// (a "HOST=" line) and "0" bind every interface too, as do the IPv4 and IPv6 all-zeros addresses.
+const isWildcardHost = (host: string): boolean => {
+  const bare = host.trim().replace(/^\[(.*)\]$/, "$1")
+  return bare === "" || /^0+(\.0+){0,3}$/.test(bare) || /^[0:]+$/.test(bare)
+}
+
+// An IPv6 literal goes in brackets in a URL: http://[::1]:8080, not http://::1:8080.
+const urlHost = (host: string): string => (host.includes(":") && !host.startsWith("[") ? `[${host}]` : host)
 
 /**
  * The URL callers use to reach this server: MCP_PUBLIC_BASE_URL, or the bind address when that is
  * a real one (127.0.0.1 for a local run). A wildcard bind, as in the Docker image, gives undefined:
- * http://0.0.0.0:8080 works from nowhere outside the container, so get_upload_config refuses
+ * http://0.0.0.0:8080 works only from the same host or network namespace, not from a caller elsewhere, so get_upload_config refuses
  * rather than hand out a curl that can't connect.
  */
 export const resolvePublicBaseUrl = (env: NodeJS.ProcessEnv, host: string, port: number): string | undefined => {
   const configured = blankToUndefined(env.MCP_PUBLIC_BASE_URL)
   if (configured !== undefined) return configured.replace(/\/$/, "")
-  return WILDCARD_HOSTS.has(host.trim()) ? undefined : `http://${host}:${port}`
+  return isWildcardHost(host) ? undefined : `http://${urlHost(host.trim())}:${port}`
 }
 
 const optionalPublicBaseUrl = (env: NodeJS.ProcessEnv, host: string, port: number) => {
