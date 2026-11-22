@@ -232,7 +232,8 @@ export const uploadFile = async (params: {
 
 // Resolve the real Graph token server-side and hand back an opaque, short-lived
 // ticket instead — the raw delegated JWT must never land in the tool transcript.
-// Falls back to the shared upload secret for non-OAuth deployments.
+// Nor does the shared MS365_UPLOAD_TOKEN: it never expires. When no Graph token resolves there is
+// no header, because the relay could not upload with that secret either: it needs the same token.
 export const relayAuthHeader = async (): Promise<string | undefined> => {
   const graphToken =
     getContextToken() ??
@@ -240,9 +241,13 @@ export const relayAuthHeader = async (): Promise<string | undefined> => {
       () => undefined,
       (value) => value as string,
     )
-  const uploadCredential = graphToken ? mintUploadTicket(graphToken) : process.env.MS365_UPLOAD_TOKEN
-  return uploadCredential ? `Authorization: Bearer ${uploadCredential}` : undefined
+  return graphToken ? `Authorization: Bearer ${mintUploadTicket(graphToken)}` : undefined
 }
+
+// Both upload config tools need a ticket: a curl without one can only be refused by the relay.
+export const NO_UPLOAD_TICKET_MESSAGE =
+  "No Microsoft Graph token is available to mint an upload ticket, so the relay would refuse the upload. " +
+  "Sign in (or call set_access_token in client-token mode), then call this tool again."
 
 export const relayCurl = (localFile: string, relayUrl: string, authHeader: string | undefined): string =>
   [
@@ -300,6 +305,7 @@ export const getUploadConfig = async (params: {
   })
   const uploadUrl = `${baseUrl}/upload?${query.toString()}`
   const authHeader = await relayAuthHeader()
+  if (authHeader === undefined) return Left(new UserError(NO_UPLOAD_TICKET_MESSAGE))
   const reachability = await probeGraphReachability()
   const curlParts = relayCurl(localFile, uploadUrl, authHeader)
 
@@ -311,7 +317,7 @@ export const getUploadConfig = async (params: {
     ...(params.ifMatch !== undefined ? { ifMatch: params.ifMatch } : {}),
     maxSize: "250 MB",
     encoding: "base64",
-    ...(authHeader ? { authHeader } : {}),
+    authHeader,
     curl: curlParts,
     graphReachableFromServer: reachability.ok,
     graphReachabilityDetail: reachability.detail,

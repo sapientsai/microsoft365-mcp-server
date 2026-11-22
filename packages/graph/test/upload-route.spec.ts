@@ -41,6 +41,23 @@ describe("handleUpload mechanics", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer APP_ONLY_TOKEN")
   })
 
+  // curl prints the relay's response, so the drive item it returns must not carry Graph's
+  // pre-authenticated download URL: its token lets anyone holding it fetch the file.
+  it("returns the uploaded item without its pre-authenticated download URL", async () => {
+    const uploaded = {
+      id: "drive-item-1",
+      name: "x.txt",
+      "@microsoft.graph.downloadUrl": "https://example.sharepoint.com/download.aspx?tempauth=made-up",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(uploaded) } as Response)),
+    )
+    const res = await handleUpload(req({ query: { path: contentPath }, body: Buffer.from("hello") }), auth())
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ id: "drive-item-1", name: "x.txt" })
+  })
+
   it("returns 401 when the app-only token cannot be acquired", async () => {
     const failing: AuthStrategy = {
       getAccessToken: () => Promise.resolve(Left({ type: "credential", message: "bad secret" })),

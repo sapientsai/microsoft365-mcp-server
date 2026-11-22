@@ -17,6 +17,7 @@ import {
   SIMPLE_UPLOAD_LIMIT,
   uploadDriveContent,
   uploadPathProblem,
+  withoutDownloadUrl,
 } from "@sapientsai/ms-graph-core"
 import { type Either, Left, Right } from "functype/either"
 import type { UserError } from "somamcp"
@@ -155,7 +156,7 @@ import {
   requireDraftEnabled,
   type ToolFilterConfig,
 } from "./tools/tool-registry"
-import type { AuthConfig } from "./types"
+import type { AuthConfig, GraphDriveItem } from "./types"
 import { resolveUploadAccessToken } from "./upload/upload-auth"
 import { auditToolCall, auditToolError, auditToolResult } from "./utils/audit"
 import { DAYS_OF_WEEK, RECURRENCE_PATTERN_TYPES, RECURRENCE_RANGE_TYPES, WEEK_INDEXES } from "./utils/recurrence"
@@ -2634,7 +2635,7 @@ const handleUpload = async (req: UploadRequestContext, oauthMode: boolean): Prom
     return { status: err.status ?? 500, body: { error: err.message } }
   }
 
-  return { status: 200, body: result.value }
+  return { status: 200, body: withoutDownloadUrl(result.value as GraphDriveItem) }
 }
 
 // Not a protected route: these take upload tickets, not the MCP endpoint's sign-in, and relayAuth

@@ -9,7 +9,9 @@ vi.mock("../src/auth", async (original) => ({
   getAccessToken: vi.fn(async () => Right("DELEGATED.JWT")),
 }))
 
+import { getAccessToken } from "../src/auth"
 import { getGraphClient } from "../src/client/graph-client"
+import { NO_UPLOAD_TICKET_MESSAGE } from "../src/tools/files-tools"
 import { getAttachmentUploadConfig } from "../src/tools/mail-tools"
 import { rememberMessageId } from "../src/utils/message-refs"
 
@@ -46,6 +48,20 @@ describe("getAttachmentUploadConfig", () => {
     expect(config.authHeader).not.toContain("DELEGATED.JWT")
     expect(resolveUploadTicket(config.authHeader.replace("Authorization: Bearer ", ""))).toBe("DELEGATED.JWT")
     expect(config.curl).toContain('base64 "/tmp/e.pdf"')
+  })
+
+  // Without a Graph token no ticket can be minted, and a curl without one can only be refused.
+  // The shared upload secret is never handed out in its place: it never expires.
+  it("refuses with a clear error, not a curl that can only fail, when no Graph token resolves", async () => {
+    mockClient.getDraftState.mockResolvedValue(Right({ id: "AAMkDraftMessage", isDraft: true }))
+    vi.stubEnv("MS365_UPLOAD_TOKEN", "made-up-shared-secret")
+    vi.mocked(getAccessToken).mockResolvedValueOnce(Left({ type: "auth", message: "not signed in" }))
+
+    const result = await getAttachmentUploadConfig({ message_id: "AAMkDraftMessage", name: "a.pdf" })
+
+    expect(result.isLeft()).toBe(true)
+    expect((result.value as Error).message).toBe(NO_UPLOAD_TICKET_MESSAGE)
+    expect((result.value as Error).message).not.toContain("made-up-shared-secret")
   })
 
   it("resolves a scan ref to the real message id", async () => {

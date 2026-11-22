@@ -231,6 +231,16 @@ export const uploadPathProblem = (path: string): string | undefined => {
   return undefined
 }
 
+/**
+ * A drive item without its pre-authenticated download URL, for an upload relay's response body. The
+ * URL carries a token that lets anyone holding it fetch the file without signing in, and a relay's
+ * response is printed by the curl command that called it, so it would land in a transcript.
+ */
+export const withoutDownloadUrl = (item: GraphDriveItem): GraphDriveItem =>
+  Object.fromEntries(
+    Object.entries(item).filter(([key]) => key !== "@microsoft.graph.downloadUrl" && key !== "@content.downloadUrl"),
+  ) as GraphDriveItem
+
 export type DriveUploadOptions = {
   /** The eTag (or cTag) the caller read. The write lands only if the file still has it. */
   readonly ifMatch?: string

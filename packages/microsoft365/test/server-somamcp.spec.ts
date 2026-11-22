@@ -285,6 +285,29 @@ describe("conditional upload over the /upload relay", () => {
     expect(getSharedBreaker().getState().failures).toBe(0)
   })
 
+  it("returns the uploaded item without its pre-authenticated download URL, which curl would print", async () => {
+    const uploaded = {
+      id: "drive-item-1",
+      name: "state.json",
+      "@microsoft.graph.downloadUrl": "https://example.sharepoint.com/download.aspx?tempauth=made-up",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(uploaded), { status: 200 }))),
+    )
+    const server = await startServer("client-token")
+    const { mintUploadTicket } = await import("@sapientsai/ms-graph-core")
+    const response = await server.fetch(
+      new Request(uploadUrl({}), {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${mintUploadTicket("GRAPH.TOKEN")}` },
+        body: "new state",
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: "drive-item-1", name: "state.json" })
+  })
+
   it("sends If-Match on the upload session and answers 412 precondition-failed on a stale eTag", async () => {
     const fetchSpy = vi.fn(() =>
       Promise.resolve(new Response(JSON.stringify({ error: { code: "notAllowed", message: "" } }), { status: 412 })),
