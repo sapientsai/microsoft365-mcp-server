@@ -151,10 +151,23 @@ describe("automatic replies", () => {
       end: "2027-01-02T09:00",
     })
     expect(result.isLeft()).toBe(true)
-    expect((result.value as Error).message).toBe(
-      'Graph refused the mailbox\'s time zone "Customized Time Zone" for the schedule. ' +
-        'Pass time_zone, such as "Eastern Standard Time" or "UTC".',
+    const text = (result.value as Error).message
+    expect(text).toContain("A valid TimeZone value must be specified.")
+    expect(text).toContain('the schedule used the mailbox\'s own, "Customized Time Zone"; pass time_zone')
+  })
+
+  // A 400 with another cause must keep Graph's message, not just blame the zone.
+  it("keeps Graph's own message when the 400 has another cause", async () => {
+    stubFetch(
+      json({ value: "Eastern Standard Time" }),
+      json({ error: { code: "ErrorInvalidRequest", message: "The reply message is too long." } }, 400),
     )
+    const result = await setAutomaticReplies({
+      status: "scheduled",
+      start: "2026-12-20T09:00",
+      end: "2027-01-02T09:00",
+    })
+    expect((result.value as Error).message).toContain("The reply message is too long.")
   })
 
   it("doesn't look up the time zone when there are no times to place in it", async () => {

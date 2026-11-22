@@ -115,12 +115,13 @@ export const setAutomaticReplies = async (params: {
   if (result.isLeft()) {
     const error = result.value as GraphApiError
     // A zone the caller didn't choose may be one Graph won't take for a schedule (a custom zone, or
-    // an IANA name outside its list). Say so, rather than leave the caller with a bare 400.
+    // an IANA name outside its list). A 400 can have other causes too, so Graph's own message stays.
     if (zone.source === "mailbox" && error.status === 400) {
       return Left(
         new UserError(
-          `Graph refused the mailbox's time zone ${JSON.stringify(oneLine(timeZone, 80))} for the schedule. ` +
-            'Pass time_zone, such as "Eastern Standard Time" or "UTC".',
+          `Graph refused the change: ${oneLine(error.message, 300)} ` +
+            `If the cause is the time zone, the schedule used the mailbox's own, ${JSON.stringify(oneLine(timeZone, 80))}; ` +
+            'pass time_zone, such as "Eastern Standard Time" or "UTC".',
         ),
       )
     }
