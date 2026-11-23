@@ -122,6 +122,12 @@ export const main = async (): Promise<void> => {
     if (process.env.MCP_STATELESS?.trim().toLowerCase() === "false") {
       console.error("[Config][WARN] MCP_STATELESS=false is ignored: somamcp 2 serves httpStream stateless only.")
     }
+    if (config.publicBaseUrl === undefined) {
+      console.error(
+        `[Config][WARN] MCP_PUBLIC_BASE_URL is not set and HOST is ${config.host}, so get_upload_config ` +
+          "can't build an upload URL callers can reach, and refuses. Set MCP_PUBLIC_BASE_URL to this server's public URL.",
+      )
+    }
     await server.start({
       transportType: "httpStream",
       httpStream: { port: config.port, host: config.host, endpoint: "/mcp" },

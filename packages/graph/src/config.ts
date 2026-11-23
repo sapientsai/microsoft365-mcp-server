@@ -16,7 +16,8 @@ export type ServerRuntimeConfig = {
   readonly transport: "stdio" | "httpStream"
   readonly port: number
   readonly host: string
-  readonly publicBaseUrl: string
+  /** Where callers reach this server. Undefined when it can't be told (see resolvePublicBaseUrl). */
+  readonly publicBaseUrl?: string
   readonly aiSearch?: AiSearchConfig
   readonly enableDownloadFile: boolean
   readonly sharePointSearch: SharePointSearchConfig
@@ -82,6 +83,33 @@ export const resolveAppOnlyConfig = (env: NodeJS.ProcessEnv = process.env): Eith
   return Right({ tenantId, clientId, clientSecret, appScopes })
 }
 
+// A wildcard bind ("listen on every interface") names no address a caller can reach. An empty HOST
+// (a "HOST=" line) and "0" bind every interface too, as do the IPv4 and IPv6 all-zeros addresses.
+const isWildcardHost = (host: string): boolean => {
+  const bare = host.trim().replace(/^\[(.*)\]$/, "$1")
+  return bare === "" || /^0+(\.0+){0,3}$/.test(bare) || /^[0:]+$/.test(bare)
+}
+
+// An IPv6 literal goes in brackets in a URL: http://[::1]:8080, not http://::1:8080.
+const urlHost = (host: string): string => (host.includes(":") && !host.startsWith("[") ? `[${host}]` : host)
+
+/**
+ * The URL callers use to reach this server: MCP_PUBLIC_BASE_URL, or the bind address when that is
+ * a real one (127.0.0.1 for a local run). A wildcard bind, as in the Docker image, gives undefined:
+ * http://0.0.0.0:8080 works only from the same host or network namespace, not from a caller elsewhere, so get_upload_config refuses
+ * rather than hand out a curl that can't connect.
+ */
+export const resolvePublicBaseUrl = (env: NodeJS.ProcessEnv, host: string, port: number): string | undefined => {
+  const configured = blankToUndefined(env.MCP_PUBLIC_BASE_URL)
+  if (configured !== undefined) return configured.replace(/\/$/, "")
+  return isWildcardHost(host) ? undefined : `http://${urlHost(host.trim())}:${port}`
+}
+
+const optionalPublicBaseUrl = (env: NodeJS.ProcessEnv, host: string, port: number) => {
+  const url = resolvePublicBaseUrl(env, host, port)
+  return url === undefined ? {} : { publicBaseUrl: url }
+}
+
 export const resolveServerRuntimeConfig = (env: NodeJS.ProcessEnv = process.env): Either<string, ServerRuntimeConfig> =>
   resolveAppOnlyConfig(env).map((auth) => {
     const trimmedKey = env.MCP_API_KEY?.trim()
@@ -93,7 +121,7 @@ export const resolveServerRuntimeConfig = (env: NodeJS.ProcessEnv = process.env)
       transport: env.TRANSPORT_TYPE === "stdio" ? ("stdio" as const) : ("httpStream" as const),
       port,
       host,
-      publicBaseUrl: (blankToUndefined(env.MCP_PUBLIC_BASE_URL) ?? `http://${host}:${port}`).replace(/\/$/, ""),
+      ...optionalPublicBaseUrl(env, host, port),
       aiSearch: resolveAiSearchConfig(env),
       // Defaults ON: the eight deployed app-only containers already expose download_file, and
       // they lose it the moment they re-pull :main. Opt-out, not opt-in.

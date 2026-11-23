@@ -42,7 +42,9 @@ Pick **this** one when there's **no user to consent** (a service/tenant credenti
 
 See [`.env.example`](.env.example). App-only auth (`MS_GRAPH_TENANT_ID`/`CLIENT_ID`/`CLIENT_SECRET`)
 is required; `MCP_API_KEY` gates the transport + `/upload`; SharePoint search and Azure AI Search
-have their own optional env.
+have their own optional env. `get_upload_config` builds its URL from `MCP_PUBLIC_BASE_URL`, falling back to
+`http://HOST:PORT`. When `HOST` is `0.0.0.0` or `::`, as in the Docker image, set `MCP_PUBLIC_BASE_URL`:
+without it the tool refuses, since a `0.0.0.0` URL can't be reached from outside the container.
 
 ## Deployment
 

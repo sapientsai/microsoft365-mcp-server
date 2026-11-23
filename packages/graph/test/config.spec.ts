@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveAppOnlyConfig, resolveServerRuntimeConfig } from "../src/config"
+import { resolveAppOnlyConfig, resolvePublicBaseUrl, resolveServerRuntimeConfig } from "../src/config"
 
 const base = {
   MS_GRAPH_TENANT_ID: "11111111-2222-3333-4444-555555555555",
@@ -68,5 +68,45 @@ describe("resolveServerRuntimeConfig", () => {
       (resolveServerRuntimeConfig({ ...base, ...env }).value as { host: string }).host
     expect(host({ FASTMCP_HOST: "0.0.0.0" })).toBe("0.0.0.0")
     expect(host({ HOST: "127.0.0.1", FASTMCP_HOST: "0.0.0.0" })).toBe("127.0.0.1")
+  })
+})
+
+// get_upload_config hands out a curl to this URL. On a wildcard bind (the Docker image's 0.0.0.0)
+// the bind address is reachable from nowhere outside the container, so there is no default.
+describe("resolvePublicBaseUrl", () => {
+  it("uses MCP_PUBLIC_BASE_URL, without a trailing slash, whatever the bind address", () => {
+    expect(resolvePublicBaseUrl({ MCP_PUBLIC_BASE_URL: "https://graph.example.com/" }, "0.0.0.0", 8080)).toBe(
+      "https://graph.example.com",
+    )
+  })
+
+  it("falls back to a real bind address, as for a local run", () => {
+    expect(resolvePublicBaseUrl({}, "127.0.0.1", 8080)).toBe("http://127.0.0.1:8080")
+  })
+
+  it.each(["0.0.0.0", "::", "[::]", "", " ", "0", "::0", "0:0:0:0:0:0:0:0", " 0.0.0.0 "])(
+    "has no default for the wildcard bind %j",
+    (host) => {
+      expect(resolvePublicBaseUrl({}, host, 8080)).toBeUndefined()
+      expect(resolvePublicBaseUrl({ MCP_PUBLIC_BASE_URL: "  " }, host, 8080)).toBeUndefined()
+    },
+  )
+
+  it.each([
+    ["::1", "http://[::1]:8080"],
+    ["[::1]", "http://[::1]:8080"],
+    ["localhost", "http://localhost:8080"],
+    ["graph.internal", "http://graph.internal:8080"],
+    ["10.0.0.5", "http://10.0.0.5:8080"],
+  ])("builds a valid URL for the bind address %s", (host, url) => {
+    expect(resolvePublicBaseUrl({}, host, 8080)).toBe(url)
+    expect(URL.canParse(url)).toBe(true)
+  })
+
+  it("reaches the runtime config", () => {
+    const url = (env: Record<string, string>) =>
+      (resolveServerRuntimeConfig({ ...base, ...env }).value as { publicBaseUrl?: string }).publicBaseUrl
+    expect(url({ HOST: "0.0.0.0" })).toBeUndefined()
+    expect(url({ HOST: "0.0.0.0", MCP_PUBLIC_BASE_URL: "https://graph.example.com" })).toBe("https://graph.example.com")
   })
 })
