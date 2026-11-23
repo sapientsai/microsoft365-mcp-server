@@ -72,15 +72,15 @@
   "dependencies": {
     "@azure/identity": "^4.14.1",
     "exceljs": "^4.4.0",
-    "functype": "^1.27.0",
-    "functype-log": "^1.27.0",
+    "functype": "^1.27.1",
+    "functype-log": "^1.27.1",
     "mammoth": "^1.13.0",
     "somamcp": "^2.10.1",
     "unpdf": "^2.2.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@azure/msal-node": "^7.2.2",
+    "@azure/msal-node": "^7.2.3",
     "@sapientsai/document-extract": "workspace:*",
     "@sapientsai/ms-graph-core": "workspace:*",
     "@types/node": "^24.19.2",
