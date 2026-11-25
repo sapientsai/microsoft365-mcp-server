@@ -146,4 +146,4 @@ pnpm --filter microsoft365-mcp-server inspect   # build and open the MCP Inspect
 
 ---
 
-**Sponsored by <a href="https://sapientsai.com/"><img src="https://sapientsai.com/images/logo.svg" alt="SapientsAI" width="20" style="vertical-align: middle;"> SapientsAI</a>** — Building agentic AI for businesses
+**A <a href="https://sapientsai.com/"><img src="https://sapientsai.com/images/logo.svg" alt="" width="20" style="vertical-align: middle;"> SapientsAI</a> project** · Maintained by [Jordan Burke](https://github.com/jordanburke)
